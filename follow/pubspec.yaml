@@ -1,0 +1,66 @@
+name: follow
+description: "Follow Music - Cross-platform music player"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  
+  # 状态管理 - Riverpod 3.x
+  flutter_riverpod: ^3.0.0
+  riverpod_annotation: ^3.0.0
+  
+  # 路由
+  auto_route: ^10.3.0
+  
+  # 数据模型
+  freezed_annotation: ^3.0.0
+  json_annotation: ^4.9.0
+  
+  # 网络
+  dio: ^5.7.0
+  
+  # 音频
+  just_audio: ^0.9.42
+  audio_service: ^0.18.17
+  just_audio_background: ^0.0.1-beta.13
+  audio_session: ^0.1.21
+  
+  # 下载
+  background_downloader: ^8.6.0
+  path_provider: ^2.1.5
+  
+  # 本地存储
+  shared_preferences: ^2.3.5
+  
+  # UI
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  flutter_svg: ^2.0.15
+  
+  # 工具
+  logger: ^2.5.0
+  connectivity_plus: ^6.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  build_runner: ^2.4.15
+  riverpod_generator: ^3.0.0
+  auto_route_generator: ^10.3.0
+  freezed: ^3.0.0
+  json_serializable: ^6.9.4
+
+flutter:
+  uses-material-design: true
+  
+  assets:
+    - assets/images/
+    - assets/icons/

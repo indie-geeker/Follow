@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: follow-postgres
+    environment:
+      POSTGRES_USER: follow
+      POSTGRES_PASSWORD: follow
+      POSTGRES_DB: follow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    container_name: follow-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: follow-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: follow
+      MINIO_ROOT_PASSWORD: follow123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  minio_data:

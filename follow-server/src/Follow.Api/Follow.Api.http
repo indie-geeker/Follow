@@ -1,0 +1,6 @@
+@Follow.Api_HostAddress = http://localhost:5239
+
+GET {{Follow.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

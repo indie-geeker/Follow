@@ -1,0 +1,50 @@
+# Build outputs
+bin/
+obj/
+out/
+publish/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# JetBrains Rider
+*.sln.iml
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# Logs
+logs/
+*.log
+
+# Test results
+TestResults/
+*.trx
+coverage/
+*.coverage
+*.coveragexml
+
+# Environment-specific settings (DO NOT COMMIT)
+appsettings.Production.json
+appsettings.*.local.json
+secrets.json
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# Storage and uploads (if local)
+Uploads/
+Storage/
