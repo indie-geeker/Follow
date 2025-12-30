@@ -1,7 +1,9 @@
 <template>
   <div class="tracks-view">
     <div class="page-header">
-      <h2>曲目管理</h2>
+      <div class="header-left">
+        <p class="page-subtitle">管理和上传您的音乐曲目</p>
+      </div>
       <el-upload
         :action="uploadUrl"
         :headers="uploadHeaders"
@@ -10,29 +12,33 @@
         :show-file-list="false"
         accept=".mp3,.flac,.wav,.m4a,.aac,.ogg"
       >
-        <el-button type="primary" :icon="Upload">上传音乐</el-button>
+        <el-button type="primary" :icon="Upload" class="upload-btn">上传音乐</el-button>
       </el-upload>
     </div>
 
-    <el-card>
-      <el-table :data="tracks" v-loading="loading" style="width: 100%">
+    <el-card class="content-card">
+      <el-table :data="tracks" v-loading="loading" style="width: 100%" class="custom-table">
         <el-table-column label="封面" width="80">
           <template #default="{ row }">
             <el-image
               v-if="row.coverUrl"
               :src="getCoverUrl(row.coverUrl)"
               fit="cover"
-              style="width: 50px; height: 50px; border-radius: 4px;"
+              class="track-cover"
             />
             <div v-else class="cover-placeholder">
               <el-icon><Picture /></el-icon>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="title" label="标题" min-width="180" />
+        <el-table-column prop="title" label="标题" min-width="180">
+          <template #default="{ row }">
+            <span class="track-title">{{ row.title }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="艺术家" width="120">
           <template #default="{ row }">
-            {{ row.artist?.name || '-' }}
+            <span class="artist-name">{{ row.artist?.name || '-' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="专辑" width="120">
@@ -42,10 +48,14 @@
         </el-table-column>
         <el-table-column label="时长" width="80">
           <template #default="{ row }">
-            {{ formatDuration(row.durationSeconds) }}
+            <span class="duration">{{ formatDuration(row.durationSeconds) }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="format" label="格式" width="70" />
+        <el-table-column prop="format" label="格式" width="70">
+          <template #default="{ row }">
+            <el-tag size="small" class="format-tag">{{ row.format }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="歌词" width="70">
           <template #default="{ row }">
             <el-tag v-if="row.lyricsUrl" type="success" size="small">有</el-tag>
@@ -54,15 +64,17 @@
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="playTrack(row)">
-              <el-icon><VideoPlay /></el-icon>
-            </el-button>
-            <el-button link type="primary" @click="editTrack(row)">
-              编辑
-            </el-button>
-            <el-button link type="danger" @click="deleteTrack(row.id)">
-              删除
-            </el-button>
+            <div class="action-buttons">
+              <el-button link type="primary" @click="playTrack(row)" class="action-btn play">
+                <el-icon><VideoPlay /></el-icon>
+              </el-button>
+              <el-button link type="primary" @click="editTrack(row)" class="action-btn">
+                编辑
+              </el-button>
+              <el-button link type="danger" @click="deleteTrack(row.id)" class="action-btn">
+                删除
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -73,45 +85,47 @@
         :total="pagination.total"
         layout="total, prev, pager, next"
         @current-change="loadTracks"
-        style="margin-top: 16px; justify-content: flex-end;"
+        class="pagination"
       />
     </el-card>
 
     <!-- Audio Player -->
-    <div v-if="currentTrack" class="audio-player">
-      <div class="player-info">
-        <el-image
-          v-if="currentTrack.coverUrl"
-          :src="getCoverUrl(currentTrack.coverUrl)"
-          fit="cover"
-          class="player-cover"
+    <Transition name="slide-up">
+      <div v-if="currentTrack" class="audio-player">
+        <div class="player-info">
+          <el-image
+            v-if="currentTrack.coverUrl"
+            :src="getCoverUrl(currentTrack.coverUrl)"
+            fit="cover"
+            class="player-cover"
+          />
+          <div v-else class="player-cover-placeholder">
+            <el-icon><Headset /></el-icon>
+          </div>
+          <div class="player-text">
+            <div class="player-title">{{ currentTrack.title }}</div>
+            <div class="player-artist">{{ currentTrack.artist?.name || '未知艺术家' }}</div>
+          </div>
+        </div>
+        <audio
+          ref="audioRef"
+          :src="streamUrl"
+          controls
+          @ended="onAudioEnded"
+          class="player-audio"
         />
-        <div v-else class="player-cover-placeholder">
-          <el-icon><Headset /></el-icon>
-        </div>
-        <div class="player-text">
-          <div class="player-title">{{ currentTrack.title }}</div>
-          <div class="player-artist">{{ currentTrack.artist?.name || '未知艺术家' }}</div>
-        </div>
+        <el-button
+          :icon="Close"
+          circle
+          size="small"
+          @click="stopPlayback"
+          class="player-close"
+        />
       </div>
-      <audio
-        ref="audioRef"
-        :src="streamUrl"
-        controls
-        @ended="onAudioEnded"
-        class="player-audio"
-      />
-      <el-button
-        :icon="Close"
-        circle
-        size="small"
-        @click="stopPlayback"
-        class="player-close"
-      />
-    </div>
+    </Transition>
 
     <!-- Edit Dialog -->
-    <el-dialog v-model="editDialogVisible" title="编辑曲目" width="500px">
+    <el-dialog v-model="editDialogVisible" title="编辑曲目" width="500px" class="custom-dialog">
       <el-form :model="editForm" label-width="80px">
         <el-form-item label="标题">
           <el-input v-model="editForm.title" />
@@ -122,7 +136,7 @@
               v-if="editForm.coverUrl"
               :src="getCoverUrl(editForm.coverUrl)"
               fit="cover"
-              style="width: 100px; height: 100px; border-radius: 8px;"
+              class="edit-cover-preview"
             />
             <el-upload
               :action="coverUploadUrl"
@@ -332,34 +346,137 @@ onMounted(loadTracks)
 </script>
 
 <style scoped>
+.tracks-view {
+  animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
-.page-header h2 {
+.page-subtitle {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
   margin: 0;
+}
+
+.upload-btn {
+  padding: 12px 24px;
+  font-weight: 600;
+}
+
+/* Content Card */
+.content-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.content-card :deep(.el-card__body) {
+  padding: 0;
+}
+
+/* Table dark mode styling */
+.content-card :deep(.el-table) {
+  background: transparent;
+}
+
+.content-card :deep(.el-table tr) {
+  background: transparent;
+}
+
+.content-card :deep(.el-table th.el-table__cell) {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.content-card :deep(.el-table td.el-table__cell) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.content-card :deep(.el-table__body tr:hover > td) {
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Table Styles */
+.custom-table {
+  border-radius: var(--radius-md);
+}
+
+.track-cover {
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
+  object-fit: cover;
 }
 
 .cover-placeholder {
   width: 50px;
   height: 50px;
-  border-radius: 4px;
-  background: #f0f0f0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ccc;
+  color: #bbb;
   font-size: 20px;
+}
+
+.track-title {
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.artist-name {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.duration {
+  font-family: 'SF Mono', monospace;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+}
+
+.format-tag {
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-btn.play {
+  font-size: 18px;
+}
+
+/* Pagination */
+.pagination {
+  padding: 16px 20px;
+  justify-content: flex-end;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* Audio Player */
 .audio-player {
   position: fixed;
   bottom: 0;
-  left: 0;
+  left: 240px;
   right: 0;
   height: 80px;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
@@ -369,6 +486,17 @@ onMounted(loadTracks)
   gap: 16px;
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
   z-index: 1000;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
 }
 
 .player-info {
@@ -430,6 +558,12 @@ onMounted(loadTracks)
   display: flex;
   align-items: center;
   gap: 16px;
+}
+
+.edit-cover-preview {
+  width: 100px;
+  height: 100px;
+  border-radius: 8px;
 }
 
 .lyrics-upload-area {

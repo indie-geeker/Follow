@@ -17,7 +17,10 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
     response => response,
     async error => {
-        if (error.response?.status === 401) {
+        // 登录请求本身返回 401 是正常情况，不需要跳转刷新页面
+        const isLoginRequest = error.config?.url?.includes('/api/auth/login')
+
+        if (error.response?.status === 401 && !isLoginRequest) {
             const authStore = useAuthStore()
             authStore.logout()
             window.location.href = '/login'
