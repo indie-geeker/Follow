@@ -79,7 +79,7 @@
       </el-form>
 
       <div class="footer-text">
-        <span>© 2024 Follow Music. All rights reserved.</span>
+        <span>© 2026 Follow Music. All rights reserved.</span>
       </div>
     </div>
   </div>

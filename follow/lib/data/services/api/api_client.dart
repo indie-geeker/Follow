@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
   static Dio? _instance;
+  static void Function()? onUnauthorized;
 
   static Dio get instance {
     _instance ??= _createDio();
@@ -75,8 +76,12 @@ class AuthInterceptor extends Interceptor {
   Future<bool> _refreshToken() async {
     final prefs = await SharedPreferences.getInstance();
     final refreshToken = prefs.getString('refreshToken');
-    
-    if (refreshToken == null) return false;
+
+    if (refreshToken == null) {
+      // No refresh token available, trigger unauthorized callback
+      ApiClient.onUnauthorized?.call();
+      return false;
+    }
 
     try {
       final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBaseUrl));
@@ -92,6 +97,8 @@ class AuthInterceptor extends Interceptor {
     } catch (e) {
       await prefs.remove('accessToken');
       await prefs.remove('refreshToken');
+      // Token refresh failed, trigger unauthorized callback
+      ApiClient.onUnauthorized?.call();
     }
     return false;
   }

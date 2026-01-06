@@ -5,6 +5,8 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/theme/theme_provider.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/router/app_router.dart';
+import 'package:follow/data/providers/auth_provider.dart';
+import 'package:follow/data/services/api/api_client.dart';
 
 class FollowApp extends ConsumerStatefulWidget {
   const FollowApp({super.key});
@@ -20,12 +22,26 @@ class _FollowAppState extends ConsumerState<FollowApp> {
   void initState() {
     super.initState();
     _appRouter = AppRouter();
+
+    // Setup callback for handling unauthorized (401) errors
+    ApiClient.onUnauthorized = () {
+      ref.read(authProvider.notifier).logout();
+    };
   }
 
   @override
   Widget build(BuildContext context) {
     final themeMode = ref.watch(appThemeModeProvider);
     final locale = ref.watch(appLocaleProvider);
+
+    // Listen to auth state changes
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      // Only navigate to login if user was previously authenticated
+      // This prevents unnecessary navigation during app startup
+      if (previous is AuthStateAuthenticated && next is AuthStateUnauthenticated) {
+        _appRouter.replaceAll([const LoginRoute()]);
+      }
+    });
 
     return MaterialApp.router(
       title: 'Follow Music',

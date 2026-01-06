@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/core/config/app_config.dart';
+import 'package:follow/core/theme/app_theme.dart';
 
 @RoutePage()
 class PlayerPage extends ConsumerWidget {
@@ -12,6 +13,7 @@ class PlayerPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final currentTrack = ref.watch(currentTrackProvider);
     final isPlayingAsync = ref.watch(isPlayingProvider);
     final positionAsync = ref.watch(playerPositionProvider);
@@ -20,8 +22,28 @@ class PlayerPage extends ConsumerWidget {
 
     if (currentTrack == null) {
       return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: Text('暂无播放')),
+        extendBodyBehindAppBar: true,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          leading: IconButton(
+            icon: const Icon(Icons.keyboard_arrow_down),
+            onPressed: () => context.router.maybePop(),
+          ),
+        ),
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: isDark
+                  ? [LoginColors.gradientEnd, LoginColors.gradientStart]
+                  : [theme.colorScheme.primaryContainer, theme.colorScheme.surface],
+            ),
+          ),
+          child: const Center(
+            child: Text('暂无播放', style: TextStyle(color: Colors.white70)),
+          ),
+        ),
       );
     }
 
@@ -47,14 +69,35 @@ class PlayerPage extends ConsumerWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.keyboard_arrow_down),
+          icon: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.keyboard_arrow_down,
+              color: Colors.white,
+            ),
+          ),
           onPressed: () => context.router.maybePop(),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.more_vert),
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.more_horiz,
+                color: Colors.white,
+              ),
+            ),
             onPressed: () {},
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: Container(
@@ -62,45 +105,46 @@ class PlayerPage extends ConsumerWidget {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              theme.colorScheme.primaryContainer,
-              theme.colorScheme.surface,
-            ],
+            colors: isDark
+                ? [
+                    LoginColors.gradientEnd,
+                    LoginColors.gradientMid2,
+                    LoginColors.gradientMid1,
+                    LoginColors.gradientStart,
+                  ]
+                : [
+                    theme.colorScheme.primaryContainer,
+                    theme.colorScheme.surface,
+                  ],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
-              const Spacer(),
-              // Cover art
-              Container(
-                width: 280,
-                height: 280,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      blurRadius: 30,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: _buildCover(currentTrack),
-                ),
-              ),
-              const SizedBox(height: 48),
+              const Spacer(flex: 2),
+
+              // Cover art with shadow and glow
+              _buildCoverArt(currentTrack, isDark),
+
+              const Spacer(flex: 2),
+
               // Track info
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
+                padding: const EdgeInsets.symmetric(horizontal: 40),
                 child: Column(
                   children: [
                     Text(
                       currentTrack.title,
-                      style: theme.textTheme.headlineSmall?.copyWith(
+                      style: const TextStyle(
+                        fontSize: 24,
                         fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black26,
+                            blurRadius: 10,
+                          ),
+                        ],
                       ),
                       textAlign: TextAlign.center,
                       maxLines: 2,
@@ -109,54 +153,42 @@ class PlayerPage extends ConsumerWidget {
                     const SizedBox(height: 8),
                     Text(
                       currentTrack.artist?.name ?? '未知艺术家',
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.white.withValues(alpha: 0.7),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 32),
+
+              const SizedBox(height: 40),
+
               // Progress bar
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Column(
                   children: [
-                    SliderTheme(
-                      data: SliderThemeData(
-                        trackHeight: 4,
-                        thumbShape: const RoundSliderThumbShape(
-                          enabledThumbRadius: 6,
-                        ),
-                        overlayShape: const RoundSliderOverlayShape(
-                          overlayRadius: 14,
-                        ),
-                      ),
-                      child: Slider(
-                        value: position.inMilliseconds.toDouble().clamp(
-                          0,
-                          duration.inMilliseconds.toDouble(),
-                        ),
-                        max: duration.inMilliseconds.toDouble(),
-                        onChanged: (value) {
-                          audioService.seek(
-                            Duration(milliseconds: value.toInt()),
-                          );
-                        },
-                      ),
-                    ),
+                    _buildProgressBar(position, duration, audioService),
+                    const SizedBox(height: 8),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             _formatDuration(position),
-                            style: theme.textTheme.bodySmall,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white.withValues(alpha: 0.6),
+                            ),
                           ),
                           Text(
                             _formatDuration(duration),
-                            style: theme.textTheme.bodySmall,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white.withValues(alpha: 0.6),
+                            ),
                           ),
                         ],
                       ),
@@ -164,88 +196,18 @@ class PlayerPage extends ConsumerWidget {
                   ],
                 ),
               ),
+
               const SizedBox(height: 24),
-              // Controls
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.shuffle),
-                    iconSize: 24,
-                    onPressed: () {},
-                  ),
-                  const SizedBox(width: 16),
-                  IconButton(
-                    icon: const Icon(Icons.skip_previous_rounded),
-                    iconSize: 40,
-                    onPressed: () {},
-                  ),
-                  const SizedBox(width: 16),
-                  // Play/Pause button
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: Icon(
-                        isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                        color: theme.colorScheme.onPrimary,
-                      ),
-                      iconSize: 40,
-                      onPressed: () {
-                        if (isPlaying) {
-                          audioService.pause();
-                        } else {
-                          audioService.play();
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  IconButton(
-                    icon: const Icon(Icons.skip_next_rounded),
-                    iconSize: 40,
-                    onPressed: () {},
-                  ),
-                  const SizedBox(width: 16),
-                  IconButton(
-                    icon: const Icon(Icons.repeat),
-                    iconSize: 24,
-                    onPressed: () {},
-                  ),
-                ],
-              ),
-              const Spacer(),
+
+              // Main controls
+              _buildMainControls(isPlaying, audioService),
+
+              const Spacer(flex: 1),
+
               // Bottom actions
-              Padding(
-                padding: const EdgeInsets.all(32),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.favorite_border),
-                      onPressed: () {},
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.playlist_add),
-                      onPressed: () {},
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.download),
-                      onPressed: () {},
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.lyrics),
-                      onPressed: () {},
-                    ),
-                  ],
-                ),
-              ),
+              _buildBottomActions(),
+
+              const SizedBox(height: 32),
             ],
           ),
         ),
@@ -253,7 +215,33 @@ class PlayerPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildCover(track) {
+  Widget _buildCoverArt(track, bool isDark) {
+    return Container(
+      width: 280,
+      height: 280,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: LoginColors.accentPurple.withValues(alpha: 0.3),
+            blurRadius: 40,
+            spreadRadius: 10,
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 30,
+            offset: const Offset(0, 15),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: _buildCoverImage(track),
+      ),
+    );
+  }
+
+  Widget _buildCoverImage(track) {
     if (track.coverUrl != null && track.coverUrl!.isNotEmpty) {
       final url = track.coverUrl!.startsWith('http')
           ? track.coverUrl!
@@ -270,8 +258,190 @@ class PlayerPage extends ConsumerWidget {
 
   Widget _buildPlaceholder() {
     return Container(
-      color: Colors.grey[300],
-      child: Icon(Icons.music_note, size: 80, color: Colors.grey[500]),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            LoginColors.gradientMid1,
+            LoginColors.gradientMid2,
+          ],
+        ),
+      ),
+      child: const Icon(
+        Icons.music_note_rounded,
+        size: 100,
+        color: Colors.white24,
+      ),
+    );
+  }
+
+  Widget _buildProgressBar(Duration position, Duration duration, audioService) {
+    final progress = duration.inMilliseconds > 0
+        ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+        : 0.0;
+
+    return GestureDetector(
+      onTapDown: (details) {
+        final box = details.localPosition;
+        final width = 300.0; // approximate width
+        final seekPosition = (box.dx / width).clamp(0.0, 1.0);
+        audioService.seek(
+          Duration(milliseconds: (duration.inMilliseconds * seekPosition).toInt()),
+        );
+      },
+      child: Container(
+        height: 6,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: progress,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [LoginColors.accentPurple, LoginColors.accentPink],
+              ),
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainControls(bool isPlaying, audioService) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildControlButton(
+          icon: Icons.shuffle_rounded,
+          size: 24,
+          onPressed: () {},
+        ),
+        const SizedBox(width: 20),
+        _buildControlButton(
+          icon: Icons.skip_previous_rounded,
+          size: 36,
+          onPressed: () {},
+        ),
+        const SizedBox(width: 20),
+
+        // Play/Pause button
+        GestureDetector(
+          onTap: () {
+            if (isPlaying) {
+              audioService.pause();
+            } else {
+              audioService.play();
+            }
+          },
+          child: Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [LoginColors.accentPurple, LoginColors.accentPink],
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: LoginColors.accentPurple.withValues(alpha: 0.4),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Icon(
+              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+              color: Colors.white,
+              size: 36,
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 20),
+        _buildControlButton(
+          icon: Icons.skip_next_rounded,
+          size: 36,
+          onPressed: () {},
+        ),
+        const SizedBox(width: 20),
+        _buildControlButton(
+          icon: Icons.repeat_rounded,
+          size: 24,
+          onPressed: () {},
+        ),
+      ],
+    );
+  }
+
+  Widget _buildControlButton({
+    required IconData icon,
+    required double size,
+    required VoidCallback onPressed,
+  }) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          icon,
+          color: Colors.white.withValues(alpha: 0.8),
+          size: size,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomActions() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 48),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildActionButton(Icons.favorite_border_rounded, '收藏'),
+          _buildActionButton(Icons.playlist_add_rounded, '添加'),
+          _buildActionButton(Icons.download_outlined, '下载'),
+          _buildActionButton(Icons.lyrics_outlined, '歌词'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton(IconData icon, String label) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(
+            icon,
+            color: Colors.white.withValues(alpha: 0.7),
+            size: 22,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.white.withValues(alpha: 0.5),
+          ),
+        ),
+      ],
     );
   }
 

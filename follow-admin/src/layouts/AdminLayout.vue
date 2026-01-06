@@ -43,7 +43,7 @@
       </el-menu>
       
       <div class="sidebar-footer">
-        <span>© 2024 Follow Music</span>
+        <span>© 2026 Follow Music</span>
       </div>
     </el-aside>
     
