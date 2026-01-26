@@ -2,10 +2,13 @@
   <el-container class="admin-layout">
     <!-- Animated background circles -->
     <div class="bg-circles">
-      <div class="circle circle-1"></div>
-      <div class="circle circle-2"></div>
-      <div class="circle circle-3"></div>
-      <div class="circle circle-4"></div>
+      <div
+        v-for="(circle, index) in circles"
+        :key="index"
+        class="circle"
+        :class="`circle-${index + 1}`"
+        :style="circle.style"
+      ></div>
     </div>
 
     <el-aside width="240px" class="sidebar">
@@ -84,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { 
@@ -118,6 +121,81 @@ function handleCommand(command: string) {
     router.push('/login')
   }
 }
+
+// Generate random flowing animation for circles
+interface Circle {
+  style: string
+}
+
+const circles = ref<Circle[]>([])
+
+function generateRandomPath(points: number = 6) {
+  const keyframes: string[] = []
+
+  // Generate random waypoints
+  const waypoints: Array<{x: number, y: number, rotate: number, scale: number}> = []
+
+  for (let i = 0; i < points; i++) {
+    waypoints.push({
+      x: Math.random() * 100 - 50, // -50vw to 50vw (covers screen width)
+      y: Math.random() * 100 - 50, // -50vh to 50vh (covers screen height)
+      rotate: Math.random() * 720, // 0 to 720deg (allows multiple rotations)
+      scale: 0.8 + Math.random() * 0.5 // 0.8 to 1.3
+    })
+  }
+
+  // Add first waypoint again at the end to create smooth loop
+  if (waypoints.length > 0) {
+    waypoints.push(waypoints[0]!)
+  }
+
+  waypoints.forEach((point, i) => {
+    const percent = (i / points) * 100
+    keyframes.push(`
+      ${percent.toFixed(1)}% {
+        transform: translate(${point.x}vw, ${point.y}vh)
+                   rotate(${point.rotate}deg)
+                   scale(${point.scale});
+      }
+    `)
+  })
+
+  return keyframes.join('\n')
+}
+
+function initCircles() {
+  const circleConfigs = [
+    { duration: 25 + Math.random() * 10, delay: 0 },
+    { duration: 25 + Math.random() * 10, delay: Math.random() * -10 },
+    { duration: 25 + Math.random() * 10, delay: Math.random() * -20 },
+    { duration: 25 + Math.random() * 10, delay: Math.random() * -30 }
+  ]
+
+  circleConfigs.forEach((config, index) => {
+    const animationName = `flow-admin-${index}-${Date.now()}`
+    const keyframes = generateRandomPath(5)
+
+    // Inject keyframes into document
+    const styleSheet = document.createElement('style')
+    styleSheet.textContent = `
+      @keyframes ${animationName} {
+        ${keyframes}
+      }
+    `
+    document.head.appendChild(styleSheet)
+
+    circles.value.push({
+      style: `
+        animation: ${animationName} ${config.duration}s ease-in-out infinite;
+        animation-delay: ${config.delay}s;
+      `
+    })
+  })
+}
+
+onMounted(() => {
+  initCircles()
+})
 </script>
 
 <style scoped>
@@ -153,7 +231,7 @@ function handleCommand(command: string) {
   border-radius: 50%;
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
   filter: blur(40px);
-  animation: float 20s ease-in-out infinite;
+  will-change: transform;
 }
 
 .circle-1 {
@@ -161,7 +239,6 @@ function handleCommand(command: string) {
   height: 400px;
   top: -100px;
   left: -100px;
-  animation-delay: 0s;
 }
 
 .circle-2 {
@@ -170,7 +247,6 @@ function handleCommand(command: string) {
   top: 50%;
   right: -50px;
   background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(239, 68, 68, 0.25));
-  animation-delay: -5s;
 }
 
 .circle-3 {
@@ -179,7 +255,6 @@ function handleCommand(command: string) {
   bottom: -50px;
   left: 30%;
   background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(59, 130, 246, 0.25));
-  animation-delay: -10s;
 }
 
 .circle-4 {
@@ -188,14 +263,6 @@ function handleCommand(command: string) {
   top: 40%;
   left: 10%;
   background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.2));
-  animation-delay: -15s;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  25% { transform: translateY(-30px) rotate(5deg); }
-  50% { transform: translateY(0) rotate(0deg); }
-  75% { transform: translateY(30px) rotate(-5deg); }
 }
 
 /* Sidebar */

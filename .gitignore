@@ -1,0 +1,54 @@
+# ================================
+# Root-level .gitignore
+# ================================
+# This file handles patterns that apply to the monorepo root.
+# Each subproject (follow, follow-admin, follow-server) has its own .gitignore.
+
+# ----------------
+# OS generated files
+# ----------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ----------------
+# IDE/Editor files
+# ----------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ----------------
+# Environment files
+# ----------------
+# Keep .env.example as template, ignore actual env files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ----------------
+# Docker (optional local overrides)
+# ----------------
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ----------------
+# Logs
+# ----------------
+*.log
+logs/
+
+# ----------------
+# Temporary files
+# ----------------
+tmp/
+temp/
+*.tmp
+*.temp

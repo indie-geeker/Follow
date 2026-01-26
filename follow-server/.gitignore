@@ -1,50 +1,126 @@
+# ================================
+# .NET Project .gitignore
+# ================================
+
+# ----------------
 # Build outputs
+# ----------------
 bin/
 obj/
 out/
 publish/
+artifacts/
+[Bb]uild[Ll]og.*
+[Rr]elease/
+[Dd]ebug/
+x64/
+x86/
 
-# IDE
+# ----------------
+# IDE/Editor
+# ----------------
+# Visual Studio
 .vs/
-.vscode/
-.idea/
 *.user
 *.suo
 *.userosscache
 *.sln.docstates
+*.rsuser
+*.userprefs
+
+# VS Code
+.vscode/
 
 # JetBrains Rider
+.idea/
 *.sln.iml
 
+# ----------------
 # NuGet
+# ----------------
 packages/
 *.nupkg
 *.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
 
+# ----------------
 # Logs
+# ----------------
 logs/
 *.log
+nlog-*.log
+msbuild.log
+msbuild.wrn
+msbuild.err
 
+# ----------------
 # Test results
+# ----------------
 TestResults/
 *.trx
 coverage/
 *.coverage
 *.coveragexml
+[Tt]est[Rr]esult*/
+*.ncrunch*
+AutoTest.Net/
+BenchmarkDotNet.Artifacts/
 
-# Environment-specific settings (DO NOT COMMIT)
+# ----------------
+# Environment & Secrets
+# ----------------
+# DO NOT COMMIT production settings or secrets
 appsettings.Production.json
 appsettings.*.local.json
 secrets.json
+*.pfx
+*.publishsettings
 
+# ----------------
+# Database
+# ----------------
+*.mdf
+*.ldf
+*.ndf
+*.sqlite
+*.db
+
+# ----------------
 # OS files
+# ----------------
 .DS_Store
 Thumbs.db
 ehthumbs.db
+Desktop.ini
 
-# ASP.NET Scaffolding
+# ----------------
+# ASP.NET specific
+# ----------------
 ScaffoldingReadMe.txt
+StyleCop.Cache
+~$*
+*~
+*.dbmdl
+*.dbproj.schemaview
+*.jfm
+*.publishproj
 
-# Storage and uploads (if local)
+# ----------------
+# Storage/Uploads (local development)
+# ----------------
 Uploads/
 Storage/
+wwwroot/uploads/
+
+# ----------------
+# Misc
+# ----------------
+BundleArtifacts/
+ClientBin/
+Generated_Code/
+*.Cache
+ServiceFabricBackup/

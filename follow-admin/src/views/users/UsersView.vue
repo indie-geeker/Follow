@@ -26,7 +26,6 @@
         <el-table-column label="角色" width="120">
           <template #default="{ row }">
             <el-tag :type="row.role === 'Admin' ? 'danger' : 'info'" class="role-tag">
-              <el-icon v-if="row.role === 'Admin'" style="margin-right: 4px;"><Star /></el-icon>
               {{ row.role === 'Admin' ? '管理员' : '用户' }}
             </el-tag>
           </template>
