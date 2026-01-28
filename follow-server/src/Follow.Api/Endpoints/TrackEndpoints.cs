@@ -59,6 +59,17 @@ public static class TrackEndpoints
             .WithName("DeleteTrack")
             .WithDescription("Delete a track (Admin only)")
             .RequireAuthorization(Policies.AdminOnly);
+
+        // Tag endpoints
+        group.MapGet("/{id:guid}/tags", GetTrackTags)
+            .WithName("GetTrackTags")
+            .WithDescription("Get all tags for a track")
+            .RequireAuthorization();
+
+        group.MapPut("/{id:guid}/tags", SetTrackTags)
+            .WithName("SetTrackTags")
+            .WithDescription("Set tags for a track (Admin only)")
+            .RequireAuthorization(Policies.AdminOnly);
     }
 
     private static async Task<IResult> GetTracks(
@@ -196,4 +207,21 @@ public static class TrackEndpoints
 
         return Results.Stream(stream, contentType ?? "text/plain");
     }
+
+    private static async Task<IResult> GetTrackTags(Guid id, ITrackService trackService)
+    {
+        var tags = await trackService.GetTrackTagsAsync(id);
+        return Results.Ok(tags);
+    }
+
+    private static async Task<IResult> SetTrackTags(
+        Guid id,
+        SetTrackTagsRequest request,
+        ITrackService trackService)
+    {
+        var success = await trackService.SetTrackTagsAsync(id, request.TagIds);
+        return success ? Results.Ok() : Results.NotFound();
+    }
 }
+
+public record SetTrackTagsRequest(List<Guid> TagIds);

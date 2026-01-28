@@ -135,9 +135,8 @@ interface Circle {
 
 const circles = ref<Circle[]>([])
 
-function generateRandomPath(duration: number, points: number = 6) {
+function generateRandomPath(_duration: number, points: number = 6) {
   const keyframes: string[] = []
-  const step = 100 / points
 
   // Generate random waypoints
   const waypoints: Array<{x: number, y: number, rotate: number, scale: number}> = []
@@ -152,7 +151,7 @@ function generateRandomPath(duration: number, points: number = 6) {
   }
 
   // Add first waypoint again at the end to create smooth loop
-  waypoints.push(waypoints[0])
+  waypoints.push(waypoints[0]!)
 
   waypoints.forEach((point, i) => {
     const percent = (i / points) * 100
@@ -216,7 +215,7 @@ const rules = {
 // Validate single field
 function validateField(field: 'email' | 'password') {
   if (!formRef.value) return
-  formRef.value.validateField(field, (valid) => {
+  formRef.value.validateField(field, (_valid) => {
     // Validation callback - no action needed
   })
 }

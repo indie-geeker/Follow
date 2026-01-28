@@ -39,6 +39,10 @@
           <el-icon><Collection /></el-icon>
           <span>专辑</span>
         </el-menu-item>
+        <el-menu-item index="/tags">
+          <el-icon><PriceTag /></el-icon>
+          <span>标签管理</span>
+        </el-menu-item>
         <el-menu-item index="/users">
           <el-icon><UserFilled /></el-icon>
           <span>用户管理</span>
@@ -97,7 +101,8 @@ import {
   Collection, 
   UserFilled,
   ArrowDown,
-  SwitchButton
+  SwitchButton,
+  PriceTag
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -110,6 +115,7 @@ const pageTitle = computed(() => {
     '/tracks': '曲目管理',
     '/artists': '艺术家',
     '/albums': '专辑',
+    '/tags': '标签管理',
     '/users': '用户管理'
   }
   return titles[route.path] || '管理后台'

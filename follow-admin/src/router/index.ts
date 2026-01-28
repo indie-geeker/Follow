@@ -36,6 +36,11 @@ const router = createRouter({
           component: () => import('@/views/music/AlbumsView.vue')
         },
         {
+          path: 'tags',
+          name: 'Tags',
+          component: () => import('@/views/music/TagsView.vue')
+        },
+        {
           path: 'users',
           name: 'Users',
           component: () => import('@/views/users/UsersView.vue')

@@ -52,6 +52,16 @@ public interface ITrackService
     /// Get lyrics stream for a track
     /// </summary>
     Task<(Stream? Stream, string? ContentType)?> GetLyricsStreamAsync(Guid trackId);
+
+    /// <summary>
+    /// Get all tags for a track
+    /// </summary>
+    Task<List<TagDto>> GetTrackTagsAsync(Guid trackId);
+
+    /// <summary>
+    /// Set tags for a track (replaces existing tags)
+    /// </summary>
+    Task<bool> SetTrackTagsAsync(Guid trackId, List<Guid> tagIds);
 }
 
 public record UpdateTrackRequest(string? Title, Guid? ArtistId, Guid? AlbumId, string? CoverUrl, string? LyricsUrl);

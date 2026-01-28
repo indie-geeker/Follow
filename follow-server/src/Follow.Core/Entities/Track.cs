@@ -23,4 +23,5 @@ public class Track : BaseEntity
     public ICollection<PlaylistTrack> PlaylistTracks { get; set; } = [];
     public ICollection<PlayHistory> PlayHistories { get; set; } = [];
     public ICollection<Favorite> Favorites { get; set; } = [];
+    public ICollection<TrackTag> TrackTags { get; set; } = [];
 }

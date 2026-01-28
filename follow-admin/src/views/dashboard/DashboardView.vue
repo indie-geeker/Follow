@@ -67,7 +67,7 @@ const statCards = [
   { key: 'totalAlbums', label: '专辑', icon: markRaw(Collection) }
 ]
 
-const stats = ref({
+const stats = ref<Record<string, number>>({
   totalUsers: 0,
   totalTracks: 0,
   totalArtists: 0,

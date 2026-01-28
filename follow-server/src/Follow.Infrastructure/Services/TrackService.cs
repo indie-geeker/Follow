@@ -303,4 +303,48 @@ public class TrackService : ITrackService
 
         return (stream, "text/plain; charset=utf-8");
     }
+
+    public async Task<List<TagDto>> GetTrackTagsAsync(Guid trackId)
+    {
+        return await _context.TrackTags
+            .Where(tt => tt.TrackId == trackId)
+            .Select(tt => new TagDto(
+                tt.Tag.Id,
+                tt.Tag.Name,
+                tt.Tag.Category,
+                tt.Tag.CoverUrl,
+                tt.Tag.TrackTags.Count,
+                tt.Tag.CreatedAt
+            ))
+            .ToListAsync();
+    }
+
+    public async Task<bool> SetTrackTagsAsync(Guid trackId, List<Guid> tagIds)
+    {
+        var track = await _context.Tracks.FindAsync(trackId);
+        if (track == null) return false;
+
+        // Remove existing tags
+        var existingTags = await _context.TrackTags
+            .Where(tt => tt.TrackId == trackId)
+            .ToListAsync();
+        _context.TrackTags.RemoveRange(existingTags);
+
+        // Add new tags
+        foreach (var tagId in tagIds)
+        {
+            var tagExists = await _context.Tags.AnyAsync(t => t.Id == tagId);
+            if (tagExists)
+            {
+                _context.TrackTags.Add(new TrackTag
+                {
+                    TrackId = trackId,
+                    TagId = tagId
+                });
+            }
+        }
+
+        await _context.SaveChangesAsync();
+        return true;
+    }
 }

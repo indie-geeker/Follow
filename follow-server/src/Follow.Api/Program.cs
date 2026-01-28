@@ -28,6 +28,7 @@ builder.Services.AddScoped<IPlaylistService, PlaylistService>();
 builder.Services.AddScoped<IUserMusicService, UserMusicService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IRssService, RssService>();
+builder.Services.AddScoped<ITagService, TagService>();
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -94,6 +95,7 @@ app.MapPlaylistEndpoints();
 app.MapUserMusicEndpoints();
 app.MapAdminEndpoints();
 app.MapRssEndpoints();
+app.MapTagEndpoints();
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))

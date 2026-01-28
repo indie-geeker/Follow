@@ -165,6 +165,25 @@
             </el-upload>
           </div>
         </el-form-item>
+        <el-form-item label="标签">
+          <el-select
+            v-model="editForm.tagIds"
+            multiple
+            placeholder="选择标签"
+            style="width: 100%"
+            :loading="loadingTags"
+          >
+            <el-option
+              v-for="tag in allTags"
+              :key="tag.id"
+              :label="tag.name"
+              :value="tag.id"
+            >
+              <span>{{ tag.name }}</span>
+              <span v-if="tag.category" style="margin-left: 8px; color: #999; font-size: 12px;">{{ tag.category }}</span>
+            </el-option>
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
@@ -193,14 +212,18 @@ const currentTrack = ref<any>(null)
 const audioRef = ref<HTMLAudioElement | null>(null)
 const audioBlobUrl = ref<string>('')
 
-// Edit dialog state
 const editDialogVisible = ref(false)
 const editForm = reactive({
   id: '',
   title: '',
   coverUrl: '',
-  lyricsUrl: ''
+  lyricsUrl: '',
+  tagIds: [] as string[]
 })
+
+// Tags state
+const allTags = ref<any[]>([])
+const loadingTags = ref(false)
 
 const baseUrl = computed(() => import.meta.env.VITE_API_URL || 'http://localhost:5000')
 
@@ -292,12 +315,34 @@ function onAudioEnded() {
   // Optionally play next track or just stop
 }
 
-function editTrack(track: any) {
+async function editTrack(track: any) {
   editForm.id = track.id
   editForm.title = track.title
   editForm.coverUrl = track.coverUrl || ''
   editForm.lyricsUrl = track.lyricsUrl || ''
+  editForm.tagIds = []
   editDialogVisible.value = true
+
+  // Load all tags if not already loaded
+  if (allTags.value.length === 0) {
+    loadingTags.value = true
+    try {
+      const response = await api.get('/api/tags')
+      allTags.value = response.data
+    } catch (error) {
+      console.error('Failed to load tags')
+    } finally {
+      loadingTags.value = false
+    }
+  }
+
+  // Load track's current tags
+  try {
+    const response = await api.get(`/api/tracks/${track.id}/tags`)
+    editForm.tagIds = response.data.map((t: any) => t.id)
+  } catch (error) {
+    console.error('Failed to load track tags')
+  }
 }
 
 function handleCoverUpload(response: any) {
@@ -321,6 +366,12 @@ async function saveTrack() {
       coverUrl: editForm.coverUrl || null,
       lyricsUrl: editForm.lyricsUrl || null
     })
+    
+    // Save tags
+    await api.put(`/api/tracks/${editForm.id}/tags`, {
+      tagIds: editForm.tagIds
+    })
+    
     ElMessage.success('保存成功')
     editDialogVisible.value = false
     loadTracks()

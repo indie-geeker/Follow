@@ -19,6 +19,8 @@ public class FollowDbContext : DbContext
     public DbSet<Favorite> Favorites => Set<Favorite>();
     public DbSet<RssSubscription> RssSubscriptions => Set<RssSubscription>();
     public DbSet<RssEpisode> RssEpisodes => Set<RssEpisode>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<TrackTag> TrackTags => Set<TrackTag>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -126,6 +128,28 @@ public class FollowDbContext : DbContext
                 .WithMany(s => s.Episodes)
                 .HasForeignKey(e => e.SubscriptionId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Tag
+        modelBuilder.Entity<Tag>(entity =>
+        {
+            entity.HasIndex(e => e.Name).IsUnique();
+        });
+
+        // TrackTag
+        modelBuilder.Entity<TrackTag>(entity =>
+        {
+            entity.HasOne(e => e.Track)
+                .WithMany(t => t.TrackTags)
+                .HasForeignKey(e => e.TrackId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Tag)
+                .WithMany(t => t.TrackTags)
+                .HasForeignKey(e => e.TagId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => new { e.TrackId, e.TagId }).IsUnique();
         });
     }
 
