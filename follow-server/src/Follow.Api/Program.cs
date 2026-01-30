@@ -1,5 +1,6 @@
 using System.Text;
 using Follow.Api.Endpoints;
+using Follow.Api.Middleware;
 using Follow.Core.Interfaces;
 using Follow.Infrastructure.Data;
 using Follow.Infrastructure.Services;
@@ -17,6 +18,7 @@ builder.Services.AddDbContext<FollowDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Services
+builder.Services.AddTransient<GlobalExceptionHandler>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -82,6 +84,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseMiddleware<GlobalExceptionHandler>();
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();

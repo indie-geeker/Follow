@@ -70,7 +70,7 @@ public class AuthService : IAuthService
 
         if (user == null || !_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
         {
-            throw new UnauthorizedAccessException("Invalid email or password");
+            throw new UnauthorizedAccessException("邮箱或密码错误");
         }
 
         // Update refresh token
@@ -89,7 +89,7 @@ public class AuthService : IAuthService
 
         if (user == null)
         {
-            throw new UnauthorizedAccessException("Invalid or expired refresh token");
+            throw new UnauthorizedAccessException("无效或过期的刷新令牌");
         }
 
         // Generate new tokens

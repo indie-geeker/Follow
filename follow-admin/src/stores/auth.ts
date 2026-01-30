@@ -20,9 +20,16 @@ export const useAuthStore = defineStore('auth', () => {
 
     async function login(email: string, password: string) {
         const response = await api.post('/api/auth/login', { email, password })
-        token.value = response.data.accessToken
-        refreshToken.value = response.data.refreshToken
-        user.value = response.data.user
+        const res = response.data
+
+        if (res.code !== 0) {
+            throw new Error(res.message || 'Login failed')
+        }
+
+        const data = res.data
+        token.value = data.accessToken
+        refreshToken.value = data.refreshToken
+        user.value = data.user
 
         localStorage.setItem('token', token.value!)
         localStorage.setItem('refreshToken', refreshToken.value!)
@@ -32,7 +39,12 @@ export const useAuthStore = defineStore('auth', () => {
         if (!token.value) return
         try {
             const response = await api.get('/api/auth/me')
-            user.value = response.data
+            const res = response.data
+            if (res.code === 0) {
+                user.value = res.data
+            } else {
+                throw new Error(res.message)
+            }
         } catch {
             logout()
         }

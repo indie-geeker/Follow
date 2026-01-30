@@ -55,6 +55,9 @@ public class TrackService : ITrackService
             int durationSeconds = 0;
             int bitRate = 0;
             string? format = extension.TrimStart('.');
+            byte[]? coverData = null;
+            string? coverExtension = null;
+            string? coverContentType = null;
 
             try
             {
@@ -70,6 +73,28 @@ public class TrackService : ITrackService
                 
                 durationSeconds = (int)tagFile.Properties.Duration.TotalSeconds;
                 bitRate = tagFile.Properties.AudioBitrate;
+
+                if (tagFile.Tag.Pictures.Length > 0)
+                {
+                    try 
+                    {
+                        var pic = tagFile.Tag.Pictures[0];
+                        coverData = pic.Data.Data;
+                        coverContentType = pic.MimeType;
+                        coverExtension = coverContentType switch 
+                        {
+                            "image/jpeg" => ".jpg",
+                            "image/png" => ".png",
+                            "image/webp" => ".webp",
+                            "image/gif" => ".gif",
+                            _ => null
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                         _logger.LogWarning(ex, "Could not extract cover art from {FileName}", fileName);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -108,6 +133,22 @@ public class TrackService : ITrackService
 
             _context.Tracks.Add(track);
             await _context.SaveChangesAsync();
+
+            // Upload cover if extracted
+            if (coverData != null && coverExtension != null && coverContentType != null)
+            {
+                try 
+                {
+                    using var coverStream = new MemoryStream(coverData);
+                    var coverPath = await _storageService.UploadFileAsync(coverStream, $"cover{coverExtension}", coverContentType, $"covers/{track.Id}");
+                    track.CoverUrl = coverPath;
+                    await _context.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to upload extracted cover for track {TrackId}", track.Id);
+                }
+            }
 
             _logger.LogInformation("Uploaded track: {Title} by {Artist}", title, artistName ?? "Unknown");
 

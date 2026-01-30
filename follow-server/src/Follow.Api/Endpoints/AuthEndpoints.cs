@@ -41,45 +41,24 @@ public static class AuthEndpoints
         RegisterRequest request,
         IAuthService authService)
     {
-        try
-        {
-            var response = await authService.RegisterAsync(request);
-            return Results.Created($"/api/users/{response.User.Id}", response);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return Results.BadRequest(new { error = ex.Message });
-        }
+        var response = await authService.RegisterAsync(request);
+        return Results.Created($"/api/users/{response.User.Id}", ApiResponse<AuthResponse>.Success(response, "注册成功"));
     }
 
     private static async Task<IResult> Login(
         LoginRequest request,
         IAuthService authService)
     {
-        try
-        {
-            var response = await authService.LoginAsync(request);
-            return Results.Ok(response);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return Results.Unauthorized();
-        }
+        var response = await authService.LoginAsync(request);
+        return Results.Ok(ApiResponse<AuthResponse>.Success(response, "登录成功"));
     }
 
     private static async Task<IResult> RefreshToken(
         RefreshTokenRequest request,
         IAuthService authService)
     {
-        try
-        {
-            var response = await authService.RefreshTokenAsync(request);
-            return Results.Ok(response);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return Results.Unauthorized();
-        }
+        var response = await authService.RefreshTokenAsync(request);
+        return Results.Ok(ApiResponse<AuthResponse>.Success(response, "刷新成功"));
     }
 
     private static async Task<IResult> Logout(
@@ -93,7 +72,7 @@ public static class AuthEndpoints
         }
 
         await authService.LogoutAsync(userId);
-        return Results.NoContent();
+        return Results.Ok(ApiResponse.Success("退出成功"));
     }
 
     private static async Task<IResult> GetCurrentUser(
@@ -109,7 +88,7 @@ public static class AuthEndpoints
         var dbUser = await authService.GetUserByIdAsync(userId);
         if (dbUser == null)
         {
-            return Results.NotFound();
+            return Results.NotFound(ApiResponse.Error(404, "用户不存在"));
         }
 
         var userDto = new UserDto(
@@ -120,6 +99,6 @@ public static class AuthEndpoints
             dbUser.AvatarUrl,
             dbUser.CreatedAt);
 
-        return Results.Ok(userDto);
+        return Results.Ok(ApiResponse<UserDto>.Success(userDto));
     }
 }

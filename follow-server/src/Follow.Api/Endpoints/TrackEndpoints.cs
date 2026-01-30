@@ -70,6 +70,12 @@ public static class TrackEndpoints
             .WithName("SetTrackTags")
             .WithDescription("Set tags for a track (Admin only)")
             .RequireAuthorization(Policies.AdminOnly);
+
+        // Cover image endpoint
+        group.MapGet("/cover/{*path}", GetCoverImage)
+            .WithName("GetCoverImage")
+            .WithDescription("Get cover image by path")
+            .AllowAnonymous();
     }
 
     private static async Task<IResult> GetTracks(
@@ -221,6 +227,31 @@ public static class TrackEndpoints
     {
         var success = await trackService.SetTrackTagsAsync(id, request.TagIds);
         return success ? Results.Ok() : Results.NotFound();
+    }
+
+    private static async Task<IResult> GetCoverImage(
+        string path,
+        IStorageService storageService,
+        HttpContext context)
+    {
+        // Decode the path since it comes from the URL
+        var decodedPath = System.Net.WebUtility.UrlDecode(path);
+        
+        var stream = await storageService.GetFileAsync(decodedPath);
+        if (stream == null)
+            return Results.NotFound();
+
+        var extension = Path.GetExtension(decodedPath).ToLowerInvariant();
+        var contentType = extension switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            _ => "application/octet-stream"
+        };
+        
+        return Results.Stream(stream, contentType);
     }
 }
 

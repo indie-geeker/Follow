@@ -523,6 +523,29 @@ onMounted(loadTracks)
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.pagination :deep(.btn-prev),
+.pagination :deep(.btn-next),
+.pagination :deep(.el-pager li) {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-radius: 4px;
+  margin: 0 4px;
+  min-width: 32px;
+  height: 32px;
+  line-height: 32px;
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.pagination :deep(.el-pager li.is-active) {
+  background: var(--primary-color, #409EFF) !important;
+  color: #fff !important;
+  font-weight: bold;
+}
+
+.pagination :deep(.el-pagination__total) {
+  color: rgba(255, 255, 255, 0.6);
+  margin-right: 12px;
+}
+
 /* Audio Player */
 .audio-player {
   position: fixed;

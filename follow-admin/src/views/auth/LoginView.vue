@@ -265,22 +265,39 @@ const handleLogin = async () => {
     ElMessage.success('登录成功')
     await router.push('/')
   } catch (error: any) {
-    // Handle validation errors
-    if (error && typeof error === 'object' && !error.response) {
-      // This is a validation error from Element Plus
-      if (error.email) {
-        triggerShake('email')
-      }
-      if (error.password) {
-        triggerShake('password')
-      }
-    } else {
-      // This is a login API error
-      const errorMsg = error.response?.data?.error || '登录失败'
+    // 1. Handle standard Error objects (e.g. from authStore)
+    if (error instanceof Error) {
+      ElMessage.error(error.message)
+      triggerShake('email')
+      triggerShake('password')
+      return
+    }
+
+    // 2. Handle Axios errors (with response)
+    if (error.response) {
+      const errorMsg = error.response.data?.error || '登录失败'
       ElMessage.error(errorMsg)
       triggerShake('email')
       triggerShake('password')
+      return
     }
+
+    // 3. Handle legacy validation errors or unknown objects
+    if (error && typeof error === 'object') {
+      let handled = false
+      if (error.email) {
+        triggerShake('email')
+        handled = true
+      }
+      if (error.password) {
+        triggerShake('password')
+        handled = true
+      }
+      if (handled) return
+    }
+
+    // Fallback
+    ElMessage.error('登录失败')
   } finally {
     loading.value = false
   }
