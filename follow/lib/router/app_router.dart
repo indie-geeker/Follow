@@ -5,6 +5,9 @@ import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/shared/widgets/mini_player.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:follow/shared/widgets/track_cover_image.dart';
+import 'package:follow/data/providers/lyrics_provider.dart';
+import 'package:follow/features/player/lyrics_overlay.dart';
 
 // Import actual page implementations
 import 'package:follow/features/home/home_page.dart';
@@ -234,12 +237,28 @@ class _DesktopShell extends ConsumerWidget {
               ),
               // Main content
               Expanded(
-                child: Column(
+                child: Stack(
                   children: [
-                    Expanded(child: child),
-                    // Bottom player bar for desktop
-                    if (currentTrack != null)
-                      _DesktopPlayerBar(currentTrack: currentTrack),
+                    Column(
+                      children: [
+                        Expanded(child: child),
+                        // Bottom player bar for desktop
+                        if (currentTrack != null)
+                          _DesktopPlayerBar(currentTrack: currentTrack),
+                      ],
+                    ),
+                    // Lyrics overlay
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final showOverlay = ref.watch(lyricsOverlayVisibleProvider);
+                        if (!showOverlay) return const SizedBox.shrink();
+                        return LyricsOverlay(
+                          onClose: () {
+                            ref.read(lyricsOverlayVisibleProvider.notifier).hide();
+                          },
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -299,18 +318,18 @@ class _DesktopPlayerBar extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
                 children: [
-                  // Cover
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.music_note,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                  // Cover - tap to open lyrics overlay
+                  Consumer(
+                    builder: (context, ref, _) {
+                      return TrackCoverImage(
+                        track: currentTrack,
+                        size: 56,
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () {
+                          ref.read(lyricsOverlayVisibleProvider.notifier).show();
+                        },
+                      );
+                    },
                   ),
                   const SizedBox(width: 12),
                   // Info
