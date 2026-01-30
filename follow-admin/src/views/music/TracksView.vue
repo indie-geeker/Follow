@@ -23,6 +23,8 @@
             <el-image
               v-if="row.coverUrl"
               :src="getCoverUrl(row.coverUrl)"
+              :preview-src-list="[getCoverUrl(row.coverUrl)]"
+              :preview-teleported="true"
               fit="cover"
               class="track-cover"
             />
@@ -56,10 +58,21 @@
             <el-tag size="small" class="format-tag">{{ row.format }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="歌词" width="70">
+        <el-table-column label="歌词" width="100">
           <template #default="{ row }">
-            <el-tag v-if="row.lyricsUrl" type="success" size="small">有</el-tag>
-            <el-tag v-else type="info" size="small">无</el-tag>
+            <div class="lyrics-cell">
+              <el-tag v-if="row.lyricsUrl" type="success" size="small">有</el-tag>
+              <el-tag v-else type="info" size="small">无</el-tag>
+              <el-button 
+                v-if="row.lyricsUrl" 
+                link 
+                type="primary" 
+                size="small" 
+                @click="viewLyrics(row)"
+              >
+                查看
+              </el-button>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
@@ -190,6 +203,18 @@
         <el-button type="primary" @click="saveTrack">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- Lyrics View Dialog -->
+    <el-dialog v-model="lyricsDialogVisible" title="查看歌词" width="500px" class="custom-dialog">
+      <div v-loading="lyricsLoading" class="lyrics-content">
+        <div v-if="currentLyrics" class="lyrics-text">
+          <pre>{{ currentLyrics }}</pre>
+        </div>
+        <div v-else-if="!lyricsLoading" class="no-lyrics">
+          暂无歌词内容
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -220,6 +245,11 @@ const editForm = reactive({
   lyricsUrl: '',
   tagIds: [] as string[]
 })
+
+// Lyrics view state
+const lyricsDialogVisible = ref(false)
+const currentLyrics = ref('')
+const lyricsLoading = ref(false)
 
 // Tags state
 const allTags = ref<any[]>([])
@@ -356,6 +386,24 @@ function handleLyricsUpload(response: any) {
   if (response.lyricsUrl) {
     editForm.lyricsUrl = response.lyricsUrl
     ElMessage.success('歌词上传成功')
+  }
+}
+
+async function viewLyrics(track: any) {
+  lyricsDialogVisible.value = true
+  lyricsLoading.value = true
+  currentLyrics.value = ''
+  
+  try {
+    const response = await api.get(`/api/tracks/${track.id}/lyrics`, {
+      responseType: 'text'
+    })
+    currentLyrics.value = response.data
+  } catch (error) {
+    ElMessage.error('获取歌词失败')
+    currentLyrics.value = '获取歌词失败'
+  } finally {
+    lyricsLoading.value = false
   }
 }
 
@@ -643,5 +691,34 @@ onMounted(loadTracks)
 .lyrics-upload-area {
   display: flex;
   align-items: center;
+}
+
+.lyrics-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Lyrics View */
+.lyrics-content {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 16px;
+  background: #1a1a1a; /* Dark background */
+  border-radius: 8px;
+}
+
+.lyrics-text pre {
+  white-space: pre-wrap;
+  font-family: inherit;
+  margin: 0;
+  line-height: 1.6;
+  color: #e0e0e0; /* Light text */
+}
+
+.no-lyrics {
+  text-align: center;
+  color: #909399;
+  padding: 20px;
 }
 </style>
