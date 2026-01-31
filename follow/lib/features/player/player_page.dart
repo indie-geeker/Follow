@@ -1,10 +1,9 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:follow/data/providers/audio_provider.dart';
-import 'package:follow/core/config/app_config.dart';
 import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/shared/widgets/track_cover_image.dart';
 
 @RoutePage()
 class PlayerPage extends ConsumerWidget {
@@ -57,10 +56,20 @@ class PlayerPage extends ConsumerWidget {
       loading: () => Duration.zero,
       error: (_, __) => Duration.zero,
     );
+    // Use track's durationSeconds as fallback when player duration is not ready
+    final trackDuration = Duration(seconds: currentTrack.durationSeconds);
+    final fallbackDuration = trackDuration.inSeconds > 0
+        ? trackDuration
+        : const Duration(seconds: 1);
     final duration = durationAsync.when(
-      data: (v) => v ?? const Duration(seconds: 1),
-      loading: () => const Duration(seconds: 1),
-      error: (_, __) => const Duration(seconds: 1),
+      data: (v) {
+        if (v == null || v.inSeconds <= 1) {
+          return fallbackDuration;
+        }
+        return v;
+      },
+      loading: () => fallbackDuration,
+      error: (_, __) => fallbackDuration,
     );
 
     return Scaffold(
@@ -234,44 +243,10 @@ class PlayerPage extends ConsumerWidget {
           ),
         ],
       ),
-      child: ClipRRect(
+      child: TrackCoverImage(
+        track: track,
+        size: 280,
         borderRadius: BorderRadius.circular(24),
-        child: _buildCoverImage(track),
-      ),
-    );
-  }
-
-  Widget _buildCoverImage(track) {
-    if (track.coverUrl != null && track.coverUrl!.isNotEmpty) {
-      final url = track.coverUrl!.startsWith('http')
-          ? track.coverUrl!
-          : '${AppConfig.apiBaseUrl}/api/tracks/cover/${Uri.encodeComponent(track.coverUrl!)}';
-      return CachedNetworkImage(
-        imageUrl: url,
-        fit: BoxFit.cover,
-        placeholder: (context, url) => _buildPlaceholder(),
-        errorWidget: (context, url, error) => _buildPlaceholder(),
-      );
-    }
-    return _buildPlaceholder();
-  }
-
-  Widget _buildPlaceholder() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            LoginColors.gradientMid1,
-            LoginColors.gradientMid2,
-          ],
-        ),
-      ),
-      child: const Icon(
-        Icons.music_note_rounded,
-        size: 100,
-        color: Colors.white24,
       ),
     );
   }
