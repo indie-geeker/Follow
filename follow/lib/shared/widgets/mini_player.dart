@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
-import 'package:follow/core/config/app_config.dart';
+import 'package:follow/shared/widgets/track_cover_image.dart';
 
 /// Mini Player Widget - Shows at bottom of screen when playing
 class MiniPlayer extends ConsumerWidget {
@@ -33,10 +31,20 @@ class MiniPlayer extends ConsumerWidget {
       loading: () => Duration.zero,
       error: (_, __) => Duration.zero,
     );
+    // Use track's durationSeconds as fallback when player duration is not ready
+    final trackDuration = Duration(seconds: currentTrack.durationSeconds);
+    final fallbackDuration = trackDuration.inSeconds > 0
+        ? trackDuration
+        : const Duration(seconds: 1);
     final duration = durationAsync.when(
-      data: (v) => v ?? const Duration(seconds: 1),
-      loading: () => const Duration(seconds: 1),
-      error: (_, __) => const Duration(seconds: 1),
+      data: (v) {
+        if (v == null || v.inSeconds <= 1) {
+          return fallbackDuration;
+        }
+        return v;
+      },
+      loading: () => fallbackDuration,
+      error: (_, __) => fallbackDuration,
     );
     final progress = duration.inMilliseconds > 0 
         ? position.inMilliseconds / duration.inMilliseconds 
@@ -73,9 +81,10 @@ class MiniPlayer extends ConsumerWidget {
                 child: Row(
                   children: [
                     // Cover
-                    ClipRRect(
+                    TrackCoverImage(
+                      track: currentTrack,
+                      size: 48,
                       borderRadius: BorderRadius.circular(6),
-                      child: _buildCover(currentTrack, 48),
                     ),
                     const SizedBox(width: 12),
                     // Info
@@ -117,31 +126,6 @@ class MiniPlayer extends ConsumerWidget {
     );
   }
 
-  Widget _buildCover(Track track, double size) {
-    if (track.coverUrl != null && track.coverUrl!.isNotEmpty) {
-      final url = track.coverUrl!.startsWith('http')
-          ? track.coverUrl!
-          : '${AppConfig.apiBaseUrl}/api/tracks/cover/${Uri.encodeComponent(track.coverUrl!)}';
-      return CachedNetworkImage(
-        imageUrl: url,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        placeholder: (context, url) => _buildPlaceholder(size),
-        errorWidget: (context, url, error) => _buildPlaceholder(size),
-      );
-    }
-    return _buildPlaceholder(size);
-  }
-
-  Widget _buildPlaceholder(double size) {
-    return Container(
-      width: size,
-      height: size,
-      color: Colors.grey[300],
-      child: Icon(Icons.music_note, size: size * 0.5, color: Colors.grey[500]),
-    );
-  }
 }
 
 class _PlayPauseButton extends ConsumerWidget {
