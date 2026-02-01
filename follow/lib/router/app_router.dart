@@ -178,7 +178,11 @@ class _DesktopShell extends ConsumerWidget {
                 extended: isExpanded,
                 minExtendedWidth: 200,
                 selectedIndex: tabsRouter.activeIndex,
-                onDestinationSelected: tabsRouter.setActiveIndex,
+                onDestinationSelected: (index) {
+                  // Hide lyrics overlay when navigating
+                  ref.read(lyricsOverlayVisibleProvider.notifier).hide();
+                  tabsRouter.setActiveIndex(index);
+                },
                 leading: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   child: Row(

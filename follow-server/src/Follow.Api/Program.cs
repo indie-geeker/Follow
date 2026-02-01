@@ -53,6 +53,27 @@ builder.Services.AddAuthentication(options =>
         ValidAudience = jwtSettings["Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey))
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnChallenge = context =>
+        {
+            context.HandleResponse();
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "application/json";
+            
+            var response = Follow.Shared.DTOs.ApiResponse.Error(StatusCodes.Status401Unauthorized, "Unauthorized");
+            return context.Response.WriteAsJsonAsync(response);
+        },
+        OnForbidden = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "application/json";
+            
+            var response = Follow.Shared.DTOs.ApiResponse.Error(StatusCodes.Status403Forbidden, "Forbidden");
+            return context.Response.WriteAsJsonAsync(response);
+        }
+    };
 });
 
 // Authorization policies

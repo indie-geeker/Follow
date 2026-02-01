@@ -113,9 +113,9 @@ class AudioPlayerService {
   }
 }
 
-/// Audio player service provider
-@riverpod
-AudioPlayerService audioPlayerService(ref) {
+/// Audio player service provider - keepAlive to prevent disposal during async operations
+@Riverpod(keepAlive: true)
+AudioPlayerService audioPlayerService(Ref ref) {
   final service = AudioPlayerService();
   ref.onDispose(() => service.dispose());
   return service;

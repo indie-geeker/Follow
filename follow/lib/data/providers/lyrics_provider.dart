@@ -26,12 +26,12 @@ LyricsService lyricsService(ref) {
 @riverpod
 Future<List<LyricLine>> currentTrackLyrics(ref) async {
   final track = ref.watch(currentTrackProvider);
-  if (track?.lyricsUrl == null || track!.lyricsUrl!.isEmpty) {
+  if (track == null || track.lyricsUrl == null || track.lyricsUrl!.isEmpty) {
     return [];
   }
 
   final service = ref.watch(lyricsServiceProvider);
-  return service.fetchLyrics(track.lyricsUrl!);
+  return service.fetchLyrics(track.id);
 }
 
 /// Current lyric index based on playback position
@@ -40,8 +40,8 @@ int currentLyricIndex(ref) {
   final lyricsAsync = ref.watch(currentTrackLyricsProvider);
   final positionAsync = ref.watch(playerPositionProvider);
 
-  final lyrics = lyricsAsync.valueOrNull ?? [];
-  final position = positionAsync.valueOrNull ?? Duration.zero;
+  final lyrics = lyricsAsync.value ?? [];
+  final position = positionAsync.value ?? Duration.zero;
 
   if (lyrics.isEmpty) return -1;
 

@@ -11,19 +11,32 @@ class ApiService {
 
   // ============ Auth ============
 
+  dynamic _getData(dynamic responseData) {
+    if (responseData is Map<String, dynamic> &&
+        responseData.containsKey('code') &&
+        responseData.containsKey('data')) {
+      final code = responseData['code'];
+      if (code == 0) {
+        return responseData['data'];
+      }
+      throw Exception(responseData['message'] ?? 'API Error: $code');
+    }
+    return responseData;
+  }
+
   Future<AuthResponse> login(LoginRequest request) async {
     final response = await _dio.post('/api/auth/login', data: request.toJson());
-    return AuthResponse.fromJson(response.data);
+    return AuthResponse.fromJson(_getData(response.data));
   }
 
   Future<AuthResponse> register(RegisterRequest request) async {
     final response = await _dio.post('/api/auth/register', data: request.toJson());
-    return AuthResponse.fromJson(response.data);
+    return AuthResponse.fromJson(_getData(response.data));
   }
 
   Future<User> getCurrentUser() async {
     final response = await _dio.get('/api/auth/me');
-    return User.fromJson(response.data);
+    return User.fromJson(_getData(response.data));
   }
 
   // ============ Tracks ============

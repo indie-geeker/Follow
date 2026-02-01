@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:follow/data/models/lyric_line.dart';
+import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
+import 'package:follow/shared/widgets/player_progress_bar.dart';
 import 'package:follow/core/theme/app_theme.dart';
 
 class LyricsOverlay extends ConsumerStatefulWidget {
@@ -45,6 +48,13 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     _controller.reverse().then((_) => widget.onClose());
   }
 
+  // Get foreground color based on theme brightness
+  Color _foregroundColor(BuildContext context, {double alpha = 1.0}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseColor = isDark ? Colors.white : Colors.black87;
+    return alpha < 1.0 ? baseColor.withValues(alpha: alpha) : baseColor;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -79,9 +89,12 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (currentLyricIdx >= 0 && _lyricsScrollController.hasClients) {
         final targetOffset = (currentLyricIdx * 48.0) - 100;
-        if (targetOffset > 0) {
+        final maxScroll = _lyricsScrollController.position.maxScrollExtent;
+        // Only scroll if there's content to scroll and target is within bounds
+        if (targetOffset > 0 && maxScroll > 0) {
+          final clampedOffset = targetOffset.clamp(0.0, maxScroll);
           _lyricsScrollController.animateTo(
-            targetOffset,
+            clampedOffset,
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOut,
           );
@@ -113,25 +126,29 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
           child: Column(
             children: [
               // Header
-              _buildHeader(),
+              _buildHeader(context),
               // Content
               Expanded(
                 child: LayoutBuilder(
-                  builder: (context, constraints) {
+                  builder: (layoutContext, constraints) {
                     final isWide = constraints.maxWidth >= 600;
                     if (isWide) {
-                      return _buildWideLayout(currentTrack, lyricsAsync, currentLyricIdx, audioService);
+                      return _buildWideLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
                     } else {
-                      return _buildNarrowLayout(currentTrack, lyricsAsync, currentLyricIdx, audioService);
+                      return _buildNarrowLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
                     }
                   },
                 ),
               ),
               // Progress bar
-              _buildProgressBar(position, duration, audioService),
+              PlayerProgressBar(
+                position: position,
+                duration: duration,
+                onSeek: audioService.seek,
+              ),
               const SizedBox(height: 16),
               // Controls
-              _buildControls(isPlaying, audioService),
+              _buildControls(context, isPlaying, audioService),
               const SizedBox(height: 24),
             ],
           ),
@@ -140,7 +157,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
@@ -150,10 +167,10 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
+                color: _foregroundColor(context, alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+              child: Icon(Icons.keyboard_arrow_down, color: _foregroundColor(context)),
             ),
             onPressed: _close,
           ),
@@ -161,10 +178,10 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
+                color: _foregroundColor(context, alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.more_horiz, color: Colors.white),
+              child: Icon(Icons.more_horiz, color: _foregroundColor(context)),
             ),
             onPressed: () {},
           ),
@@ -173,7 +190,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     );
   }
 
-  Widget _buildWideLayout(currentTrack, lyricsAsync, int currentLyricIdx, audioService) {
+  Widget _buildWideLayout(BuildContext context, Track? currentTrack, AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, AudioPlayerService audioService) {
     return Row(
       children: [
         // Left side: Cover + Info
@@ -188,20 +205,20 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                 borderRadius: BorderRadius.circular(20),
               ),
               const SizedBox(height: 24),
-              _buildTrackInfo(currentTrack),
+              _buildTrackInfo(context, currentTrack),
             ],
           ),
         ),
         // Right side: Lyrics
         Expanded(
           flex: 1,
-          child: _buildLyricsList(lyricsAsync, currentLyricIdx, audioService),
+          child: _buildLyricsList(context, lyricsAsync, currentLyricIdx, audioService),
         ),
       ],
     );
   }
 
-  Widget _buildNarrowLayout(currentTrack, lyricsAsync, int currentLyricIdx, audioService) {
+  Widget _buildNarrowLayout(BuildContext context, Track? currentTrack, AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, AudioPlayerService audioService) {
     return Column(
       children: [
         const SizedBox(height: 16),
@@ -211,26 +228,26 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
           borderRadius: BorderRadius.circular(20),
         ),
         const SizedBox(height: 16),
-        _buildTrackInfo(currentTrack),
+        _buildTrackInfo(context, currentTrack),
         const SizedBox(height: 16),
         Expanded(
-          child: _buildLyricsList(lyricsAsync, currentLyricIdx, audioService),
+          child: _buildLyricsList(context, lyricsAsync, currentLyricIdx, audioService),
         ),
       ],
     );
   }
 
-  Widget _buildTrackInfo(currentTrack) {
+  Widget _buildTrackInfo(BuildContext context, Track? currentTrack) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         children: [
           Text(
             currentTrack?.title ?? '',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: _foregroundColor(context),
             ),
             textAlign: TextAlign.center,
             maxLines: 2,
@@ -241,7 +258,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             currentTrack?.artist?.name ?? '',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.white.withValues(alpha: 0.7),
+              color: _foregroundColor(context, alpha: 0.7),
             ),
           ),
         ],
@@ -249,7 +266,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     );
   }
 
-  Widget _buildLyricsList(lyricsAsync, int currentLyricIdx, audioService) {
+  Widget _buildLyricsList(BuildContext context, AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, AudioPlayerService audioService) {
     return lyricsAsync.when(
       data: (lyrics) {
         if (lyrics.isEmpty) {
@@ -258,14 +275,16 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
               '暂无歌词',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.white.withValues(alpha: 0.5),
+                color: _foregroundColor(context, alpha: 0.5),
               ),
             ),
           );
         }
+        // Add bottom padding so last lyrics can scroll to center
+        final viewportHeight = MediaQuery.of(context).size.height * 0.4;
         return ListView.builder(
           controller: _lyricsScrollController,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          padding: EdgeInsets.only(left: 24, right: 24, top: 16, bottom: viewportHeight),
           itemCount: lyrics.length,
           itemBuilder: (context, index) {
             final lyric = lyrics[index];
@@ -281,8 +300,8 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                     fontSize: isCurrent ? 18 : 15,
                     fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                     color: isCurrent
-                        ? Colors.white
-                        : Colors.white.withValues(alpha: 0.4),
+                        ? _foregroundColor(context)
+                        : _foregroundColor(context, alpha: 0.4),
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -291,93 +310,28 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
           },
         );
       },
-      loading: () => const Center(
-        child: CircularProgressIndicator(color: Colors.white),
+      loading: () => Center(
+        child: CircularProgressIndicator(color: _foregroundColor(context)),
       ),
       error: (_, __) => Center(
         child: Text(
           '歌词加载失败',
           style: TextStyle(
             fontSize: 16,
-            color: Colors.white.withValues(alpha: 0.5),
+            color: _foregroundColor(context, alpha: 0.5),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildProgressBar(Duration position, Duration duration, audioService) {
-    final progress = duration.inMilliseconds > 0
-        ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        children: [
-          GestureDetector(
-            onTapDown: (details) {
-              final renderBox = context.findRenderObject() as RenderBox?;
-              if (renderBox != null) {
-                final width = renderBox.size.width - 64;
-                final seekPosition = (details.localPosition.dx / width).clamp(0.0, 1.0);
-                audioService.seek(
-                  Duration(milliseconds: (duration.inMilliseconds * seekPosition).toInt()),
-                );
-              }
-            },
-            child: Container(
-              height: 6,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: progress,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [LoginColors.accentPurple, LoginColors.accentPink],
-                    ),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _formatDuration(position),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withValues(alpha: 0.6),
-                ),
-              ),
-              Text(
-                _formatDuration(duration),
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withValues(alpha: 0.6),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildControls(bool isPlaying, audioService) {
+  Widget _buildControls(BuildContext context, bool isPlaying, AudioPlayerService audioService) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _buildControlButton(Icons.shuffle_rounded, 24, () {}),
+        _buildControlButton(context, Icons.shuffle_rounded, 24, () {}),
         const SizedBox(width: 20),
-        _buildControlButton(Icons.skip_previous_rounded, 32, () {}),
+        _buildControlButton(context, Icons.skip_previous_rounded, 32, () {}),
         const SizedBox(width: 20),
         GestureDetector(
           onTap: () {
@@ -413,34 +367,28 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
           ),
         ),
         const SizedBox(width: 20),
-        _buildControlButton(Icons.skip_next_rounded, 32, () {}),
+        _buildControlButton(context, Icons.skip_next_rounded, 32, () {}),
         const SizedBox(width: 20),
-        _buildControlButton(Icons.repeat_rounded, 24, () {}),
+        _buildControlButton(context, Icons.repeat_rounded, 24, () {}),
       ],
     );
   }
 
-  Widget _buildControlButton(IconData icon, double size, VoidCallback onPressed) {
+  Widget _buildControlButton(BuildContext context, IconData icon, double size, VoidCallback onPressed) {
     return GestureDetector(
       onTap: onPressed,
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.1),
+          color: _foregroundColor(context, alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(
           icon,
-          color: Colors.white.withValues(alpha: 0.8),
+          color: _foregroundColor(context, alpha: 0.8),
           size: size,
         ),
       ),
     );
-  }
-
-  String _formatDuration(Duration d) {
-    final mins = d.inMinutes;
-    final secs = d.inSeconds % 60;
-    return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 }

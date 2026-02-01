@@ -8,12 +8,9 @@ class LyricsService {
 
   LyricsService() : _dio = ApiClient.instance;
 
-  Future<List<LyricLine>> fetchLyrics(String lyricsUrl) async {
+  Future<List<LyricLine>> fetchLyrics(String trackId) async {
     try {
-      final url = lyricsUrl.startsWith('http')
-          ? lyricsUrl
-          : '${AppConfig.apiBaseUrl}/api/tracks/lyrics/${Uri.encodeComponent(lyricsUrl)}';
-
+      final url = '${AppConfig.apiBaseUrl}/api/tracks/$trackId/lyrics';
       final response = await _dio.get(url);
       final content = response.data is String ? response.data : response.data.toString();
       return parseLrc(content);

@@ -205,7 +205,7 @@
     </el-dialog>
 
     <!-- Lyrics View Dialog -->
-    <el-dialog v-model="lyricsDialogVisible" title="查看歌词" width="500px" class="custom-dialog">
+    <el-dialog v-model="lyricsDialogVisible" title="查看歌词" width="600px" class="custom-dialog">
       <div v-loading="lyricsLoading" class="lyrics-content">
         <div v-if="currentLyrics" class="lyrics-text">
           <pre>{{ currentLyrics }}</pre>
@@ -701,7 +701,7 @@ onMounted(loadTracks)
 
 /* Lyrics View */
 .lyrics-content {
-  max-height: 400px;
+  max-height: 70vh;
   overflow-y: auto;
   padding: 16px;
   background: #1a1a1a; /* Dark background */
