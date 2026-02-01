@@ -2,15 +2,94 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/data/providers/audio_provider.dart';
+import 'package:follow/data/providers/lyrics_provider.dart';
+import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 
 @RoutePage()
-class PlayerPage extends ConsumerWidget {
+class PlayerPage extends ConsumerStatefulWidget {
   const PlayerPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PlayerPage> createState() => _PlayerPageState();
+}
+
+class _PlayerPageState extends ConsumerState<PlayerPage> {
+  final PageController _pageController = PageController();
+  final ScrollController _lyricsScrollController = ScrollController();
+  int _currentPage = 0;
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    _lyricsScrollController.dispose();
+    super.dispose();
+  }
+
+  Color _foregroundColor(BuildContext context, {double alpha = 1.0}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final baseColor = isDark ? Colors.white : Colors.black87;
+    return alpha < 1.0 ? baseColor.withValues(alpha: alpha) : baseColor;
+  }
+
+  void _showMoreMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1a1a2e) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                _buildMenuItem(context, Icons.favorite_border_rounded, '收藏'),
+                _buildMenuItem(context, Icons.playlist_add_rounded, '添加到播放列表'),
+                _buildMenuItem(context, Icons.download_outlined, '下载'),
+                _buildMenuItem(context, Icons.share_outlined, '分享'),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMenuItem(BuildContext context, IconData icon, String label) {
+    return ListTile(
+      leading: Icon(icon, color: _foregroundColor(context, alpha: 0.8)),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: 16,
+          color: _foregroundColor(context),
+        ),
+      ),
+      onTap: () {
+        Navigator.pop(context);
+        // TODO: Implement actions
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentTrack = ref.watch(currentTrackProvider);
@@ -18,6 +97,10 @@ class PlayerPage extends ConsumerWidget {
     final positionAsync = ref.watch(playerPositionProvider);
     final durationAsync = ref.watch(playerDurationProvider);
     final audioService = ref.watch(audioPlayerServiceProvider);
+    
+    // Lyrics providers
+    final lyricsAsync = ref.watch(currentTrackLyricsProvider);
+    final currentLyricIdx = ref.watch(currentLyricIndexProvider);
 
     if (currentTrack == null) {
       return Scaffold(
@@ -39,8 +122,10 @@ class PlayerPage extends ConsumerWidget {
                   : [theme.colorScheme.primaryContainer, theme.colorScheme.surface],
             ),
           ),
-          child: const Center(
-            child: Text('暂无播放', style: TextStyle(color: Colors.white70)),
+          child: Center(
+            child: Text('暂无播放', 
+              style: TextStyle(color: _foregroundColor(context, alpha: 0.7)),
+            ),
           ),
         ),
       );
@@ -72,6 +157,22 @@ class PlayerPage extends ConsumerWidget {
       error: (_, __) => fallbackDuration,
     );
 
+    // Auto-scroll lyrics logic
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_currentPage == 1 && currentLyricIdx >= 0 && _lyricsScrollController.hasClients) {
+        final targetOffset = (currentLyricIdx * 48.0) - MediaQuery.of(context).size.height * 0.2;
+        final maxScroll = _lyricsScrollController.position.maxScrollExtent;
+        if (targetOffset > 0 && maxScroll > 0) {
+          final clampedOffset = targetOffset.clamp(0.0, maxScroll);
+          _lyricsScrollController.animateTo(
+            clampedOffset,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      }
+    });
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -81,30 +182,37 @@ class PlayerPage extends ConsumerWidget {
           icon: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
+              color: _foregroundColor(context, alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.keyboard_arrow_down,
-              color: Colors.white,
+              color: _foregroundColor(context),
             ),
           ),
           onPressed: () => context.router.maybePop(),
         ),
+        title: _currentPage == 1 
+            ? Text(
+                currentTrack.title,
+                style: TextStyle(color: _foregroundColor(context), fontSize: 16),
+              ) 
+            : null,
+        centerTitle: true,
         actions: [
           IconButton(
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.1),
+                color: _foregroundColor(context, alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.more_horiz,
-                color: Colors.white,
+                color: _foregroundColor(context),
               ),
             ),
-            onPressed: () {},
+            onPressed: () => _showMoreMenu(context),
           ),
           const SizedBox(width: 8),
         ],
@@ -130,73 +238,124 @@ class PlayerPage extends ConsumerWidget {
         child: SafeArea(
           child: Column(
             children: [
-              const Spacer(flex: 2),
+              const Spacer(flex: 1),
 
-              // Cover art with shadow and glow
-              _buildCoverArt(currentTrack, isDark),
-
-              const Spacer(flex: 2),
-
-              // Track info
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
-                child: Column(
+              // PageView for Cover and Lyrics
+              SizedBox(
+                height: MediaQuery.of(context).size.width - 40, // Square-ish area
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (index) {
+                    setState(() {
+                      _currentPage = index;
+                    });
+                  },
                   children: [
-                    Text(
-                      currentTrack.title,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        shadows: [
-                          Shadow(
-                            color: Colors.black26,
-                            blurRadius: 10,
-                          ),
-                        ],
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      currentTrack.artist?.name ?? '未知艺术家',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.white.withValues(alpha: 0.7),
-                      ),
-                    ),
+                    // Page 0: Cover Art
+                    Center(child: _buildCoverArt(currentTrack, isDark)),
+                    // Page 1: Lyrics
+                    _buildLyricsPage(lyricsAsync, currentLyricIdx, audioService),
                   ],
                 ),
               ),
+              
+              // Page Indicators
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildPageIndicator(0),
+                  const SizedBox(width: 8),
+                  _buildPageIndicator(1),
+                ],
+              ),
 
-              const SizedBox(height: 40),
+              const Spacer(flex: 1),
+
+              // Track info
+              if (_currentPage == 0) ...[
+                 Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: Column(
+                    children: [
+                      Text(
+                        currentTrack.title,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: _foregroundColor(context),
+                          shadows: isDark ? const [
+                            Shadow(
+                              color: Colors.black26,
+                              blurRadius: 10,
+                            ),
+                          ] : [],
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        currentTrack.artist?.name ?? '未知艺术家',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: _foregroundColor(context, alpha: 0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                 const SizedBox(height: 60), 
+              ],
+
+              const SizedBox(height: 20),
 
               // Progress bar
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
                   children: [
-                    _buildProgressBar(position, duration, audioService),
-                    const SizedBox(height: 8),
+                    // Standard Slider
+                    SliderTheme(
+                      data: SliderThemeData(
+                        trackHeight: 4,
+                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+                        activeTrackColor: isDark ? LoginColors.accentPink : theme.colorScheme.primary, 
+                        inactiveTrackColor: _foregroundColor(context, alpha: 0.2),
+                        thumbColor: isDark ? Colors.white : theme.colorScheme.primary,
+                        trackShape: const RoundedRectSliderTrackShape(),
+                      ),
+                      child: Slider(
+                        value: position.inMilliseconds.toDouble().clamp(
+                          0,
+                          duration.inMilliseconds.toDouble(),
+                        ),
+                        min: 0,
+                        max: duration.inMilliseconds.toDouble(),
+                        onChanged: (value) {
+                          audioService.seek(Duration(milliseconds: value.toInt()));
+                        },
+                      ),
+                    ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
                             _formatDuration(position),
                             style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: 12,
+                              color: _foregroundColor(context, alpha: 0.6),
                             ),
                           ),
                           Text(
                             _formatDuration(duration),
                             style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: 12,
+                              color: _foregroundColor(context, alpha: 0.6),
                             ),
                           ),
                         ],
@@ -211,12 +370,9 @@ class PlayerPage extends ConsumerWidget {
               // Main controls
               _buildMainControls(isPlaying, audioService),
 
-              const Spacer(flex: 1),
+              const Spacer(flex: 2),
 
-              // Bottom actions
-              _buildBottomActions(),
-
-              const SizedBox(height: 32),
+              const SizedBox(height: 48),
             ],
           ),
         ),
@@ -232,12 +388,12 @@ class PlayerPage extends ConsumerWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: LoginColors.accentPurple.withValues(alpha: 0.3),
+            color: (isDark ? LoginColors.accentPurple : Colors.black).withValues(alpha: isDark ? 0.3 : 0.1),
             blurRadius: 40,
             spreadRadius: 10,
           ),
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
+            color: Colors.black.withValues(alpha: 0.2),
             blurRadius: 30,
             offset: const Offset(0, 15),
           ),
@@ -251,43 +407,87 @@ class PlayerPage extends ConsumerWidget {
     );
   }
 
-  Widget _buildProgressBar(Duration position, Duration duration, audioService) {
-    final progress = duration.inMilliseconds > 0
-        ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
-        : 0.0;
-
-    return GestureDetector(
-      onTapDown: (details) {
-        final box = details.localPosition;
-        final width = 300.0; // approximate width
-        final seekPosition = (box.dx / width).clamp(0.0, 1.0);
-        audioService.seek(
-          Duration(milliseconds: (duration.inMilliseconds * seekPosition).toInt()),
+  Widget _buildLyricsPage(AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, dynamic audioService) {
+    return lyricsAsync.when(
+      data: (lyrics) {
+        if (lyrics.isEmpty) {
+          return Center(
+            child: Text(
+              '暂无歌词',
+              style: TextStyle(
+                fontSize: 16,
+                color: _foregroundColor(context, alpha: 0.6),
+              ),
+            ),
+          );
+        }
+        return ShaderMask(
+          shaderCallback: (Rect bounds) {
+            return const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.transparent, Colors.white, Colors.white, Colors.transparent],
+              stops: [0.0, 0.1, 0.9, 1.0],
+            ).createShader(bounds);
+          },
+          blendMode: BlendMode.dstIn,
+          child: ListView.builder(
+            controller: _lyricsScrollController,
+            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
+            itemCount: lyrics.length,
+            itemBuilder: (context, index) {
+              final lyric = lyrics[index];
+              final isCurrent = index == currentLyricIdx;
+              return GestureDetector(
+                onTap: () => audioService.seek(lyric.timestamp),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    lyric.text,
+                    style: TextStyle(
+                      fontSize: isCurrent ? 20 : 16,
+                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                      color: isCurrent
+                          ? _foregroundColor(context)
+                          : _foregroundColor(context, alpha: 0.4),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              );
+            },
+          ),
         );
       },
-      child: Container(
-        height: 6,
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.2),
-          borderRadius: BorderRadius.circular(3),
-        ),
-        child: FractionallySizedBox(
-          alignment: Alignment.centerLeft,
-          widthFactor: progress,
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [LoginColors.accentPurple, LoginColors.accentPink],
-              ),
-              borderRadius: BorderRadius.circular(3),
-            ),
+      loading: () => Center(
+        child: CircularProgressIndicator(color: _foregroundColor(context)),
+      ),
+      error: (_, __) => Center(
+        child: Text(
+          '歌词加载失败',
+          style: TextStyle(
+            fontSize: 16,
+            color: _foregroundColor(context, alpha: 0.6),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildMainControls(bool isPlaying, audioService) {
+  Widget _buildPageIndicator(int index) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: _currentPage == index 
+            ? _foregroundColor(context) 
+            : _foregroundColor(context, alpha: 0.3),
+      ),
+    );
+  }
+
+  Widget _buildMainControls(bool isPlaying, dynamic audioService) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -365,58 +565,15 @@ class PlayerPage extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.1),
+          color: _foregroundColor(context, alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Icon(
           icon,
-          color: Colors.white.withValues(alpha: 0.8),
+          color: _foregroundColor(context, alpha: 0.8),
           size: size,
         ),
       ),
-    );
-  }
-
-  Widget _buildBottomActions() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 48),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildActionButton(Icons.favorite_border_rounded, '收藏'),
-          _buildActionButton(Icons.playlist_add_rounded, '添加'),
-          _buildActionButton(Icons.download_outlined, '下载'),
-          _buildActionButton(Icons.lyrics_outlined, '歌词'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionButton(IconData icon, String label) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            icon,
-            color: Colors.white.withValues(alpha: 0.7),
-            size: 22,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.white.withValues(alpha: 0.5),
-          ),
-        ),
-      ],
     );
   }
 
