@@ -65,6 +65,7 @@ class AudioPlayerService {
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
   Stream<bool> get playingStream => _player.playingStream;
+  Stream<double> get volumeStream => _player.volumeStream;
   
   bool get isPlaying => _player.playing;
   Duration get position => _player.position;
@@ -141,6 +142,13 @@ Stream<Duration?> playerPosition(ref) {
 Stream<Duration?> playerDuration(ref) {
   final service = ref.watch(audioPlayerServiceProvider);
   return service.durationStream;
+}
+
+/// Volume stream provider
+@riverpod
+Stream<double> playerVolume(ref) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return service.volumeStream;
 }
 
 enum PlayMode {

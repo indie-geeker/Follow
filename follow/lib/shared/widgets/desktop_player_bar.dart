@@ -19,6 +19,7 @@ class DesktopPlayerBar extends ConsumerWidget {
     final positionAsync = ref.watch(playerPositionProvider);
     final durationAsync = ref.watch(playerDurationProvider);
     final audioService = ref.watch(audioPlayerServiceProvider);
+    final volumeAsync = ref.watch(playerVolumeProvider);
 
     final isPlaying = isPlayingAsync.when(
       data: (v) => v,
@@ -200,7 +201,7 @@ class DesktopPlayerBar extends ConsumerWidget {
           ),
           // Volume & actions
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Row(
@@ -228,7 +229,7 @@ class DesktopPlayerBar extends ConsumerWidget {
                   const SizedBox(width: 4),
                   Flexible(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 80),
+                      constraints: const BoxConstraints(maxWidth: 320),
                       child: SliderTheme(
                         data: SliderThemeData(
                           trackHeight: 2,
@@ -240,8 +241,10 @@ class DesktopPlayerBar extends ConsumerWidget {
                           ),
                         ),
                         child: Slider(
-                          value: 1.0,
-                          onChanged: (value) {},
+                          value: volumeAsync.value ?? 1.0,
+                          onChanged: (value) {
+                            audioService.setVolume(value);
+                          },
                         ),
                       ),
                     ),
