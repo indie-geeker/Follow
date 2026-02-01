@@ -36,9 +36,10 @@ class _FollowAppState extends ConsumerState<FollowApp> {
 
     // Listen to auth state changes
     ref.listen<AuthState>(authProvider, (previous, next) {
-      // Only navigate to login if user was previously authenticated
-      // This prevents unnecessary navigation during app startup
-      if (previous is AuthStateAuthenticated && next is AuthStateUnauthenticated) {
+      // Navigate to login whenever the user becomes unauthenticated
+      // This covers explicit logout, token expiration (401), etc.
+      if (next is AuthStateUnauthenticated) {
+        // Use replaceAll to clear the stack and prevent back navigation
         _appRouter.replaceAll([const LoginRoute()]);
       }
     });

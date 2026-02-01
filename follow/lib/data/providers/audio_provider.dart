@@ -3,6 +3,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/services/api/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:follow/data/providers/track_provider.dart';
 
 part 'audio_provider.g.dart';
 
@@ -140,4 +141,88 @@ Stream<Duration?> playerPosition(ref) {
 Stream<Duration?> playerDuration(ref) {
   final service = ref.watch(audioPlayerServiceProvider);
   return service.durationStream;
+}
+
+enum PlayMode {
+  sequence,
+  shuffle,
+  single,
+}
+
+@riverpod
+class PlayerMode extends _$PlayerMode {
+  @override
+  PlayMode build() => PlayMode.sequence;
+
+  Future<void> setMode(PlayMode mode) async {
+    state = mode;
+    final service = ref.read(audioPlayerServiceProvider);
+    
+    switch (mode) {
+      case PlayMode.sequence:
+        // Shuffle off, Loop all
+        await service.player.setShuffleModeEnabled(false);
+        await service.player.setLoopMode(LoopMode.all);
+        break;
+      case PlayMode.shuffle:
+        // Shuffle on, Loop all
+        await service.player.setShuffleModeEnabled(true);
+        await service.player.setLoopMode(LoopMode.all);
+        break;
+      case PlayMode.single:
+        // Loop one
+        // Keep shuffle state or disable? usually disable for single loop
+        await service.player.setShuffleModeEnabled(false);
+        await service.player.setLoopMode(LoopMode.one);
+        break;
+    }
+  }
+
+  Future<void> nextMode() async {
+    final next = switch (state) {
+      PlayMode.sequence => PlayMode.shuffle,
+      PlayMode.shuffle => PlayMode.single,
+      PlayMode.single => PlayMode.sequence,
+    };
+    await setMode(next);
+  }
+}
+
+@riverpod
+class IsFavorite extends _$IsFavorite {
+  @override
+  Future<bool> build(String? trackId) async {
+    if (trackId == null) return false;
+    final service = ApiService();
+    try {
+      return await service.checkFavorite(trackId);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<void> toggle() async {
+    final trackId = this.trackId;
+    if (trackId == null) return;
+    
+    final service = ApiService();
+    final current = state.value ?? false;
+    
+    // Optimistic update
+    state = AsyncData(!current);
+    
+    try {
+      if (current) {
+        await service.removeFromFavorites(trackId);
+      } else {
+        await service.addToFavorites(trackId);
+      }
+      // Refresh the global favorites list so Home Page updates
+      ref.invalidate(favoritesProvider);
+    } catch (e) {
+      // Revert on error
+      state = AsyncData(current);
+      rethrow;
+    }
+  }
 }

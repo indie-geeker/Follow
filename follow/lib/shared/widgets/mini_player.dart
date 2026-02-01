@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
+import 'package:follow/shared/widgets/play_queue_sheet.dart';
+import 'package:follow/shared/widgets/player_controls.dart';
 
 /// Mini Player Widget - Shows at bottom of screen when playing
 class MiniPlayer extends ConsumerWidget {
@@ -113,9 +115,15 @@ class MiniPlayer extends ConsumerWidget {
                       ),
                     ),
                     // Controls
-                    _PlayPauseButton(isPlaying: isPlaying),
+                    LikeButton(track: currentTrack),
+                    const SizedBox(width: 8),
+                    PlayPauseButton(isPlaying: isPlaying),
                     const SizedBox(width: 8),
                     _NextButton(),
+                    const SizedBox(width: 8),
+                    const PlayModeButton(),
+                    const SizedBox(width: 8),
+                    const PlaylistButton(),
                   ],
                 ),
               ),
@@ -126,29 +134,6 @@ class MiniPlayer extends ConsumerWidget {
     );
   }
 
-}
-
-class _PlayPauseButton extends ConsumerWidget {
-  final bool isPlaying;
-  
-  const _PlayPauseButton({required this.isPlaying});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final audioService = ref.watch(audioPlayerServiceProvider);
-    
-    return IconButton(
-      icon: Icon(isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded),
-      iconSize: 32,
-      onPressed: () {
-        if (isPlaying) {
-          audioService.pause();
-        } else {
-          audioService.play();
-        }
-      },
-    );
-  }
 }
 
 class _NextButton extends ConsumerWidget {
