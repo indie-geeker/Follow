@@ -36,7 +36,7 @@ public record AlbumDto(
 );
 
 public record CreateArtistRequest(string Name, string? Bio);
-public record UpdateArtistRequest(string Name, string? Bio);
+public record UpdateArtistRequest(string Name, string? Bio, string? CoverUrl);
 
 public record CreateAlbumRequest(string Title, int? Year, Guid? ArtistId);
-public record UpdateAlbumRequest(string Title, int? Year, Guid? ArtistId);
+public record UpdateAlbumRequest(string Title, int? Year, Guid? ArtistId, string? CoverUrl);

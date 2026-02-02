@@ -82,9 +82,11 @@ public static class TrackEndpoints
         ITrackService trackService,
         int page = 1,
         int pageSize = 20,
-        string? search = null)
+        string? search = null,
+        Guid? artistId = null,
+        Guid? albumId = null)
     {
-        var (tracks, totalCount) = await trackService.GetTracksAsync(page, pageSize, search);
+        var (tracks, totalCount) = await trackService.GetTracksAsync(page, pageSize, search, artistId, albumId);
         return Results.Ok(new
         {
             tracks,

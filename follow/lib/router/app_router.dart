@@ -18,6 +18,8 @@ import 'package:follow/features/downloads/downloads_page.dart';
 import 'package:follow/features/settings/settings_page.dart';
 import 'package:follow/features/auth/login_page.dart';
 import 'package:follow/features/player/player_page.dart';
+import 'package:follow/features/library/album_detail_page.dart';
+import 'package:follow/features/library/artist_detail_page.dart';
 
 part 'app_router.gr.dart';
 
@@ -285,27 +287,5 @@ class PlaylistDetailPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('播放列表')),
         body: Center(child: Text('Playlist $id')),
-      );
-}
-
-@RoutePage()
-class ArtistDetailPage extends StatelessWidget {
-  const ArtistDetailPage({@PathParam('id') required this.id, super.key});
-  final String id;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('艺术家')),
-        body: Center(child: Text('Artist $id')),
-      );
-}
-
-@RoutePage()
-class AlbumDetailPage extends StatelessWidget {
-  const AlbumDetailPage({@PathParam('id') required this.id, super.key});
-  final String id;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('专辑')),
-        body: Center(child: Text('Album $id')),
       );
 }

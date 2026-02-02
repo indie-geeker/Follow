@@ -15,7 +15,13 @@
         <el-table-column prop="name" label="名称" min-width="150">
           <template #default="{ row }">
             <div class="artist-cell">
-              <div class="artist-avatar">
+              <el-image
+                v-if="row.coverUrl"
+                :src="getCoverUrl(row.coverUrl)"
+                class="artist-avatar"
+                fit="cover"
+              />
+              <div v-else class="artist-avatar">
                 {{ row.name?.charAt(0)?.toUpperCase() }}
               </div>
               <span class="artist-name">{{ row.name }}</span>
@@ -43,6 +49,34 @@
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="请输入艺术家名称" />
         </el-form-item>
+        
+        <el-form-item label="封面">
+          <div class="cover-edit-area">
+             <el-input v-model="form.coverUrl" placeholder="输入封面图片 URL" style="margin-bottom: 10px;" />
+             
+             <div class="upload-section" v-if="form.id">
+               <el-image
+                v-if="form.coverUrl"
+                :src="getCoverUrl(form.coverUrl)"
+                class="edit-preview"
+                fit="cover"
+               />
+               <el-upload
+                 :action="coverUploadUrl"
+                 :headers="uploadHeaders"
+                 :show-file-list="false"
+                 :on-success="handleCoverUpload"
+                 accept=".jpg,.jpeg,.png,.webp,.gif"
+               >
+                 <el-button type="primary" size="small">上传封面文件</el-button>
+               </el-upload>
+             </div>
+             <div v-else class="upload-tip">
+               保存后可上传本地图片
+             </div>
+          </div>
+        </el-form-item>
+
         <el-form-item label="简介">
           <el-input v-model="form.bio" type="textarea" :rows="4" placeholder="请输入艺术家简介" />
         </el-form-item>
@@ -56,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import api from '@/api'
@@ -64,7 +98,21 @@ import api from '@/api'
 const loading = ref(false)
 const artists = ref<any[]>([])
 const dialogVisible = ref(false)
-const form = reactive({ id: '', name: '', bio: '' })
+const form = reactive({ id: '', name: '', bio: '', coverUrl: '' })
+
+const baseUrl = computed(() => import.meta.env.VITE_API_URL || 'http://localhost:5000')
+
+const coverUploadUrl = computed(() => `${baseUrl.value}/api/artists/${form.id}/cover`)
+
+const uploadHeaders = computed(() => ({
+  Authorization: `Bearer ${localStorage.getItem('token')}`
+}))
+
+function getCoverUrl(coverPath: string): string {
+  if (!coverPath) return ''
+  if (coverPath.startsWith('http')) return coverPath
+  return `${baseUrl.value}/api/tracks/cover/${encodeURIComponent(coverPath)}`
+}
 
 async function loadArtists() {
   loading.value = true
@@ -80,13 +128,21 @@ function showDialog(artist?: any) {
   form.id = artist?.id || ''
   form.name = artist?.name || ''
   form.bio = artist?.bio || ''
+  form.coverUrl = artist?.coverUrl || ''
   dialogVisible.value = true
+}
+
+function handleCoverUpload(response: any) {
+  if (response.coverUrl) {
+    form.coverUrl = response.coverUrl
+    ElMessage.success('封面上传成功')
+  }
 }
 
 async function saveArtist() {
   try {
     if (form.id) {
-      await api.put(`/api/artists/${form.id}`, { name: form.name, bio: form.bio })
+      await api.put(`/api/artists/${form.id}`, { name: form.name, bio: form.bio, coverUrl: form.coverUrl || null })
     } else {
       await api.post('/api/artists', { name: form.name, bio: form.bio })
     }
@@ -209,5 +265,28 @@ onMounted(loadArtists)
 .action-buttons {
   display: flex;
   gap: 8px;
+}
+
+.cover-edit-area {
+  width: 100%;
+}
+
+.upload-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.edit-preview {
+  width: 60px;
+  height: 60px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.upload-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 </style>

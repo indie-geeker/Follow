@@ -16,7 +16,7 @@ public interface ITrackService
     /// <summary>
     /// Get all tracks with pagination
     /// </summary>
-    Task<(List<TrackDto> Tracks, int TotalCount)> GetTracksAsync(int page = 1, int pageSize = 20, string? search = null);
+    Task<(List<TrackDto> Tracks, int TotalCount)> GetTracksAsync(int page = 1, int pageSize = 20, string? search = null, Guid? artistId = null, Guid? albumId = null);
 
     /// <summary>
     /// Get a track by ID

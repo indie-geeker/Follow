@@ -3,6 +3,7 @@ using Follow.Core.Interfaces;
 using Follow.Infrastructure.Data;
 using Follow.Shared.DTOs;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Follow.Infrastructure.Services;
 
@@ -12,10 +13,17 @@ namespace Follow.Infrastructure.Services;
 public class AlbumService : IAlbumService
 {
     private readonly FollowDbContext _context;
+    private readonly IStorageService _storageService;
+    private readonly ILogger<AlbumService> _logger;
 
-    public AlbumService(FollowDbContext context)
+    public AlbumService(
+        FollowDbContext context,
+        IStorageService storageService,
+        ILogger<AlbumService> logger)
     {
         _context = context;
+        _storageService = storageService;
+        _logger = logger;
     }
 
     public async Task<List<AlbumDto>> GetAlbumsAsync()
@@ -86,6 +94,11 @@ public class AlbumService : IAlbumService
         album.Year = request.Year;
         album.ArtistId = request.ArtistId;
 
+        if (request.CoverUrl != null)
+        {
+            album.CoverUrl = request.CoverUrl;
+        }
+
         await _context.SaveChangesAsync();
         await _context.Entry(album).Reference(a => a.Artist).LoadAsync();
 
@@ -119,5 +132,24 @@ public class AlbumService : IAlbumService
         await _context.SaveChangesAsync();
 
         return album;
+    }
+
+    public async Task<string> UploadAlbumCoverAsync(Guid id, Stream fileStream, string fileName, string contentType)
+    {
+        var album = await _context.Albums.FindAsync(id);
+        if (album == null)
+            throw new ArgumentException($"Album {id} not found");
+
+        if (!string.IsNullOrEmpty(album.CoverUrl) && !album.CoverUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            await _storageService.DeleteFileAsync(album.CoverUrl);
+        }
+
+        var coverPath = await _storageService.UploadFileAsync(fileStream, fileName, contentType, $"albums/{id}/cover");
+        album.CoverUrl = coverPath;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Uploaded cover for album {AlbumId}: {Path}", id, coverPath);
+        return coverPath;
     }
 }

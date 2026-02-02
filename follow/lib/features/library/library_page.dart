@@ -13,6 +13,8 @@ import 'package:follow/shared/widgets/smart_track_tile.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
 import 'package:follow/shared/widgets/track_options_sheet.dart';
 import 'package:follow/shared/widgets/add_to_playlist_dialog.dart';
+import 'package:follow/features/library/widgets/artists_tab.dart';
+import 'package:follow/features/library/widgets/albums_tab.dart';
 
 @RoutePage()
 class LibraryPage extends ConsumerStatefulWidget {
@@ -138,16 +140,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                     controller: _tabController,
                     children: [
                       _TracksTab(),
-                      _PlaceholderTab(
-                        icon: Icons.person_outline_rounded,
-                        title: '艺术家列表',
-                        subtitle: '即将推出',
-                      ),
-                      _PlaceholderTab(
-                        icon: Icons.album_outlined,
-                        title: '专辑列表',
-                        subtitle: '即将推出',
-                      ),
+                      const ArtistsTab(),
+                      const AlbumsTab(),
 
                     ],
                   ),

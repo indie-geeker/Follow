@@ -3,6 +3,7 @@ using Follow.Core.Interfaces;
 using Follow.Infrastructure.Data;
 using Follow.Shared.DTOs;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Follow.Infrastructure.Services;
 
@@ -12,10 +13,17 @@ namespace Follow.Infrastructure.Services;
 public class ArtistService : IArtistService
 {
     private readonly FollowDbContext _context;
+    private readonly IStorageService _storageService;
+    private readonly ILogger<ArtistService> _logger;
 
-    public ArtistService(FollowDbContext context)
+    public ArtistService(
+        FollowDbContext context,
+        IStorageService storageService,
+        ILogger<ArtistService> logger)
     {
         _context = context;
+        _storageService = storageService;
+        _logger = logger;
     }
 
     public async Task<List<ArtistDto>> GetArtistsAsync()
@@ -54,6 +62,11 @@ public class ArtistService : IArtistService
 
         artist.Name = request.Name;
         artist.Bio = request.Bio;
+        
+        if (request.CoverUrl != null)
+        {
+            artist.CoverUrl = request.CoverUrl;
+        }
 
         await _context.SaveChangesAsync();
 
@@ -81,5 +94,24 @@ public class ArtistService : IArtistService
         await _context.SaveChangesAsync();
 
         return artist;
+    }
+
+    public async Task<string> UploadArtistCoverAsync(Guid id, Stream fileStream, string fileName, string contentType)
+    {
+        var artist = await _context.Artists.FindAsync(id);
+        if (artist == null)
+            throw new ArgumentException($"Artist {id} not found");
+
+        if (!string.IsNullOrEmpty(artist.CoverUrl) && !artist.CoverUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            await _storageService.DeleteFileAsync(artist.CoverUrl);
+        }
+
+        var coverPath = await _storageService.UploadFileAsync(fileStream, fileName, contentType, $"artists/{id}/cover");
+        artist.CoverUrl = coverPath;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Uploaded cover for artist {ArtistId}: {Path}", id, coverPath);
+        return coverPath;
     }
 }

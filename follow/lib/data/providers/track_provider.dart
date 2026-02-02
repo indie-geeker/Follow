@@ -62,3 +62,16 @@ class SearchTracks extends _$SearchTracks {
     return response.tracks;
   }
 }
+@riverpod
+Future<List<Track>> albumTracks(ref, String albumId) async {
+  final apiService = ApiService();
+  final response = await apiService.getTracks(albumId: albumId, pageSize: 100);
+  return response.tracks;
+}
+
+@riverpod
+Future<List<Track>> artistTracks(ref, String artistId) async {
+  final apiService = ApiService();
+  final response = await apiService.getTracks(artistId: artistId, pageSize: 100);
+  return response.tracks;
+}

@@ -45,11 +45,15 @@ class ApiService {
     int page = 1,
     int pageSize = 20,
     String? search,
+    String? artistId,
+    String? albumId,
   }) async {
     final response = await _dio.get('/api/tracks', queryParameters: {
       'page': page,
       'pageSize': pageSize,
       if (search != null) 'search': search,
+      if (artistId != null) 'artistId': artistId,
+      if (albumId != null) 'albumId': albumId,
     });
     return TrackListResponse.fromJson(response.data);
   }

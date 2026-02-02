@@ -164,7 +164,7 @@ public class TrackService : ITrackService
         }
     }
 
-    public async Task<(List<TrackDto> Tracks, int TotalCount)> GetTracksAsync(int page = 1, int pageSize = 20, string? search = null)
+    public async Task<(List<TrackDto> Tracks, int TotalCount)> GetTracksAsync(int page = 1, int pageSize = 20, string? search = null, Guid? artistId = null, Guid? albumId = null)
     {
         var query = _context.Tracks
             .Include(t => t.Artist)
@@ -178,6 +178,16 @@ public class TrackService : ITrackService
                 t.Title.ToLower().Contains(searchLower) ||
                 (t.Artist != null && t.Artist.Name.ToLower().Contains(searchLower)) ||
                 (t.Album != null && t.Album.Title.ToLower().Contains(searchLower)));
+        }
+
+        if (artistId.HasValue)
+        {
+            query = query.Where(t => t.ArtistId == artistId.Value);
+        }
+
+        if (albumId.HasValue)
+        {
+            query = query.Where(t => t.AlbumId == albumId.Value);
         }
 
         var totalCount = await query.CountAsync();

@@ -12,6 +12,7 @@ public interface IArtistService
     Task<ArtistDto?> GetArtistByIdAsync(Guid id);
     Task<ArtistDto> CreateArtistAsync(CreateArtistRequest request);
     Task<ArtistDto?> UpdateArtistAsync(Guid id, UpdateArtistRequest request);
+    Task<string> UploadArtistCoverAsync(Guid id, Stream fileStream, string fileName, string contentType);
     Task<bool> DeleteArtistAsync(Guid id);
     Task<Artist?> GetOrCreateArtistByNameAsync(string name);
 }
@@ -25,6 +26,7 @@ public interface IAlbumService
     Task<AlbumDto?> GetAlbumByIdAsync(Guid id);
     Task<AlbumDto> CreateAlbumAsync(CreateAlbumRequest request);
     Task<AlbumDto?> UpdateAlbumAsync(Guid id, UpdateAlbumRequest request);
+    Task<string> UploadAlbumCoverAsync(Guid id, Stream fileStream, string fileName, string contentType);
     Task<bool> DeleteAlbumAsync(Guid id);
     Task<Album?> GetOrCreateAlbumAsync(string title, Guid? artistId);
 }

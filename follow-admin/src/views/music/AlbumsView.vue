@@ -15,7 +15,13 @@
         <el-table-column prop="title" label="标题" min-width="150">
           <template #default="{ row }">
             <div class="album-cell">
-              <div class="album-cover">
+              <el-image
+                v-if="row.coverUrl"
+                :src="getCoverUrl(row.coverUrl)"
+                class="album-cover"
+                fit="cover"
+              />
+              <div v-else class="album-cover">
                 <el-icon><Collection /></el-icon>
               </div>
               <span class="album-title">{{ row.title }}</span>
@@ -51,6 +57,33 @@
         <el-form-item label="年份">
           <el-input-number v-model="form.year" :min="1900" :max="2100" />
         </el-form-item>
+
+        <el-form-item label="封面">
+          <div class="cover-edit-area">
+             <el-input v-model="form.coverUrl" placeholder="输入封面图片 URL" style="margin-bottom: 10px;" />
+             
+             <div class="upload-section" v-if="form.id">
+               <el-image
+                v-if="form.coverUrl"
+                :src="getCoverUrl(form.coverUrl)"
+                class="edit-preview"
+                fit="cover"
+               />
+               <el-upload
+                 :action="coverUploadUrl"
+                 :headers="uploadHeaders"
+                 :show-file-list="false"
+                 :on-success="handleCoverUpload"
+                 accept=".jpg,.jpeg,.png,.webp,.gif"
+               >
+                 <el-button type="primary" size="small">上传封面文件</el-button>
+               </el-upload>
+             </div>
+             <div v-else class="upload-tip">
+               保存后可上传本地图片
+             </div>
+          </div>
+        </el-form-item>
         <el-form-item label="艺术家">
           <el-select v-model="form.artistId" clearable placeholder="选择艺术家" style="width: 100%">
             <el-option v-for="a in artists" :key="a.id" :label="a.name" :value="a.id" />
@@ -66,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Collection } from '@element-plus/icons-vue'
 import api from '@/api'
@@ -75,7 +108,21 @@ const loading = ref(false)
 const albums = ref<any[]>([])
 const artists = ref<any[]>([])
 const dialogVisible = ref(false)
-const form = reactive({ id: '', title: '', year: new Date().getFullYear(), artistId: '' })
+const form = reactive({ id: '', title: '', year: new Date().getFullYear(), artistId: '', coverUrl: '' })
+
+const baseUrl = computed(() => import.meta.env.VITE_API_URL || 'http://localhost:5000')
+
+const coverUploadUrl = computed(() => `${baseUrl.value}/api/albums/${form.id}/cover`)
+
+const uploadHeaders = computed(() => ({
+  Authorization: `Bearer ${localStorage.getItem('token')}`
+}))
+
+function getCoverUrl(coverPath: string): string {
+  if (!coverPath) return ''
+  if (coverPath.startsWith('http')) return coverPath
+  return `${baseUrl.value}/api/tracks/cover/${encodeURIComponent(coverPath)}`
+}
 
 async function loadAlbums() {
   loading.value = true
@@ -96,12 +143,20 @@ function showDialog(album?: any) {
   form.title = album?.title || ''
   form.year = album?.year || new Date().getFullYear()
   form.artistId = album?.artist?.id || ''
+  form.coverUrl = album?.coverUrl || ''
   dialogVisible.value = true
+}
+
+function handleCoverUpload(response: any) {
+  if (response.coverUrl) {
+    form.coverUrl = response.coverUrl
+    ElMessage.success('封面上传成功')
+  }
 }
 
 async function saveAlbum() {
   try {
-    const data = { title: form.title, year: form.year, artistId: form.artistId || null }
+    const data = { title: form.title, year: form.year, artistId: form.artistId || null, coverUrl: form.coverUrl || null }
     if (form.id) {
       await api.put(`/api/albums/${form.id}`, data)
     } else {
@@ -225,5 +280,28 @@ onMounted(loadAlbums)
 .action-buttons {
   display: flex;
   gap: 8px;
+}
+
+.cover-edit-area {
+  width: 100%;
+}
+
+.upload-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.edit-preview {
+  width: 60px;
+  height: 60px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.upload-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 </style>
