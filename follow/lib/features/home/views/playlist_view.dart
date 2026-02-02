@@ -3,9 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
-import 'package:follow/data/providers/playlist_provider.dart';
-import 'package:follow/data/providers/track_provider.dart';
-import 'package:follow/shared/widgets/track_tile.dart';
+import 'package:follow/shared/widgets/smart_track_tile.dart';
+
+import '../../../data/providers/playlist_provider.dart';
+import '../../../data/services/api/api_service.dart';
 
 class PlaylistView extends ConsumerWidget {
   final String playlistId;
@@ -15,7 +16,6 @@ class PlaylistView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playlistAsync = ref.watch(playlistDetailProvider(playlistId));
-    final currentTrack = ref.watch(currentTrackProvider);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -30,36 +30,61 @@ class PlaylistView extends ConsumerWidget {
           itemCount: tracks.length,
           itemBuilder: (context, index) {
             final track = tracks[index];
-            return TrackTile(
+            return SmartTrackTile(
               track: track,
-              isPlaying: currentTrack?.id == track.id,
-              onTap: () => _playTrack(ref, track, tracks),
+              playlist: tracks,
+              onRemoveFromList: () async {
+                try {
+                  final apiService = ApiService();
+                  await apiService.removeTrackFromPlaylist(playlistId, track.id);
+                  ref.invalidate(playlistDetailProvider(playlistId));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('已移出歌单'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('操作失败: $e'),
+                        backgroundColor: theme.colorScheme.error,
+                      ),
+                    );
+                  }
+                }
+              },
             );
           },
         );
       },
-      loading: () => const Center(
+      loading: () =>
+      const Center(
         child: CircularProgressIndicator(),
       ),
-      error: (e, _) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.colorScheme.error,
+      error: (e, _) =>
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 48,
+                  color: theme.colorScheme.error,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  '加载失败',
+                  style: TextStyle(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              '加载失败',
-              style: TextStyle(
-                color: theme.colorScheme.error,
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -69,7 +94,8 @@ class PlaylistView extends ConsumerWidget {
         margin: const EdgeInsets.all(20),
         padding: const EdgeInsets.all(32),
         decoration: BoxDecoration(
-          color: isDark ? LoginColors.cardBackground : theme.colorScheme.surfaceContainerHighest,
+          color: isDark ? LoginColors.cardBackground : theme.colorScheme
+              .surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isDark ? LoginColors.cardBorder : Colors.transparent,
@@ -93,7 +119,8 @@ class PlaylistView extends ConsumerWidget {
               child: Icon(
                 Icons.music_note_rounded,
                 size: 32,
-                color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+                color: isDark ? LoginColors.accentPurple : theme.colorScheme
+                    .primary,
               ),
             ),
             const SizedBox(height: 16),
@@ -119,11 +146,5 @@ class PlaylistView extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  void _playTrack(WidgetRef ref, Track track, List<Track> tracks) {
-    ref.read(currentTrackProvider.notifier).setTrack(track);
-    ref.read(playQueueProvider.notifier).setQueue(List.from(tracks));
-    ref.read(audioPlayerServiceProvider).playTrack(track);
   }
 }

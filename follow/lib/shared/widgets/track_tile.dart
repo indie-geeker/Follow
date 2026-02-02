@@ -19,7 +19,12 @@ class TrackTile extends StatelessWidget {
     this.onMorePressed,
     this.isPlaying = false,
     this.showCover = true,
+    this.isFavorite = false,
+    this.onFavoriteToggle,
   });
+
+  final bool isFavorite;
+  final ValueChanged<bool>? onFavoriteToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -147,6 +152,20 @@ class TrackTile extends StatelessWidget {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
+                    if (onFavoriteToggle != null) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(
+                          isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                          color: isFavorite 
+                            ? (isDark ? const Color(0xFFFF5252) : Colors.red)
+                            : theme.colorScheme.onSurfaceVariant,
+                        ),
+                        iconSize: 20,
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => onFavoriteToggle!(!isFavorite),
+                      ),
+                    ],
                     if (onMorePressed != null)
                       IconButton(
                         icon: Icon(

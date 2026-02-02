@@ -4,8 +4,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/track_provider.dart';
+import 'package:follow/data/models/track.dart';
+import 'package:follow/data/providers/playlist_provider.dart';
+import 'package:follow/data/services/api/api_service.dart';
 import 'package:follow/data/providers/audio_provider.dart';
+import 'package:follow/data/providers/audio_provider.dart';
+import 'package:follow/shared/widgets/smart_track_tile.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
+import 'package:follow/shared/widgets/track_options_sheet.dart';
+import 'package:follow/shared/widgets/add_to_playlist_dialog.dart';
 
 @RoutePage()
 class LibraryPage extends ConsumerStatefulWidget {
@@ -22,7 +29,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -118,7 +125,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                       Tab(text: l10n.tracks),
                       Tab(text: l10n.artists),
                       Tab(text: l10n.albums),
-                      Tab(text: l10n.playlists),
+
                     ],
                   ),
                 ),
@@ -141,11 +148,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                         title: '专辑列表',
                         subtitle: '即将推出',
                       ),
-                      _PlaceholderTab(
-                        icon: Icons.playlist_play_rounded,
-                        title: '播放列表',
-                        subtitle: '即将推出',
-                      ),
+
                     ],
                   ),
                 ),
@@ -182,15 +185,9 @@ class _TracksTab extends ConsumerWidget {
             itemCount: tracks.length,
             itemBuilder: (context, index) {
               final track = tracks[index];
-              return TrackTile(
+              return SmartTrackTile(
                 track: track,
-                isPlaying: currentTrack?.id == track.id,
-                onTap: () {
-                  ref.read(currentTrackProvider.notifier).setTrack(track);
-                  ref.read(playQueueProvider.notifier).setQueue(tracks);
-                  ref.read(audioPlayerServiceProvider).playTrack(track);
-                },
-                onMorePressed: () => _showTrackOptions(context, track, isDark),
+                playlist: tracks,
               );
             },
           ),
@@ -217,95 +214,26 @@ class _TracksTab extends ConsumerWidget {
     );
   }
 
-  void _showTrackOptions(BuildContext context, track, bool isDark) {
+  void _showTrackOptions(BuildContext context, WidgetRef ref, Track track, bool isDark) {
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? LoginColors.gradientMid1 : null,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? LoginColors.textSecondary
-                      : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              _BottomSheetItem(
-                icon: Icons.favorite_border_rounded,
-                title: '添加到收藏',
-                onTap: () => Navigator.pop(context),
-              ),
-              _BottomSheetItem(
-                icon: Icons.playlist_add_rounded,
-                title: '添加到播放列表',
-                onTap: () => Navigator.pop(context),
-              ),
-              _BottomSheetItem(
-                icon: Icons.download_outlined,
-                title: '下载',
-                onTap: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-        ),
-      ),
+      builder: (context) => TrackOptionsSheet(track: track),
+    );
+  }
+
+  void _showAddToPlaylistDialog(BuildContext context, Track track) {
+    showDialog(
+      context: context,
+      builder: (context) => AddToPlaylistDialog(track: track),
     );
   }
 }
 
-class _BottomSheetItem extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final VoidCallback onTap;
 
-  const _BottomSheetItem({
-    required this.icon,
-    required this.title,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: isDark
-              ? LoginColors.accentPurple.withValues(alpha: 0.2)
-              : theme.colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(
-          icon,
-          color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
-          size: 20,
-        ),
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: isDark ? Colors.white : theme.colorScheme.onSurface,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      onTap: onTap,
-    );
-  }
-}
 
 class _PlaceholderTab extends StatelessWidget {
   final IconData icon;

@@ -17,9 +17,14 @@ class Playlists extends _$Playlists {
     await _apiService.createPlaylist(name);
     ref.invalidateSelf();
   }
+
+  Future<void> addTrack(String playlistId, String trackId) async {
+    await _apiService.addTrackToPlaylist(playlistId, trackId);
+    // Optionally invalidate specific playlist detail if needed, but not strictly necessary for the list
+  }
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 Future<PlaylistDetail> playlistDetail(ref, String id) async {
   final apiService = ApiService();
   return apiService.getPlaylistById(id);

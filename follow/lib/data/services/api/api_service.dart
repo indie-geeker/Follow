@@ -154,6 +154,10 @@ class ApiService {
   Future<void> addToHistory(String trackId) async {
     await _dio.post('/api/user/history', data: {'trackId': trackId});
   }
+
+  Future<void> removeFromHistory(String trackId) async {
+    await _dio.delete('/api/user/history/$trackId');
+  }
 }
 
 class TrackListResponse {

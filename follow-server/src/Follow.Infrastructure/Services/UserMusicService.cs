@@ -173,4 +173,17 @@ public class UserMusicService : IUserMusicService
             }
         }
     }
+
+    public async Task<bool> RemoveFromPlayHistoryAsync(Guid userId, Guid trackId)
+    {
+        var historyItem = await _context.PlayHistories
+            .FirstOrDefaultAsync(h => h.UserId == userId && h.TrackId == trackId);
+
+        if (historyItem == null) return false;
+
+        _context.PlayHistories.Remove(historyItem);
+        await _context.SaveChangesAsync();
+
+        return true;
+    }
 }

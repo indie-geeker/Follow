@@ -34,6 +34,10 @@ public static class UserMusicEndpoints
         group.MapPost("/history", RecordPlayHistory)
             .WithName("RecordPlayHistory")
             .RequireAuthorization();
+
+        group.MapDelete("/history/{trackId:guid}", RemoveFromHistory)
+            .WithName("RemoveFromHistory")
+            .RequireAuthorization();
     }
 
     private static Guid? GetUserId(ClaimsPrincipal user)
@@ -111,6 +115,18 @@ public static class UserMusicEndpoints
 
         await userMusicService.AddToPlayHistoryAsync(userId.Value, request.TrackId, request.PlayDurationSeconds);
         return Results.Ok();
+    }
+
+    private static async Task<IResult> RemoveFromHistory(
+        Guid trackId,
+        ClaimsPrincipal user,
+        IUserMusicService userMusicService)
+    {
+        var userId = GetUserId(user);
+        if (userId == null) return Results.Unauthorized();
+
+        var success = await userMusicService.RemoveFromPlayHistoryAsync(userId.Value, trackId);
+        return success ? Results.NoContent() : Results.NotFound();
     }
 }
 

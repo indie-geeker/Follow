@@ -44,7 +44,7 @@ class TracksNotifier extends _$TracksNotifier {
 }
 
 /// Fetch user favorites
-@riverpod
+@Riverpod(keepAlive: true)
 Future<List<Track>> favorites(ref) async {
   final apiService = ApiService();
   return await apiService.getFavorites();

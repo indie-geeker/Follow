@@ -16,6 +16,7 @@ public interface IUserMusicService
     // Play History
     Task<List<PlayHistoryItemDto>> GetPlayHistoryAsync(Guid userId, int limit = 50);
     Task AddToPlayHistoryAsync(Guid userId, Guid trackId, int playDurationSeconds);
+    Task<bool> RemoveFromPlayHistoryAsync(Guid userId, Guid trackId);
 }
 
 public record PlayHistoryItemDto(

@@ -1,10 +1,11 @@
+import 'package:follow/data/services/api/api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/track_provider.dart';
-import 'package:follow/shared/widgets/track_tile.dart';
+import 'package:follow/shared/widgets/smart_track_tile.dart';
 
 class FavoritesView extends ConsumerWidget {
   const FavoritesView({super.key});
@@ -12,7 +13,6 @@ class FavoritesView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final favoritesAsync = ref.watch(favoritesProvider);
-    final currentTrack = ref.watch(currentTrackProvider);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -26,10 +26,33 @@ class FavoritesView extends ConsumerWidget {
           itemCount: tracks.length,
           itemBuilder: (context, index) {
             final track = tracks[index];
-            return TrackTile(
+            return SmartTrackTile(
               track: track,
-              isPlaying: currentTrack?.id == track.id,
-              onTap: () => _playTrack(ref, track, tracks),
+              playlist: tracks,
+              onRemoveFromList: () async {
+                try {
+                  final apiService = ApiService();
+                  await apiService.removeFromFavorites(track.id);
+                  ref.invalidate(favoritesProvider);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('已移出收藏'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('操作失败: $e'),
+                        backgroundColor: theme.colorScheme.error,
+                      ),
+                    );
+                  }
+                }
+              },
             );
           },
         );
@@ -115,11 +138,5 @@ class FavoritesView extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  void _playTrack(WidgetRef ref, Track track, List<Track> tracks) {
-    ref.read(currentTrackProvider.notifier).setTrack(track);
-    ref.read(playQueueProvider.notifier).setQueue(List.from(tracks));
-    ref.read(audioPlayerServiceProvider).playTrack(track);
   }
 }
