@@ -6,6 +6,7 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/shared/widgets/player_progress_bar.dart';
+import 'package:follow/shared/widgets/player_controls.dart';
 import 'package:follow/core/theme/app_theme.dart';
 
 class LyricsOverlay extends ConsumerStatefulWidget {
@@ -66,6 +67,8 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     final audioService = ref.watch(audioPlayerServiceProvider);
     final lyricsAsync = ref.watch(currentTrackLyricsProvider);
     final currentLyricIdx = ref.watch(currentLyricIndexProvider);
+    final playerMode = ref.watch(playerModeProvider);
+    final volumeAsync = ref.watch(playerVolumeProvider);
 
     final isPlaying = isPlayingAsync.when(
       data: (v) => v,
@@ -128,16 +131,32 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
               // Header
               _buildHeader(context),
               // Content
+              // Content with floating volume control
               Expanded(
-                child: LayoutBuilder(
-                  builder: (layoutContext, constraints) {
-                    final isWide = constraints.maxWidth >= 600;
-                    if (isWide) {
-                      return _buildWideLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
-                    } else {
-                      return _buildNarrowLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
-                    }
-                  },
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: LayoutBuilder(
+                        builder: (layoutContext, constraints) {
+                          final isWide = constraints.maxWidth >= 600;
+                          if (isWide) {
+                            return _buildWideLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
+                          } else {
+                            return _buildNarrowLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
+                          }
+                        },
+                      ),
+                    ),
+                    Positioned(
+                      right: 14,
+                      bottom: 16,
+                      child: _HoverVolumeControl(
+                        volumeAsync: volumeAsync,
+                        audioService: audioService,
+                        foregroundColor: _foregroundColor(context),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               // Progress bar
@@ -148,7 +167,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
               ),
               const SizedBox(height: 16),
               // Controls
-              _buildControls(context, isPlaying, audioService),
+              _buildControls(context, isPlaying, audioService, playerMode, ref),
               const SizedBox(height: 24),
             ],
           ),
@@ -174,7 +193,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             ),
             onPressed: _close,
           ),
-          IconButton(
+          PopupMenuButton<String>(
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -183,7 +202,32 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
               ),
               child: Icon(Icons.more_horiz, color: _foregroundColor(context)),
             ),
-            onPressed: () {},
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            onSelected: (value) {
+              // TODO: Implement actions
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'download',
+                child: Row(
+                  children: [
+                    Icon(Icons.download_rounded, size: 20),
+                    SizedBox(width: 12),
+                    Text('下载'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'share',
+                child: Row(
+                  children: [
+                    Icon(Icons.share_rounded, size: 20),
+                    SizedBox(width: 12),
+                    Text('分享'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -196,17 +240,25 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
         // Left side: Cover + Info
         Expanded(
           flex: 1,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              TrackCoverImage(
-                track: currentTrack,
-                size: 240,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              const SizedBox(height: 24),
-              _buildTrackInfo(context, currentTrack),
-            ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Calculate available height for the image
+              // Reserve space for info (~80px) and spacing (24px)
+              final maxImageSize = (constraints.maxHeight - 110).clamp(100.0, 240.0);
+              
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TrackCoverImage(
+                    track: currentTrack,
+                    size: maxImageSize,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  const SizedBox(height: 24),
+                  _buildTrackInfo(context, currentTrack),
+                ],
+              );
+            },
           ),
         ),
         // Right side: Lyrics
@@ -242,16 +294,27 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
       padding: const EdgeInsets.symmetric(horizontal: 32),
       child: Column(
         children: [
-          Text(
-            currentTrack?.title ?? '',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: _foregroundColor(context),
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Text(
+                  currentTrack?.title ?? '',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: _foregroundColor(context),
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (currentTrack != null) ...[
+                const SizedBox(width: 8),
+                LikeButton(track: currentTrack, size: 24),
+              ],
+            ],
           ),
           const SizedBox(height: 4),
           Text(
@@ -325,14 +388,32 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     );
   }
 
-  Widget _buildControls(BuildContext context, bool isPlaying, AudioPlayerService audioService) {
+  Widget _buildControls(BuildContext context, bool isPlaying, AudioPlayerService audioService, PlayMode mode, WidgetRef ref) {
+    IconData modeIcon;
+    switch (mode) {
+      case PlayMode.sequence:
+        modeIcon = Icons.repeat_rounded;
+        break;
+      case PlayMode.shuffle:
+        modeIcon = Icons.shuffle_rounded;
+        break;
+      case PlayMode.single:
+        modeIcon = Icons.repeat_one_rounded;
+        break;
+    }
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        _buildControlButton(context, Icons.shuffle_rounded, 24, () {}),
-        const SizedBox(width: 20),
-        _buildControlButton(context, Icons.skip_previous_rounded, 32, () {}),
-        const SizedBox(width: 20),
+        _buildControlButton(context, modeIcon, 24, () {
+          ref.read(playerModeProvider.notifier).nextMode();
+        }),
+        const SizedBox(width: 24),
+        _buildControlButton(context, Icons.skip_previous_rounded, 32, () {
+          // TODO: Implement seek to prev
+        }),
+        const SizedBox(width: 24),
         GestureDetector(
           onTap: () {
             if (isPlaying) {
@@ -342,8 +423,8 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             }
           },
           child: Container(
-            width: 64,
-            height: 64,
+            width: 72,
+            height: 72,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
@@ -362,17 +443,18 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             child: Icon(
               isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
               color: Colors.white,
-              size: 32,
+              size: 36,
             ),
           ),
         ),
-        const SizedBox(width: 20),
-        _buildControlButton(context, Icons.skip_next_rounded, 32, () {}),
-        const SizedBox(width: 20),
-        _buildControlButton(context, Icons.repeat_rounded, 24, () {}),
+        const SizedBox(width: 24),
+        _buildControlButton(context, Icons.skip_next_rounded, 32, () {
+          // TODO: Implement seek to next
+        }),
       ],
     );
   }
+
 
   Widget _buildControlButton(BuildContext context, IconData icon, double size, VoidCallback onPressed) {
     return GestureDetector(
@@ -388,6 +470,92 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
           color: _foregroundColor(context, alpha: 0.8),
           size: size,
         ),
+      ),
+    );
+  }
+}
+
+class _HoverVolumeControl extends StatefulWidget {
+  final AsyncValue<double> volumeAsync;
+  final AudioPlayerService audioService;
+  final Color foregroundColor;
+
+  const _HoverVolumeControl({
+    required this.volumeAsync,
+    required this.audioService,
+    required this.foregroundColor,
+  });
+
+  @override
+  State<_HoverVolumeControl> createState() => _HoverVolumeControlState();
+}
+
+class _HoverVolumeControlState extends State<_HoverVolumeControl> {
+  bool _isHovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _isHovering = true),
+      onExit: (_) => setState(() => _isHovering = false),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Collapsible Slider Container
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            height: _isHovering ? 120 : 0,
+            width: 40,
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: widget.foregroundColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
+            clipBehavior: Clip.antiAlias,
+            child: SingleChildScrollView(
+              physics: const NeverScrollableScrollPhysics(),
+              child: SizedBox(
+                height: 104,
+                child: RotatedBox(
+                  quarterTurns: 3,
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      activeTrackColor: widget.foregroundColor.withValues(
+                          alpha: 0.9),
+                      inactiveTrackColor: widget.foregroundColor.withValues(
+                          alpha: 0.2),
+                      thumbColor: widget.foregroundColor,
+                      trackHeight: 4,
+                      thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6),
+                      overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14),
+                    ),
+                    child: Slider(
+                      value: widget.volumeAsync.value ?? 1.0,
+                      onChanged: (value) =>
+                          widget.audioService.setVolume(value),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // Volume Icon
+          Container(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              (_isHovering || (widget.volumeAsync.value ?? 0) > 0)
+                  ? Icons.volume_up_rounded
+                  : Icons.volume_off_rounded,
+              color: widget.foregroundColor.withValues(
+                  alpha: _isHovering ? 1.0 : 0.7),
+              size: 24,
+            ),
+          ),
+        ],
       ),
     );
   }
