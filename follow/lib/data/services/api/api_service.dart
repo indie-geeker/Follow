@@ -140,6 +140,20 @@ class ApiService {
     final response = await _dio.get('/api/user/favorites/$trackId/check');
     return response.data['isFavorite'] ?? false;
   }
+
+  // ============ History ============
+
+  Future<List<Track>> getHistory() async {
+    final response = await _dio.get('/api/user/history');
+    return (response.data as List).map((e) {
+      // Server returns {track: TrackDto, playedAt: ..., playDurationSeconds: ...}
+      return Track.fromJson(e['track']);
+    }).toList();
+  }
+
+  Future<void> addToHistory(String trackId) async {
+    await _dio.post('/api/user/history', data: {'trackId': trackId});
+  }
 }
 
 class TrackListResponse {

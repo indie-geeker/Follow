@@ -89,6 +89,7 @@ Follow.Api/
 │   ├── AuthEndpoints.cs
 │   ├── PlaylistEndpoints.cs
 │   ├── RssEndpoints.cs
+│   ├── TagEndpoints.cs
 │   ├── TrackEndpoints.cs
 │   └── UserMusicEndpoints.cs
 ├── Properties/
@@ -116,7 +117,9 @@ Follow.Core/
 │   ├── PlayHistory.cs
 │   ├── Favorite.cs
 │   ├── RssSubscription.cs
-│   └── RssEpisode.cs
+│   ├── RssEpisode.cs
+│   ├── Tag.cs
+│   └── TrackTag.cs
 ├── Interfaces/             # 服务接口定义
 │   ├── IAdminService.cs
 │   ├── IAuthService.cs
@@ -153,6 +156,7 @@ Follow.Infrastructure/
 │   ├── PasswordHasher.cs
 │   ├── PlaylistService.cs
 │   ├── RssService.cs
+│   ├── TagService.cs
 │   ├── TrackService.cs
 │   └── UserMusicService.cs
 └── Follow.Infrastructure.csproj
@@ -333,6 +337,9 @@ erDiagram
     Track ||--o{ Favorite : favorited
     
     RssSubscription ||--o{ RssEpisode : has
+
+    Tag ||--o{ TrackTag : has
+    Track ||--o{ TrackTag : tagged_with
 ```
 
 ### 实体详解
@@ -448,6 +455,21 @@ public abstract class BaseEntity
 | IsPlayed | bool | 是否已播放 |
 | SubscriptionId | Guid | 订阅 ID |
 
+#### Tag (标签)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| Name | string | 标签名称 |
+| Category | string? | 分类 |
+| CoverUrl | string? | 封面 URL |
+
+#### TrackTag (曲目-标签关联)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| TrackId | Guid | 曲目 ID |
+| TagId | Guid | 标签 ID |
+
 ### 关系配置
 
 关键的外键删除行为：
@@ -479,6 +501,7 @@ public abstract class BaseEntity
 | **用户功能** | `/api/user` | 收藏/播放历史 | 认证 |
 | **管理员** | `/api/admin` | 用户管理/仪表盘 | 管理员 |
 | **RSS** | `/api/rss` | 播客订阅 | 认证 |
+| **标签** | `/api/tags` | 音乐标签管理 | 认证/管理员 |
 | **健康检查** | `/health` | 服务状态 | 公开 |
 
 ### 认证模块 (`/api/auth`)
@@ -510,6 +533,50 @@ public abstract class BaseEntity
 **支持的图片格式**: `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`
 
 **支持的歌词格式**: `.lrc`, `.txt`
+
+### 标签模块 (`/api/tags`)
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/` | 获取标签列表 | 认证 |
+| GET | `/{id}` | 获取标签详情 | 认证 |
+| GET | `/{id}/tracks` | 获取标签下的曲目 | 认证 |
+| POST | `/` | 创建标签 | 管理员 |
+| PUT | `/{id}` | 更新标签 | 管理员 |
+| DELETE | `/{id}` | 删除标签 | 管理员 |
+
+### 播放列表模块 (`/api/playlists`)
+
+> 用户自定义歌单功能
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/` | 获取当前用户的歌单列表 | 认证 |
+| GET | `/{id}` | 获取歌单详情 (包含曲目) | 认证 |
+| POST | `/` | 创建新歌单 | 认证 |
+| PUT | `/{id}` | 更新歌单信息 | 认证 |
+| DELETE | `/{id}` | 删除歌单 | 认证 |
+| POST | `/{id}/tracks` | 添加曲目到歌单 | 认证 |
+| DELETE | `/{id}/tracks/{trackId}` | 从歌单移除曲目 | 认证 |
+| PUT | `/{id}/tracks/reorder` | 重新排序歌单曲目 | 认证 |
+
+### 用户音乐模块 (`/api/user`)
+
+> 包含收藏和播放历史功能
+
+| 方法 | 路径 | 描述 | 权限 |
+|------|------|------|------|
+| GET | `/favorites` | 获取收藏的曲目列表 | 认证 |
+| POST | `/favorites/{trackId}` | 收藏曲目 | 认证 |
+| DELETE | `/favorites/{trackId}` | 取消收藏 | 认证 |
+| GET | `/favorites/{trackId}/check` | 检查是否已收藏 | 认证 |
+| GET | `/history` | 获取播放历史 | 认证 |
+| POST | `/history` | 记录播放历史 | 认证 |
+
+#### 播放历史规则
+- **去重机制**: 同一首歌曲多次播放只保留最后一次记录 (Upsert)。
+- **数量限制**: 每个用户最多保存 **300** 条最近播放记录。
+- **排序**: 按播放时间倒序排列 (最近播放的在前)。
 
 ### 用户角色
 

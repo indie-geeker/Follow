@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/services/api/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:follow/data/providers/track_provider.dart';
+import 'package:follow/data/providers/history_provider.dart';
 
 part 'audio_provider.g.dart';
 
@@ -54,10 +56,15 @@ class CurrentIndex extends _$CurrentIndex {
   }
 }
 
+
+
 /// Audio Player Service
 class AudioPlayerService {
   final AudioPlayer _player = AudioPlayer();
   final ApiService _apiService = ApiService();
+  final Ref _ref;
+  
+  AudioPlayerService(this._ref);
   
   AudioPlayer get player => _player;
   
@@ -72,6 +79,15 @@ class AudioPlayerService {
   Duration? get duration => _player.duration;
 
   Future<void> playTrack(Track track) async {
+    // Record history
+    try {
+      await _apiService.addToHistory(track.id);
+      _ref.invalidate(historyProvider);
+    } catch (e) {
+      // Ignore history recording errors to not block playback
+      debugPrint('Failed to record history: $e');
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('accessToken');
     
@@ -118,7 +134,7 @@ class AudioPlayerService {
 /// Audio player service provider - keepAlive to prevent disposal during async operations
 @Riverpod(keepAlive: true)
 AudioPlayerService audioPlayerService(Ref ref) {
-  final service = AudioPlayerService();
+  final service = AudioPlayerService(ref);
   ref.onDispose(() => service.dispose());
   return service;
 }

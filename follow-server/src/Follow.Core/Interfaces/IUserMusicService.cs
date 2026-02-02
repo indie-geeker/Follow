@@ -19,9 +19,7 @@ public interface IUserMusicService
 }
 
 public record PlayHistoryItemDto(
-    Guid TrackId,
-    string TrackTitle,
-    ArtistDto? Artist,
+    TrackDto Track,
     DateTime PlayedAt,
     int PlayDurationSeconds
 );

@@ -92,16 +92,29 @@ public class UserMusicService : IUserMusicService
             .Where(h => h.UserId == userId)
             .Include(h => h.Track)
                 .ThenInclude(t => t.Artist)
+            .Include(h => h.Track)
+                .ThenInclude(t => t.Album)
             .OrderByDescending(h => h.PlayedAt)
             .Take(limit)
             .ToListAsync();
 
         return history.Select(h => new PlayHistoryItemDto(
-            h.TrackId,
-            h.Track.Title,
-            h.Track.Artist != null 
-                ? new ArtistDto(h.Track.Artist.Id, h.Track.Artist.Name, h.Track.Artist.CoverUrl, h.Track.Artist.Bio) 
-                : null,
+            new TrackDto(
+                h.Track.Id,
+                h.Track.Title,
+                h.Track.DurationSeconds,
+                h.Track.CoverUrl,
+                h.Track.LyricsUrl,
+                h.Track.BitRate,
+                h.Track.Format,
+                h.Track.Artist != null 
+                    ? new ArtistDto(h.Track.Artist.Id, h.Track.Artist.Name, h.Track.Artist.CoverUrl, h.Track.Artist.Bio) 
+                    : null,
+                h.Track.Album != null 
+                    ? new AlbumDto(h.Track.Album.Id, h.Track.Album.Title, h.Track.Album.Year, h.Track.Album.CoverUrl, null) 
+                    : null,
+                h.Track.CreatedAt
+            ),
             h.PlayedAt,
             h.PlayDurationSeconds
         )).ToList();
@@ -109,15 +122,55 @@ public class UserMusicService : IUserMusicService
 
     public async Task AddToPlayHistoryAsync(Guid userId, Guid trackId, int playDurationSeconds)
     {
-        var history = new PlayHistory
-        {
-            UserId = userId,
-            TrackId = trackId,
-            PlayedAt = DateTime.UtcNow,
-            PlayDurationSeconds = playDurationSeconds
-        };
+        // 1. Check if record already exists (Upsert logic)
+        var existingRecord = await _context.PlayHistories
+            .FirstOrDefaultAsync(h => h.UserId == userId && h.TrackId == trackId);
 
-        _context.PlayHistories.Add(history);
+        if (existingRecord != null)
+        {
+            // Update existing record
+            existingRecord.PlayedAt = DateTime.UtcNow;
+            existingRecord.PlayDurationSeconds = playDurationSeconds;
+            _context.PlayHistories.Update(existingRecord);
+        }
+        else
+        {
+            // Insert new record
+            var history = new PlayHistory
+            {
+                UserId = userId,
+                TrackId = trackId,
+                PlayedAt = DateTime.UtcNow,
+                PlayDurationSeconds = playDurationSeconds
+            };
+            _context.PlayHistories.Add(history);
+        }
+
+        // 2. Save changes first to ensure the new/updated record is persisted
         await _context.SaveChangesAsync();
+
+        // 3. Enforce Limit (300)
+        // Get count
+        var count = await _context.PlayHistories.CountAsync(h => h.UserId == userId);
+        
+        if (count > 300)
+        {
+            // Identify records to delete (keep top 300 newest)
+            // We want to remove the oldest ones.
+            // Ordering by PlayedAt DESC gives newest first.
+            // Skip 300 gives us the ones to delete.
+            
+            var recordsToDelete = await _context.PlayHistories
+                .Where(h => h.UserId == userId)
+                .OrderByDescending(h => h.PlayedAt)
+                .Skip(300)
+                .ToListAsync();
+
+            if (recordsToDelete.Any())
+            {
+                _context.PlayHistories.RemoveRange(recordsToDelete);
+                await _context.SaveChangesAsync();
+            }
+        }
     }
 }
