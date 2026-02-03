@@ -2,6 +2,8 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:background_downloader/background_downloader.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:follow/core/config/app_config.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/download_provider.dart';
@@ -57,6 +59,28 @@ class DownloadsPage extends ConsumerWidget {
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
                             color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                          ),
+                        ),
+                        const Spacer(),
+                        // Open folder button
+                        GestureDetector(
+                          onTap: () {
+                            ref.read(downloadPathProvider.notifier).openDownloadFolder();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? LoginColors.cardBackground
+                                  : theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                              border: isDark ? Border.all(color: LoginColors.cardBorder) : null,
+                            ),
+                            child: Icon(
+                              Icons.folder_open_rounded,
+                              size: 22,
+                              color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+                            ),
                           ),
                         ),
                       ],
@@ -131,7 +155,7 @@ class _DownloadingTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final activeTasks = tasks.values.where(
-      (t) => t.status != TaskStatus.complete && t.status != TaskStatus.failed,
+      (t) => t.status != TaskStatus.complete, // Show failed tasks too for debugging
     ).toList();
 
     if (activeTasks.isEmpty) {
@@ -320,14 +344,14 @@ class _DownloadingItem extends ConsumerWidget {
   }
 }
 
-class _DownloadedTab extends StatelessWidget {
+class _DownloadedTab extends ConsumerWidget {
   final AsyncValue<List<dynamic>> tracksAsync;
   final bool isDark;
 
   const _DownloadedTab({required this.tracksAsync, required this.isDark});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
 
     return tracksAsync.when(
@@ -346,9 +370,75 @@ class _DownloadedTab extends StatelessWidget {
           itemCount: tracks.length,
           itemBuilder: (context, index) {
             final track = tracks[index];
-            return TrackTile(
-              track: track,
-              onTap: () {},
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? LoginColors.cardBackground
+                      : theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(12),
+                  border: isDark ? Border.all(color: LoginColors.cardBorder) : null,
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: track.coverUrl != null && track.coverUrl!.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: track.coverUrl!.startsWith('http')
+                                ? track.coverUrl!
+                                : '${AppConfig.apiBaseUrl}/api/tracks/cover/${Uri.encodeComponent(track.coverUrl!)}',
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => _buildDefaultCover(),
+                            errorWidget: (_, __, ___) => _buildDefaultCover(),
+                          )
+                        : _buildDefaultCover(),
+                  ),
+                  title: Text(
+                    track.title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w500,
+                      color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    track.artist?.name ?? 'Unknown Artist',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? LoginColors.textSecondary : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: GestureDetector(
+                    onTap: () {
+                      ref.read(downloadPathProvider.notifier).revealFileInFinder(track.id);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? LoginColors.accentPurple.withValues(alpha: 0.2)
+                            : theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.folder_open_rounded,
+                        size: 20,
+                        color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                  onTap: () {
+                    // TODO: Play downloaded track
+                  },
+                ),
+              ),
             );
           },
         );
@@ -370,6 +460,26 @@ class _DownloadedTab extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildDefaultCover() {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            LoginColors.accentPurple.withValues(alpha: 0.3),
+            LoginColors.accentPink.withValues(alpha: 0.3),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(
+        Icons.music_note_rounded,
+        color: LoginColors.accentPurple,
       ),
     );
   }

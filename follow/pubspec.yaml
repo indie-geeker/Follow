@@ -39,6 +39,10 @@ dependencies:
   # 本地存储
   shared_preferences: ^2.3.5
   
+  # 文件选择和打开
+  file_picker: ^8.0.0
+  open_dir: ^0.0.2+1
+  
   # UI
   cached_network_image: ^3.4.1
   shimmer: ^3.0.0

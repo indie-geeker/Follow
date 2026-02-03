@@ -4,6 +4,7 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/playlist_provider.dart';
 import 'package:follow/data/services/api/api_service.dart';
+import 'package:follow/data/providers/download_provider.dart';
 import 'package:follow/shared/widgets/add_to_playlist_dialog.dart';
 
 class TrackOptionsSheet extends ConsumerWidget {
@@ -61,7 +62,16 @@ class TrackOptionsSheet extends ConsumerWidget {
             _OptionItem(
               icon: Icons.download_outlined,
               title: '下载',
-              onTap: () => Navigator.pop(context),
+              onTap: () {
+                Navigator.pop(context);
+                ref.read(downloadManagerProvider.notifier).downloadTrack(track);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('已添加到下载队列'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
             ),
           ],
         ),

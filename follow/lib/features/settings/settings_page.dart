@@ -5,6 +5,7 @@ import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/theme/theme_provider.dart';
 import 'package:follow/data/providers/auth_provider.dart';
+import 'package:follow/data/providers/download_provider.dart';
 
 @RoutePage()
 class SettingsPage extends ConsumerWidget {
@@ -82,6 +83,32 @@ class SettingsPage extends ConsumerWidget {
 
                 const SizedBox(height: 16),
 
+                // Storage section
+                _SectionCard(
+                  isDark: isDark,
+                  children: [
+                    _SectionHeader(title: '存储', isDark: isDark),
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final downloadPathAsync = ref.watch(downloadPathProvider);
+                        return _SettingsTile(
+                          icon: Icons.folder_outlined,
+                          title: '下载位置',
+                          subtitle: downloadPathAsync.when(
+                            data: (path) => _truncatePath(path, 30),
+                            loading: () => '...',
+                            error: (_, __) => '加载失败',
+                          ),
+                          onTap: () => _showDownloadPathDialog(context, ref, isDark, downloadPathAsync.value),
+                          isDark: isDark,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
                 // Account section
                 _SectionCard(
                   isDark: isDark,
@@ -139,6 +166,105 @@ class SettingsPage extends ConsumerWidget {
       case ThemeMode.system:
         return l10n.get('system');
     }
+  }
+
+  String _truncatePath(String path, int maxLength) {
+    if (path.length <= maxLength) return path;
+    // Show last part of path
+    final parts = path.split('/');
+    String result = '';
+    for (int i = parts.length - 1; i >= 0; i--) {
+      final newResult = parts.sublist(i).join('/');
+      if (newResult.length > maxLength) break;
+      result = newResult;
+    }
+    return '.../$result';
+  }
+
+  void _showDownloadPathDialog(BuildContext context, WidgetRef ref, bool isDark, String? currentPath) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? LoginColors.gradientMid1 : null,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: isDark ? LoginColors.textSecondary : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Column(
+                  children: [
+                    Text(
+                      '下载位置',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    if (currentPath != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        currentPath,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? LoginColors.textSecondary : Colors.grey.shade600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              _DialogOption(
+                title: '更改位置',
+                icon: Icons.folder_open_rounded,
+                selected: false,
+                isDark: isDark,
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await ref.read(downloadPathProvider.notifier).pickDownloadFolder();
+                },
+              ),
+              _DialogOption(
+                title: '打开文件夹',
+                icon: Icons.open_in_new_rounded,
+                selected: false,
+                isDark: isDark,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  ref.read(downloadPathProvider.notifier).openDownloadFolder();
+                },
+              ),
+              _DialogOption(
+                title: '恢复默认',
+                icon: Icons.restore_rounded,
+                selected: false,
+                isDark: isDark,
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await ref.read(downloadPathProvider.notifier).resetToDefault();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showThemeDialog(BuildContext context, WidgetRef ref, ThemeMode current, AppLocalizations l10n, bool isDark) {
