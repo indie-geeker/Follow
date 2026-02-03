@@ -285,6 +285,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               onTap: () {
                 ref.read(currentTrackProvider.notifier).setTrack(track);
                 ref.read(playQueueProvider.notifier).setQueue(tracks);
+                ref.read(currentIndexProvider.notifier).setIndex(index);
                 ref.read(audioPlayerServiceProvider).playTrack(track);
               },
             );

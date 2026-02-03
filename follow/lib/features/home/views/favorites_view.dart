@@ -6,6 +6,7 @@ import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
+import 'package:follow/shared/widgets/play_all_tile.dart';
 
 class FavoritesView extends ConsumerWidget {
   const FavoritesView({super.key});
@@ -23,9 +24,20 @@ class FavoritesView extends ConsumerWidget {
         }
         return ListView.builder(
           padding: EdgeInsets.zero,
-          itemCount: tracks.length,
+          itemCount: tracks.length + 1,
           itemBuilder: (context, index) {
-            final track = tracks[index];
+            if (index == 0) {
+              return PlayAllTile(
+                count: tracks.length,
+                onTap: () {
+                  ref.read(playQueueProvider.notifier).setQueue(tracks);
+                  ref.read(currentTrackProvider.notifier).setTrack(tracks.first);
+                  ref.read(currentIndexProvider.notifier).setIndex(0);
+                  ref.read(audioPlayerServiceProvider).playTrack(tracks.first);
+                },
+              );
+            }
+            final track = tracks[index - 1];
             return SmartTrackTile(
               track: track,
               playlist: tracks,

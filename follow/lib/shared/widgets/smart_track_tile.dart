@@ -37,6 +37,10 @@ class SmartTrackTile extends ConsumerWidget {
       onTap: () {
         ref.read(currentTrackProvider.notifier).setTrack(track);
         ref.read(playQueueProvider.notifier).setQueue(playlist);
+        final index = playlist.indexOf(track);
+        if (index != -1) {
+          ref.read(currentIndexProvider.notifier).setIndex(index);
+        }
         ref.read(audioPlayerServiceProvider).playTrack(track);
       },
       onFavoriteToggle: (val) async {

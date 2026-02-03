@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -10,7 +11,7 @@ import 'package:follow/data/providers/history_provider.dart';
 part 'audio_provider.g.dart';
 
 /// Current playing track state
-@riverpod
+@Riverpod(keepAlive: true)
 class CurrentTrack extends _$CurrentTrack {
   @override
   Track? build() => null;
@@ -21,7 +22,7 @@ class CurrentTrack extends _$CurrentTrack {
 }
 
 /// Play queue
-@riverpod
+@Riverpod(keepAlive: true)
 class PlayQueue extends _$PlayQueue {
   @override
   List<Track> build() => [];
@@ -46,7 +47,7 @@ class PlayQueue extends _$PlayQueue {
 }
 
 /// Current queue index
-@riverpod
+@Riverpod(keepAlive: true)
 class CurrentIndex extends _$CurrentIndex {
   @override
   int build() => 0;
@@ -56,6 +57,15 @@ class CurrentIndex extends _$CurrentIndex {
   }
 }
 
+/// Shuffled indices provider
+@Riverpod(keepAlive: true)
+class ShuffledIndices extends _$ShuffledIndices {
+  @override
+  List<int> build() {
+    final queue = ref.watch(playQueueProvider);
+    return List.generate(queue.length, (i) => i)..shuffle();
+  }
+}
 
 
 /// Audio Player Service
@@ -64,7 +74,13 @@ class AudioPlayerService {
   final ApiService _apiService = ApiService();
   final Ref _ref;
   
-  AudioPlayerService(this._ref);
+  AudioPlayerService(this._ref) {
+    _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed) {
+        _handlePlaybackCompletion();
+      }
+    });
+  }
   
   AudioPlayer get player => _player;
   
@@ -79,6 +95,8 @@ class AudioPlayerService {
   Duration? get duration => _player.duration;
 
   Future<void> playTrack(Track track) async {
+    _ref.read(currentTrackProvider.notifier).setTrack(track);
+    
     // Record history
     try {
       await _apiService.addToHistory(track.id);
@@ -124,6 +142,151 @@ class AudioPlayerService {
 
   Future<void> setVolume(double volume) async {
     await _player.setVolume(volume);
+  }
+
+  Future<void> playNext() async {
+    final mode = _ref.read(playerModeProvider);
+    final queue = _ref.read(playQueueProvider);
+    final currentIndex = _ref.read(currentIndexProvider);
+    
+    if (queue.isEmpty) return;
+
+    if (mode == PlayMode.single) {
+      // Single loop mode, just replay current
+      await seek(Duration.zero);
+      await play();
+      return;
+    }
+
+    int nextIndex = 0;
+    if (mode == PlayMode.shuffle) {
+      final shuffledIndices = _ref.read(shuffledIndicesProvider);
+      if (shuffledIndices.isEmpty) return; // Should not happen if queue not empty
+      
+      // Find current index in shuffled list
+      // We need to map the actual current index to the position in shuffled list
+      // The current index in queue corresponds to some value in shuffledIndices
+      
+      // Wait, current index points to the PLAYING track in the original queue.
+      // So we need to find where this index is in the shuffled list.
+      final currentShuffledPos = shuffledIndices.indexOf(currentIndex);
+      
+      if (currentShuffledPos != -1) {
+        final nextShuffledPos = (currentShuffledPos + 1) % shuffledIndices.length;
+        nextIndex = shuffledIndices[nextShuffledPos];
+      } else {
+        // Fallback
+         nextIndex = shuffledIndices[0];
+      }
+    } else {
+      // Sequence
+      nextIndex = (currentIndex + 1) % queue.length;
+    }
+
+    _ref.read(currentIndexProvider.notifier).setIndex(nextIndex);
+    await playTrack(queue[nextIndex]);
+  }
+
+  Future<void> playPrevious() async {
+     final mode = _ref.read(playerModeProvider);
+    final queue = _ref.read(playQueueProvider);
+    final currentIndex = _ref.read(currentIndexProvider);
+    
+    if (queue.isEmpty) return;
+
+    if (mode == PlayMode.single) {
+      await seek(Duration.zero);
+      await play();
+      return;
+    }
+
+    int prevIndex = 0;
+    if (mode == PlayMode.shuffle) {
+      final shuffledIndices = _ref.read(shuffledIndicesProvider);
+      if (shuffledIndices.isEmpty) return;
+      
+      final currentShuffledPos = shuffledIndices.indexOf(currentIndex);
+      
+      if (currentShuffledPos != -1) {
+        // Provide negative wrap-around
+        final prevShuffledPos = (currentShuffledPos - 1 + shuffledIndices.length) % shuffledIndices.length;
+        prevIndex = shuffledIndices[prevShuffledPos];
+      } else {
+         prevIndex = shuffledIndices[0];
+      }
+    } else {
+      // Sequence
+      prevIndex = (currentIndex - 1 + queue.length) % queue.length;
+    }
+
+    _ref.read(currentIndexProvider.notifier).setIndex(prevIndex);
+    await playTrack(queue[prevIndex]);
+  }
+
+  Future<void> removeQueueItemAt(int index) async {
+    final queue = _ref.read(playQueueProvider);
+    final currentIndex = _ref.read(currentIndexProvider);
+    
+    if (index < 0 || index >= queue.length) return;
+
+    // Logic:
+    // If removing item BEFORE current: current index decrements
+    // If removing item AT current: play next (if avail) or previous or stop.
+    // If removing item AFTER current: current index stays same
+    
+    // We must modify the provider state. 
+    // PlayQueue provider has removeFromQueue method.
+    _ref.read(playQueueProvider.notifier).removeFromQueue(index);
+    // After this, queue length is reduced by 1.
+
+    if (index < currentIndex) {
+      // Removing item before current, so current shifts down
+      _ref.read(currentIndexProvider.notifier).setIndex(currentIndex - 1);
+    } else if (index == currentIndex) {
+      // Removing currently playing item
+      // Decide logic: Play next?
+      // Since queue is already shortened (the item at 'index' is now the NEXT item),
+      // we can essentially just "play" the item at the CURRENT index again (which is the new track).
+      // But we need to handle if we removed the LAST item.
+      
+      // New queue length
+      final newQueueLength = queue.length - 1;
+      
+      if (newQueueLength == 0) {
+        // Queue empty
+        await stop();
+        _ref.read(currentTrackProvider.notifier).setTrack(null);
+        _ref.read(currentIndexProvider.notifier).setIndex(0);
+      } else {
+        // If we removed the last item, we need to wrap or stop?
+        // Let's say we play the previous one or stop?
+        // Or if in shuffle, play another.
+        // Simple logic: if index == newQueueLength (was last), play 0 (loop) or index-1.
+        
+        int newIndex = index;
+        if (newIndex >= newQueueLength) {
+           newIndex = 0; // Wrap to start or handle end
+        }
+        
+        _ref.read(currentIndexProvider.notifier).setIndex(newIndex);
+        // Play the track at newIndex (which shifted into place)
+        // Wait, playQueueProvider was updated. So we need the NEW list.
+        final newQueue = _ref.read(playQueueProvider);
+        await playTrack(newQueue[newIndex]);
+      }
+    }
+    // If removing after, nothing changes for playback.
+  }
+
+  Future<void> clearQueue() async {
+    await stop();
+    _ref.read(playQueueProvider.notifier).clearQueue();
+    _ref.read(currentTrackProvider.notifier).setTrack(null);
+    _ref.read(currentIndexProvider.notifier).setIndex(0);
+  }
+
+  void _handlePlaybackCompletion() {
+    playNext();
   }
 
   void dispose() {
@@ -173,7 +336,7 @@ enum PlayMode {
   single,
 }
 
-@riverpod
+@Riverpod(keepAlive: true)
 class PlayerMode extends _$PlayerMode {
   @override
   PlayMode build() => PlayMode.sequence;
@@ -184,14 +347,25 @@ class PlayerMode extends _$PlayerMode {
     
     switch (mode) {
       case PlayMode.sequence:
-        // Shuffle off, Loop all
+        // Shuffle off, Loop off (we handle loop manually)
         await service.player.setShuffleModeEnabled(false);
-        await service.player.setLoopMode(LoopMode.all);
+        await service.player.setLoopMode(LoopMode.off);
         break;
       case PlayMode.shuffle:
-        // Shuffle on, Loop all
-        await service.player.setShuffleModeEnabled(true);
-        await service.player.setLoopMode(LoopMode.all);
+        // Shuffle off (we handle shuffle manually), Loop off
+        // Note: JustAudio's shuffle is different from our manual shuffle logic implementation detail
+        // But to rely on our manual plays, we turn native shuffle off to avoid confusion, 
+        // or we keep it off and just use our index logic.
+        // Actually, if we use setShuffleModeEnabled(true), JustAudio might change indices internally?
+        // No, JustAudio's shuffle just changes the order if we use a ConcatenatingAudioSource.
+        // Since we seem to be playing single tracks via setUrl/setFilePath, JustAudio's queue is size 1.
+        // So LoopMode.all will just loop this one track.
+        // So we MUST use LoopMode.off and handle "next" manually.
+        await service.player.setShuffleModeEnabled(false);
+        await service.player.setLoopMode(LoopMode.off);
+        
+        // Force refresh shuffled indices
+        ref.invalidate(shuffledIndicesProvider);
         break;
       case PlayMode.single:
         // Loop one

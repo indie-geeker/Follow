@@ -119,7 +119,9 @@ class DesktopPlayerBar extends ConsumerWidget {
                             minHeight: 32,
                             maxHeight: 32,
                           ),
-                          onPressed: () {},
+                          onPressed: () {
+                            audioService.playPrevious();
+                          },
                         ),
                         const SizedBox(width: 4),
                         PlayPauseButton(
@@ -139,7 +141,9 @@ class DesktopPlayerBar extends ConsumerWidget {
                             minHeight: 32,
                             maxHeight: 32,
                           ),
-                          onPressed: () {},
+                          onPressed: () {
+                            audioService.playNext();
+                          },
                         ),
                         const SizedBox(width: 12),
                         // Placeholder to balance layout if needed, or remove

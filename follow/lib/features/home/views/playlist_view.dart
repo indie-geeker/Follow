@@ -4,6 +4,7 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
+import 'package:follow/shared/widgets/play_all_tile.dart';
 
 import '../../../data/providers/playlist_provider.dart';
 import '../../../data/services/api/api_service.dart';
@@ -27,16 +28,29 @@ class PlaylistView extends ConsumerWidget {
         }
         return ListView.builder(
           padding: EdgeInsets.zero,
-          itemCount: tracks.length,
+          itemCount: tracks.length + 1,
           itemBuilder: (context, index) {
-            final track = tracks[index];
+            if (index == 0) {
+              return PlayAllTile(
+                count: tracks.length,
+                onTap: () {
+                  ref.read(playQueueProvider.notifier).setQueue(tracks);
+                  ref.read(currentTrackProvider.notifier).setTrack(
+                      tracks.first);
+                  ref.read(currentIndexProvider.notifier).setIndex(0);
+                  ref.read(audioPlayerServiceProvider).playTrack(tracks.first);
+                },
+              );
+            }
+            final track = tracks[index - 1];
             return SmartTrackTile(
               track: track,
               playlist: tracks,
               onRemoveFromList: () async {
                 try {
                   final apiService = ApiService();
-                  await apiService.removeTrackFromPlaylist(playlistId, track.id);
+                  await apiService.removeTrackFromPlaylist(
+                      playlistId, track.id);
                   ref.invalidate(playlistDetailProvider(playlistId));
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -147,4 +161,5 @@ class PlaylistView extends ConsumerWidget {
       ),
     );
   }
+
 }

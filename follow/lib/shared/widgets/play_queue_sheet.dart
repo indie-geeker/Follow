@@ -37,6 +37,34 @@ class PlayQueueSheet extends ConsumerWidget {
                 ),
                 const Spacer(),
                 IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  tooltip: '清空队列',
+                  onPressed: () {
+                    // Show confirmation
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('清空播放队列'),
+                        content: const Text('确定要清空所有播放记录吗？'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('取消'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              ref.read(audioPlayerServiceProvider).clearQueue();
+                              Navigator.pop(context); // Close dialog
+                              Navigator.pop(context); // Close sheet
+                            },
+                            child: const Text('清空'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
                   icon: const Icon(Icons.close_rounded),
                   onPressed: () => Navigator.pop(context),
                 ),
@@ -78,9 +106,22 @@ class PlayQueueSheet extends ConsumerWidget {
                           : theme.textTheme.bodySmall?.color,
                     ),
                   ),
-                  trailing: isCurrent 
-                      ? Icon(Icons.graphic_eq_rounded, color: theme.colorScheme.primary) 
-                      : null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isCurrent)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8.0),
+                          child: Icon(Icons.graphic_eq_rounded, color: theme.colorScheme.primary),
+                        ),
+                       IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () {
+                          ref.read(audioPlayerServiceProvider).removeQueueItemAt(index);
+                        },
+                      ),
+                    ],
+                  ),
                   onTap: () {
                     // Play this track
                     ref.read(audioPlayerServiceProvider).playTrack(track);

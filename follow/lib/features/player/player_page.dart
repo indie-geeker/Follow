@@ -500,7 +500,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         _buildControlButton(
           icon: Icons.skip_previous_rounded,
           size: 36,
-          onPressed: () {},
+          onPressed: () => audioService.playPrevious(),
         ),
         const SizedBox(width: 20),
 
@@ -543,7 +543,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         _buildControlButton(
           icon: Icons.skip_next_rounded,
           size: 36,
-          onPressed: () {},
+          onPressed: () => audioService.playNext(),
         ),
         const SizedBox(width: 20),
         _buildControlButton(
