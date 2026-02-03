@@ -6,6 +6,7 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
+import 'package:follow/features/search/providers/search_provider.dart';
 
 @RoutePage()
 class SearchPage extends ConsumerStatefulWidget {
@@ -18,7 +19,7 @@ class SearchPage extends ConsumerStatefulWidget {
 class _SearchPageState extends ConsumerState<SearchPage> {
   final _searchController = TextEditingController();
   final _focusNode = FocusNode();
-  String _query = '';
+  
 
   @override
   void dispose() {
@@ -33,6 +34,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final currentTrack = ref.watch(currentTrackProvider);
+    final query = ref.watch(searchQueryProvider);
+
+    // Sync controller with provider if needed
+    if (_searchController.text != query) {
+      _searchController.text = query;
+      _searchController.selection = TextSelection.fromPosition(
+        TextPosition(offset: _searchController.text.length),
+      );
+    }
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -139,7 +149,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                                     ),
                                     onPressed: () {
                                       _searchController.clear();
-                                      setState(() => _query = '');
+                                      ref.read(searchQueryProvider.notifier).state = '';
                                     },
                                   )
                                 : null,
@@ -150,10 +160,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                             ),
                           ),
                           onChanged: (value) {
-                            setState(() {});
+                             // Optional: Debounce here if needed, but strict state sync is simpler for now
+                             ref.read(searchQueryProvider.notifier).state = value;
                           },
                           onSubmitted: (value) {
-                            setState(() => _query = value.trim());
+                             ref.read(searchQueryProvider.notifier).state = value.trim();
                           },
                         ),
                       ),
@@ -163,9 +174,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
                 // Results
                 Expanded(
-                  child: _query.isEmpty
+                  child: query.isEmpty
                       ? _buildEmptyState(theme, isDark)
-                      : _buildSearchResults(ref, currentTrack, isDark),
+                      : _buildSearchResults(ref, currentTrack, isDark, query),
                 ),
               ],
             ),
@@ -222,8 +233,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     );
   }
 
-  Widget _buildSearchResults(WidgetRef ref, currentTrack, bool isDark) {
-    final resultsAsync = ref.watch(searchTracksProvider(_query));
+  Widget _buildSearchResults(WidgetRef ref, currentTrack, bool isDark, String query) {
+    final resultsAsync = ref.watch(searchTracksProvider(query));
     final theme = Theme.of(context);
 
     return resultsAsync.when(
@@ -261,7 +272,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '没有找到 "$_query" 相关的音乐',
+                  '没有找到 "$query" 相关的音乐',
                   style: TextStyle(
                     fontSize: 14,
                     color: isDark

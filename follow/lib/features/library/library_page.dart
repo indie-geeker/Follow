@@ -14,7 +14,9 @@ import 'package:follow/shared/widgets/track_tile.dart';
 import 'package:follow/shared/widgets/track_options_sheet.dart';
 import 'package:follow/shared/widgets/add_to_playlist_dialog.dart';
 import 'package:follow/features/library/widgets/artists_tab.dart';
+import 'package:follow/features/library/widgets/artists_tab.dart';
 import 'package:follow/features/library/widgets/albums_tab.dart';
+import 'package:follow/features/library/widgets/library_search_box.dart';
 
 @RoutePage()
 class LibraryPage extends ConsumerStatefulWidget {
@@ -84,6 +86,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                           color: isDark ? Colors.white : theme.colorScheme.onSurface,
                         ),
                       ),
+                      const Spacer(),
+                      const LibrarySearchBox(),
                     ],
                   ),
                 ),

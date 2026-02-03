@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/features/player/lyrics_overlay.dart';
+import 'package:follow/features/player/lyrics_overlay.dart';
 
 // Import actual page implementations
 import 'package:follow/features/home/home_page.dart';
@@ -187,27 +188,27 @@ class _DesktopShell extends ConsumerWidget {
                   tabsRouter.setActiveIndex(index);
                 },
                 leading: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.music_note,
-                        color: theme.colorScheme.primary,
-                        size: 32,
-                      ),
-                      if (isExpanded) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          'Follow',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.music_note,
+                            color: theme.colorScheme.primary,
+                            size: 32,
                           ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
+                          if (isExpanded) ...[
+                            const SizedBox(width: 8),
+                            Text(
+                              'Follow',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                 destinations: [
                   NavigationRailDestination(
                     icon: const Icon(Icons.home_outlined),
