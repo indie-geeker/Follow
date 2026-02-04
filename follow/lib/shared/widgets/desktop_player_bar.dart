@@ -4,8 +4,9 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/features/player/lyrics_overlay.dart';
 import 'package:follow/shared/widgets/player_controls.dart';
-
-import '../../data/providers/lyrics_provider.dart';
+import 'package:follow/core/extensions/async_value_ext.dart';
+import 'package:follow/core/utils/duration_utils.dart';
+import 'package:follow/data/providers/lyrics_provider.dart';
 
 class DesktopPlayerBar extends ConsumerWidget {
   final dynamic currentTrack;
@@ -21,21 +22,9 @@ class DesktopPlayerBar extends ConsumerWidget {
     final audioService = ref.watch(audioPlayerServiceProvider);
     final volumeAsync = ref.watch(playerVolumeProvider);
 
-    final isPlaying = isPlayingAsync.when(
-      data: (v) => v,
-      loading: () => false,
-      error: (_, __) => false,
-    );
-    final position = positionAsync.when(
-      data: (v) => v ?? Duration.zero,
-      loading: () => Duration.zero,
-      error: (_, __) => Duration.zero,
-    );
-    final duration = durationAsync.when(
-      data: (v) => v ?? const Duration(seconds: 1),
-      loading: () => const Duration(seconds: 1),
-      error: (_, __) => const Duration(seconds: 1),
-    );
+    final isPlaying = isPlayingAsync.valueOr(false);
+    final position = positionAsync.valueOrDefault(Duration.zero);
+    final duration = durationAsync.valueOrDefault(const Duration(seconds: 1));
 
     return Container(
       height: 80,
@@ -161,7 +150,7 @@ class DesktopPlayerBar extends ConsumerWidget {
                       child: Row(
                         children: [
                           Text(
-                            _formatDuration(position),
+                            formatDuration(position),
                             style: theme.textTheme.bodySmall,
                           ),
                           const SizedBox(width: 8),
@@ -192,7 +181,7 @@ class DesktopPlayerBar extends ConsumerWidget {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            _formatDuration(duration),
+                            formatDuration(duration),
                             style: theme.textTheme.bodySmall,
                           ),
                         ],
@@ -260,11 +249,5 @@ class DesktopPlayerBar extends ConsumerWidget {
         ],
       ),
     );
-  }
-
-  String _formatDuration(Duration d) {
-    final mins = d.inMinutes;
-    final secs = d.inSeconds % 60;
-    return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 }

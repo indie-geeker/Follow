@@ -1,12 +1,10 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/artist_provider.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
-
-import '../../data/providers/audio_provider.dart';
+import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/play_all_tile.dart';
 
 @RoutePage()
@@ -19,7 +17,6 @@ class ArtistDetailPage extends ConsumerWidget {
     final artistAsync = ref.watch(artistProvider(id));
     final tracksAsync = ref.watch(artistTracksProvider(id));
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       body: CustomScrollView(
@@ -116,11 +113,7 @@ class ArtistDetailPage extends ConsumerWidget {
                       return PlayAllTile(
                         count: tracks.length,
                         onTap: () {
-                          final tracks = tracksAsync.value!;
-                          ref.read(playQueueProvider.notifier).setQueue(tracks);
-                          ref.read(currentTrackProvider.notifier).setTrack(tracks.first);
-                          ref.read(currentIndexProvider.notifier).setIndex(0);
-                          ref.read(audioPlayerServiceProvider).playTrack(tracks.first);
+                          ref.read(audioPlayerServiceProvider).playAll(tracks);
                         },
                       );
                     }

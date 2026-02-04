@@ -6,6 +6,7 @@ import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
+import 'package:follow/core/utils/duration_utils.dart';
 
 @RoutePage()
 class PlayerPage extends ConsumerStatefulWidget {
@@ -345,14 +346,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            _formatDuration(position),
+                            formatDuration(position),
                             style: TextStyle(
                               fontSize: 12,
                               color: _foregroundColor(context, alpha: 0.6),
                             ),
                           ),
                           Text(
-                            _formatDuration(duration),
+                            formatDuration(duration),
                             style: TextStyle(
                               fontSize: 12,
                               color: _foregroundColor(context, alpha: 0.6),
@@ -575,11 +576,5 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         ),
       ),
     );
-  }
-
-  String _formatDuration(Duration d) {
-    final mins = d.inMinutes;
-    final secs = d.inSeconds % 60;
-    return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 }

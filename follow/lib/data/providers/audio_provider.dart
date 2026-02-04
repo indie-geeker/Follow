@@ -124,6 +124,17 @@ class AudioPlayerService {
     await _player.play();
   }
 
+  /// Play all tracks in a list starting from the first track
+  /// This consolidates the common pattern of setting queue, track, index and playing
+  Future<void> playAll(List<Track> tracks, {int startIndex = 0}) async {
+    if (tracks.isEmpty) return;
+    final index = startIndex.clamp(0, tracks.length - 1);
+    _ref.read(playQueueProvider.notifier).setQueue(tracks);
+    _ref.read(currentTrackProvider.notifier).setTrack(tracks[index]);
+    _ref.read(currentIndexProvider.notifier).setIndex(index);
+    await playTrack(tracks[index]);
+  }
+
   Future<void> play() async {
     await _player.play();
   }

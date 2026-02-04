@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/utils/duration_utils.dart';
 
 /// A reusable progress bar for audio playback.
 /// Shows current position, duration, and supports seeking via drag.
@@ -86,11 +87,7 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
     widget.onSeek(seekPosition);
   }
 
-  String _formatDuration(Duration d) {
-    final mins = d.inMinutes;
-    final secs = d.inSeconds % 60;
-    return '$mins:${secs.toString().padLeft(2, '0')}';
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -169,14 +166,14 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  _formatDuration(_displayPosition),
+                  formatDuration(_displayPosition),
                   style: TextStyle(
                     fontSize: 12,
                     color: _foregroundColor(alpha: 0.6),
                   ),
                 ),
                 Text(
-                  _formatDuration(widget.duration),
+                  formatDuration(widget.duration),
                   style: TextStyle(
                     fontSize: 12,
                     color: _foregroundColor(alpha: 0.6),

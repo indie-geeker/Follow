@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/core/config/app_config.dart';
 import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/utils/duration_utils.dart';
 
 /// Enhanced track list tile widget with premium styling
 class TrackTile extends StatelessWidget {
@@ -146,7 +147,7 @@ class TrackTile extends StatelessWidget {
                         ),
                       ),
                     Text(
-                      _formatDuration(track.durationSeconds),
+                      formatDurationFromSeconds(track.durationSeconds),
                       style: TextStyle(
                         fontSize: 13,
                         color: theme.colorScheme.onSurfaceVariant,
@@ -267,11 +268,5 @@ class TrackTile extends StatelessWidget {
         color: LoginColors.textSecondary,
       ),
     );
-  }
-
-  String _formatDuration(int seconds) {
-    final mins = seconds ~/ 60;
-    final secs = seconds % 60;
-    return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 }
