@@ -4,6 +4,7 @@ import 'package:follow/data/models/track.dart';
 import 'package:follow/core/config/app_config.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/utils/duration_utils.dart';
+import 'package:follow/shared/widgets/indicators/playing_indicator.dart';
 
 /// Enhanced track list tile widget with premium styling
 class TrackTile extends StatelessWidget {
@@ -74,7 +75,7 @@ class TrackTile extends StatelessWidget {
 
                 // Playing indicator
                 if (isPlaying && !showCover) ...[
-                  _buildPlayingIndicator(isDark),
+                  const PlayingIndicator(),
                   const SizedBox(width: 12),
                 ],
 
@@ -89,7 +90,7 @@ class TrackTile extends StatelessWidget {
                           if (isPlaying && showCover)
                             Container(
                               margin: const EdgeInsets.only(right: 8),
-                              child: _buildPlayingIndicator(isDark),
+                              child: const PlayingIndicator(),
                             ),
                           Expanded(
                             child: Text(
@@ -183,28 +184,6 @@ class TrackTile extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildPlayingIndicator(bool isDark) {
-    return Container(
-      width: 16,
-      height: 16,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDark
-              ? [LoginColors.accentPurple, LoginColors.accentPink]
-              : [const Color(0xFF6750A4), const Color(0xFF9C4BB8)],
-        ),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Icon(
-        Icons.equalizer_rounded,
-        size: 12,
-        color: Colors.white,
       ),
     );
   }

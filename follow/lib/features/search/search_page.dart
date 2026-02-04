@@ -6,6 +6,7 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
+import 'package:follow/shared/widgets/empty_state.dart';
 import 'package:follow/features/search/providers/search_provider.dart';
 
 @RoutePage()
@@ -175,57 +176,14 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 // Results
                 Expanded(
                   child: query.isEmpty
-                      ? _buildEmptyState(theme, isDark)
-                      : _buildSearchResults(ref, currentTrack, isDark, query),
+                    ? const EmptyState(
+                        icon: Icons.search_rounded,
+                        title: '搜索音乐',
+                        subtitle: '输入关键词搜索歌曲、艺术家或专辑',
+                      )
+                    : _buildSearchResults(ref, currentTrack, isDark, query),
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(ThemeData theme, bool isDark) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 100,
-            height: 100,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  LoginColors.accentPurple.withValues(alpha: 0.2),
-                  LoginColors.accentPink.withValues(alpha: 0.2),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Icon(
-              Icons.search_rounded,
-              size: 48,
-              color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '搜索音乐',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : theme.colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '输入关键词搜索歌曲、艺术家或专辑',
-            style: TextStyle(
-              fontSize: 14,
-              color: isDark
-                  ? LoginColors.textSecondary
-                  : theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],

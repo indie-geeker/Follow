@@ -5,8 +5,10 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/core/theme/app_theme.dart';
-import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/core/utils/duration_utils.dart';
+import 'package:follow/shared/widgets/player/player_cover_art.dart';
+import 'package:follow/shared/widgets/player/player_main_controls.dart';
+import 'package:follow/shared/widgets/player/page_indicator_dot.dart';
 
 @RoutePage()
 class PlayerPage extends ConsumerStatefulWidget {
@@ -253,7 +255,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                   },
                   children: [
                     // Page 0: Cover Art
-                    Center(child: _buildCoverArt(currentTrack, isDark)),
+                    Center(child: PlayerCoverArt(track: currentTrack)),
                     // Page 1: Lyrics
                     _buildLyricsPage(lyricsAsync, currentLyricIdx, audioService),
                   ],
@@ -264,9 +266,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildPageIndicator(0),
+                  PageIndicatorDot(isActive: _currentPage == 0),
                   const SizedBox(width: 8),
-                  _buildPageIndicator(1),
+                  PageIndicatorDot(isActive: _currentPage == 1),
                 ],
               ),
 
@@ -369,7 +371,20 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               const SizedBox(height: 24),
 
               // Main controls
-              _buildMainControls(isPlaying, audioService),
+              PlayerMainControls(
+                isPlaying: isPlaying,
+                onPlayPause: () {
+                  if (isPlaying) {
+                    audioService.pause();
+                  } else {
+                    audioService.play();
+                  }
+                },
+                onPrevious: () => audioService.playPrevious(),
+                onNext: () => audioService.playNext(),
+                onShuffle: () {},
+                onRepeat: () {},
+              ),
 
               const Spacer(flex: 2),
 
@@ -377,33 +392,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildCoverArt(track, bool isDark) {
-    return Container(
-      width: 280,
-      height: 280,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: (isDark ? LoginColors.accentPurple : Colors.black).withValues(alpha: isDark ? 0.3 : 0.1),
-            blurRadius: 40,
-            spreadRadius: 10,
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 30,
-            offset: const Offset(0, 15),
-          ),
-        ],
-      ),
-      child: TrackCoverImage(
-        track: track,
-        size: 280,
-        borderRadius: BorderRadius.circular(24),
       ),
     );
   }
@@ -470,109 +458,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             fontSize: 16,
             color: _foregroundColor(context, alpha: 0.6),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPageIndicator(int index) {
-    return Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: _currentPage == index 
-            ? _foregroundColor(context) 
-            : _foregroundColor(context, alpha: 0.3),
-      ),
-    );
-  }
-
-  Widget _buildMainControls(bool isPlaying, dynamic audioService) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _buildControlButton(
-          icon: Icons.shuffle_rounded,
-          size: 24,
-          onPressed: () {},
-        ),
-        const SizedBox(width: 20),
-        _buildControlButton(
-          icon: Icons.skip_previous_rounded,
-          size: 36,
-          onPressed: () => audioService.playPrevious(),
-        ),
-        const SizedBox(width: 20),
-
-        // Play/Pause button
-        GestureDetector(
-          onTap: () {
-            if (isPlaying) {
-              audioService.pause();
-            } else {
-              audioService.play();
-            }
-          },
-          child: Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [LoginColors.accentPurple, LoginColors.accentPink],
-              ),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: LoginColors.accentPurple.withValues(alpha: 0.4),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Icon(
-              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 36,
-            ),
-          ),
-        ),
-
-        const SizedBox(width: 20),
-        _buildControlButton(
-          icon: Icons.skip_next_rounded,
-          size: 36,
-          onPressed: () => audioService.playNext(),
-        ),
-        const SizedBox(width: 20),
-        _buildControlButton(
-          icon: Icons.repeat_rounded,
-          size: 24,
-          onPressed: () {},
-        ),
-      ],
-    );
-  }
-
-  Widget _buildControlButton({
-    required IconData icon,
-    required double size,
-    required VoidCallback onPressed,
-  }) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: _foregroundColor(context, alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          icon,
-          color: _foregroundColor(context, alpha: 0.8),
-          size: size,
         ),
       ),
     );

@@ -264,17 +264,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
                       ),
                     );
                   },
-                  child: AnimatedBuilder(
-                    animation: _shakeAnimation,
-                    builder: (context, child) {
-                      final shake = math.sin(_shakeAnimation.value * math.pi * 4) * 8;
-                      return Transform.translate(
-                        offset: Offset(shake, 0),
-                        child: child,
-                      );
-                    },
-                    child: _buildLoginCard(l10n, isLoading),
-                  ),
+                  child: _buildLoginCard(l10n, isLoading),
                 ),
               ),
             ),
@@ -384,7 +374,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
 
                   // Username (register only)
                   if (!_isLogin) ...[
-                    _buildTextField(
+                    _buildShakeableTextField(
                       controller: _usernameController,
                       label: l10n.get('username'),
                       icon: Icons.person_outline,
@@ -399,7 +389,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
                   ],
 
                   // Email
-                  _buildTextField(
+                  _buildShakeableTextField(
                     controller: _emailController,
                     label: l10n.get('email'),
                     icon: Icons.email_outlined,
@@ -414,7 +404,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
                   const SizedBox(height: 20),
 
                   // Password
-                  _buildTextField(
+                  _buildShakeableTextField(
                     controller: _passwordController,
                     label: l10n.get('password'),
                     icon: Icons.lock_outline,
@@ -553,6 +543,37 @@ class _LoginPageState extends ConsumerState<LoginPage>
           ),
         );
       },
+    );
+  }
+
+  /// Wraps a text field with shake animation
+  Widget _buildShakeableTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    TextInputType? keyboardType,
+    bool obscureText = false,
+    Widget? suffixIcon,
+    String? Function(String?)? validator,
+  }) {
+    return AnimatedBuilder(
+      animation: _shakeAnimation,
+      builder: (context, child) {
+        final shake = math.sin(_shakeAnimation.value * math.pi * 4) * 8;
+        return Transform.translate(
+          offset: Offset(shake, 0),
+          child: child,
+        );
+      },
+      child: _buildTextField(
+        controller: controller,
+        label: label,
+        icon: icon,
+        keyboardType: keyboardType,
+        obscureText: obscureText,
+        suffixIcon: suffixIcon,
+        validator: validator,
+      ),
     );
   }
 

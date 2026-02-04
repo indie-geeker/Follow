@@ -8,6 +8,8 @@ import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/shared/widgets/player_progress_bar.dart';
 import 'package:follow/shared/widgets/player_controls.dart';
 import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/shared/widgets/lyrics/lyrics_track_info.dart';
+import 'package:follow/shared/widgets/lyrics/lyrics_controls.dart';
 
 class LyricsOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -167,7 +169,20 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
               ),
               const SizedBox(height: 16),
               // Controls
-              _buildControls(context, isPlaying, audioService, playerMode, ref),
+              LyricsControls(
+                isPlaying: isPlaying,
+                playMode: playerMode,
+                onPlayPause: () {
+                  if (isPlaying) {
+                    audioService.pause();
+                  } else {
+                    audioService.play();
+                  }
+                },
+                onPrevious: () => audioService.playPrevious(),
+                onNext: () => audioService.playNext(),
+                onModeToggle: () => ref.read(playerModeProvider.notifier).nextMode(),
+              ),
               const SizedBox(height: 24),
             ],
           ),
@@ -255,7 +270,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                     borderRadius: BorderRadius.circular(20),
                   ),
                   const SizedBox(height: 24),
-                  _buildTrackInfo(context, currentTrack),
+                  LyricsTrackInfo(track: currentTrack),
                 ],
               );
             },
@@ -280,52 +295,12 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
           borderRadius: BorderRadius.circular(20),
         ),
         const SizedBox(height: 16),
-        _buildTrackInfo(context, currentTrack),
+        LyricsTrackInfo(track: currentTrack),
         const SizedBox(height: 16),
         Expanded(
           child: _buildLyricsList(context, lyricsAsync, currentLyricIdx, audioService),
         ),
       ],
-    );
-  }
-
-  Widget _buildTrackInfo(BuildContext context, Track? currentTrack) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  currentTrack?.title ?? '',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: _foregroundColor(context),
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (currentTrack != null) ...[
-                const SizedBox(width: 8),
-                LikeButton(track: currentTrack, size: 24),
-              ],
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            currentTrack?.artist?.name ?? '',
-            style: TextStyle(
-              fontSize: 14,
-              color: _foregroundColor(context, alpha: 0.7),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -383,92 +358,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             fontSize: 16,
             color: _foregroundColor(context, alpha: 0.5),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildControls(BuildContext context, bool isPlaying, AudioPlayerService audioService, PlayMode mode, WidgetRef ref) {
-    IconData modeIcon;
-    switch (mode) {
-      case PlayMode.sequence:
-        modeIcon = Icons.repeat_rounded;
-        break;
-      case PlayMode.shuffle:
-        modeIcon = Icons.shuffle_rounded;
-        break;
-      case PlayMode.single:
-        modeIcon = Icons.repeat_one_rounded;
-        break;
-    }
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildControlButton(context, modeIcon, 24, () {
-          ref.read(playerModeProvider.notifier).nextMode();
-        }),
-        const SizedBox(width: 24),
-        _buildControlButton(context, Icons.skip_previous_rounded, 32, () {
-          // TODO: Implement seek to prev
-        }),
-        const SizedBox(width: 24),
-        GestureDetector(
-          onTap: () {
-            if (isPlaying) {
-              audioService.pause();
-            } else {
-              audioService.play();
-            }
-          },
-          child: Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [LoginColors.accentPurple, LoginColors.accentPink],
-              ),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: LoginColors.accentPurple.withValues(alpha: 0.4),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Icon(
-              isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 36,
-            ),
-          ),
-        ),
-        const SizedBox(width: 24),
-        _buildControlButton(context, Icons.skip_next_rounded, 32, () {
-          // TODO: Implement seek to next
-        }),
-      ],
-    );
-  }
-
-
-  Widget _buildControlButton(BuildContext context, IconData icon, double size, VoidCallback onPressed) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: _foregroundColor(context, alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          icon,
-          color: _foregroundColor(context, alpha: 0.8),
-          size: size,
         ),
       ),
     );

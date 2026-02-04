@@ -8,6 +8,9 @@ import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/download_provider.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
+import 'package:follow/shared/widgets/empty_state.dart';
+import 'package:follow/shared/widgets/default_cover.dart';
+import 'package:follow/shared/widgets/download_action_button.dart';
 
 @RoutePage()
 class DownloadsPage extends ConsumerWidget {
@@ -159,12 +162,10 @@ class _DownloadingTab extends ConsumerWidget {
     ).toList();
 
     if (activeTasks.isEmpty) {
-      return _buildEmptyState(
+      return const EmptyState(
         icon: Icons.download_outlined,
         title: '暂无下载任务',
         subtitle: '在音乐库中选择歌曲下载',
-        isDark: isDark,
-        theme: theme,
       );
     }
 
@@ -266,28 +267,25 @@ class _DownloadingItem extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (task.status == TaskStatus.running)
-                _buildActionButton(
+                DownloadActionButton(
                   icon: Icons.pause_rounded,
                   onPressed: () {
                     ref.read(downloadManagerProvider.notifier).pauseDownload(task.trackId);
                   },
-                  isDark: isDark,
                 ),
               if (task.status == TaskStatus.paused)
-                _buildActionButton(
+                DownloadActionButton(
                   icon: Icons.play_arrow_rounded,
                   onPressed: () {
                     ref.read(downloadManagerProvider.notifier).resumeDownload(task.trackId);
                   },
-                  isDark: isDark,
                 ),
               const SizedBox(width: 8),
-              _buildActionButton(
+              DownloadActionButton(
                 icon: Icons.close_rounded,
                 onPressed: () {
                   ref.read(downloadManagerProvider.notifier).cancelDownload(task.trackId);
                 },
-                isDark: isDark,
                 isDestructive: true,
               ),
             ],
@@ -296,51 +294,22 @@ class _DownloadingItem extends ConsumerWidget {
       ),
     );
   }
+}
 
-  Widget _buildActionButton({
-    required IconData icon,
-    required VoidCallback onPressed,
-    required bool isDark,
-    bool isDestructive = false,
-  }) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: isDestructive
-              ? Colors.red.withValues(alpha: 0.15)
-              : (isDark
-                  ? LoginColors.accentPurple.withValues(alpha: 0.2)
-                  : LoginColors.accentPurple.withValues(alpha: 0.1)),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(
-          icon,
-          size: 20,
-          color: isDestructive
-              ? Colors.red
-              : LoginColors.accentPurple,
-        ),
-      ),
-    );
-  }
-
-  String _getStatusText(TaskStatus status) {
-    switch (status) {
-      case TaskStatus.enqueued:
-        return '等待中';
-      case TaskStatus.running:
-        return '下载中';
-      case TaskStatus.paused:
-        return '已暂停';
-      case TaskStatus.complete:
-        return '已完成';
-      case TaskStatus.failed:
-        return '下载失败';
-      default:
-        return '';
-    }
+String _getStatusText(TaskStatus status) {
+  switch (status) {
+    case TaskStatus.enqueued:
+      return '等待中';
+    case TaskStatus.running:
+      return '下载中';
+    case TaskStatus.paused:
+      return '已暂停';
+    case TaskStatus.complete:
+      return '已完成';
+    case TaskStatus.failed:
+      return '下载失败';
+    default:
+      return '';
   }
 }
 
@@ -357,12 +326,10 @@ class _DownloadedTab extends ConsumerWidget {
     return tracksAsync.when(
       data: (tracks) {
         if (tracks.isEmpty) {
-          return _buildEmptyState(
+          return const EmptyState(
             icon: Icons.download_done_outlined,
             title: '暂无已下载音乐',
             subtitle: '在音乐库中长按歌曲选择下载',
-            isDark: isDark,
-            theme: theme,
           );
         }
         return ListView.builder(
@@ -392,10 +359,10 @@ class _DownloadedTab extends ConsumerWidget {
                             width: 48,
                             height: 48,
                             fit: BoxFit.cover,
-                            placeholder: (_, __) => _buildDefaultCover(),
-                            errorWidget: (_, __, ___) => _buildDefaultCover(),
+                            placeholder: (_, __) => const DefaultCover(),
+                            errorWidget: (_, __, ___) => const DefaultCover(),
                           )
-                        : _buildDefaultCover(),
+                        : const DefaultCover(),
                   ),
                   title: Text(
                     track.title,
@@ -463,77 +430,4 @@ class _DownloadedTab extends ConsumerWidget {
       ),
     );
   }
-
-  Widget _buildDefaultCover() {
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            LoginColors.accentPurple.withValues(alpha: 0.3),
-            LoginColors.accentPink.withValues(alpha: 0.3),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Icon(
-        Icons.music_note_rounded,
-        color: LoginColors.accentPurple,
-      ),
-    );
-  }
-}
-
-Widget _buildEmptyState({
-  required IconData icon,
-  required String title,
-  required String subtitle,
-  required bool isDark,
-  required ThemeData theme,
-}) {
-  return Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                LoginColors.accentPurple.withValues(alpha: 0.2),
-                LoginColors.accentPink.withValues(alpha: 0.2),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Icon(
-            icon,
-            size: 40,
-            color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
-          ),
-        ),
-        const SizedBox(height: 20),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white : theme.colorScheme.onSurface,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          subtitle,
-          style: TextStyle(
-            fontSize: 14,
-            color: isDark
-                ? LoginColors.textSecondary
-                : theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    ),
-  );
 }

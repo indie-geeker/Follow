@@ -8,6 +8,8 @@ import 'package:follow/data/providers/playlist_provider.dart';
 import 'package:follow/features/home/views/favorites_view.dart';
 import 'package:follow/features/home/views/playlist_view.dart';
 import 'package:follow/features/home/views/recently_played_view.dart';
+import 'package:follow/shared/widgets/app_logo.dart';
+import 'package:follow/shared/widgets/user_avatar.dart';
 
 @RoutePage()
 class HomePage extends ConsumerStatefulWidget {
@@ -92,8 +94,8 @@ class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMix
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              _buildLogo(isDark, theme),
-                              if (user != null) _buildUserAvatar(user, isDark, theme),
+                              const AppLogo(),
+                              if (user != null) UserAvatar(user: user),
                             ],
                           ),
                         ),
@@ -186,83 +188,6 @@ class _HomePageState extends ConsumerState<HomePage> with TickerProviderStateMix
       },
       loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, s) => Scaffold(body: Center(child: Text('Error: $e'))),
-    );
-  }
-
-  Widget _buildLogo(bool isDark, ThemeData theme) {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                LoginColors.accentPurple,
-                LoginColors.accentPink,
-              ],
-            ),
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: LoginColors.accentPurple.withValues(alpha: 0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.music_note_rounded,
-            color: Colors.white,
-            size: 22,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'Follow Music',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : theme.colorScheme.onSurface,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildUserAvatar(user, bool isDark, ThemeData theme) {
-    return Container(
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: LoginColors.accentPurple.withValues(alpha: 0.5),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: LoginColors.accentPurple.withValues(alpha: 0.2),
-            blurRadius: 8,
-          ),
-        ],
-      ),
-      child: CircleAvatar(
-        radius: 18,
-        backgroundColor: isDark
-            ? LoginColors.cardBackground
-            : theme.colorScheme.primaryContainer,
-        child: Text(
-          user.username[0].toUpperCase(),
-          style: TextStyle(
-            color: isDark
-                ? Colors.white
-                : theme.colorScheme.onPrimaryContainer,
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
-          ),
-        ),
-      ),
     );
   }
 
