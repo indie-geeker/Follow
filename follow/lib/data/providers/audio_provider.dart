@@ -1,6 +1,6 @@
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/services/api/api_service.dart';
@@ -57,13 +57,23 @@ class CurrentIndex extends _$CurrentIndex {
   }
 }
 
-/// Shuffled indices provider
+/// Shuffled indices provider — only regenerated explicitly via reshuffle()
 @Riverpod(keepAlive: true)
 class ShuffledIndices extends _$ShuffledIndices {
   @override
-  List<int> build() {
-    final queue = ref.watch(playQueueProvider);
-    return List.generate(queue.length, (i) => i)..shuffle();
+  List<int> build() => [];
+
+  /// Generate a new shuffle order based on current queue length
+  void reshuffle(int queueLength) {
+    state = List.generate(queueLength, (i) => i)..shuffle();
+  }
+
+  /// Remove a queue index and adjust remaining indices to stay valid.
+  void removeIndex(int removedIndex) {
+    state = state
+        .where((i) => i != removedIndex)
+        .map((i) => i > removedIndex ? i - 1 : i)
+        .toList();
   }
 }
 
@@ -96,31 +106,47 @@ class AudioPlayerService {
 
   Future<void> playTrack(Track track) async {
     _ref.read(currentTrackProvider.notifier).setTrack(track);
-    
-    // Record history
-    try {
-      await _apiService.addToHistory(track.id);
+
+    // Fire-and-forget: record history without blocking playback
+    _apiService.addToHistory(track.id).then((_) {
       _ref.invalidate(historyProvider);
-    } catch (e) {
-      // Ignore history recording errors to not block playback
+    }).catchError((e) {
       debugPrint('Failed to record history: $e');
-    }
+    });
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('accessToken');
-    
+
+    // Build MediaItem for notification display
+    final mediaItem = MediaItem(
+      id: track.id,
+      title: track.title,
+      artist: track.artist?.name,
+      album: track.album?.title,
+      artUri: track.coverUrl != null ? Uri.parse(track.coverUrl!) : null,
+      duration: track.durationSeconds > 0
+          ? Duration(seconds: track.durationSeconds)
+          : null,
+    );
+
     // Check if track is downloaded locally
     if (track.isDownloaded && track.localPath != null) {
-      await _player.setFilePath(track.localPath!);
+      final source = AudioSource.file(
+        track.localPath!,
+        tag: mediaItem,
+      );
+      await _player.setAudioSource(source);
     } else {
       // Stream from server
       final url = _apiService.getStreamUrl(track.id);
-      await _player.setUrl(
-        url,
+      final source = AudioSource.uri(
+        Uri.parse(url),
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        tag: mediaItem,
       );
+      await _player.setAudioSource(source);
     }
-    
+
     await _player.play();
   }
 
@@ -130,8 +156,14 @@ class AudioPlayerService {
     if (tracks.isEmpty) return;
     final index = startIndex.clamp(0, tracks.length - 1);
     _ref.read(playQueueProvider.notifier).setQueue(tracks);
-    _ref.read(currentTrackProvider.notifier).setTrack(tracks[index]);
     _ref.read(currentIndexProvider.notifier).setIndex(index);
+
+    // Regenerate shuffle indices for the new queue
+    final mode = _ref.read(playerModeProvider);
+    if (mode == PlayMode.shuffle) {
+      _ref.read(shuffledIndicesProvider.notifier).reshuffle(tracks.length);
+    }
+
     await playTrack(tracks[index]);
   }
 
@@ -237,18 +269,15 @@ class AudioPlayerService {
   Future<void> removeQueueItemAt(int index) async {
     final queue = _ref.read(playQueueProvider);
     final currentIndex = _ref.read(currentIndexProvider);
-    
+
     if (index < 0 || index >= queue.length) return;
 
-    // Logic:
-    // If removing item BEFORE current: current index decrements
-    // If removing item AT current: play next (if avail) or previous or stop.
-    // If removing item AFTER current: current index stays same
-    
-    // We must modify the provider state. 
-    // PlayQueue provider has removeFromQueue method.
     _ref.read(playQueueProvider.notifier).removeFromQueue(index);
-    // After this, queue length is reduced by 1.
+
+    // Keep shuffle indices consistent after removal
+    if (_ref.read(playerModeProvider) == PlayMode.shuffle) {
+      _ref.read(shuffledIndicesProvider.notifier).removeIndex(index);
+    }
 
     if (index < currentIndex) {
       // Removing item before current, so current shifts down
@@ -375,8 +404,9 @@ class PlayerMode extends _$PlayerMode {
         await service.player.setShuffleModeEnabled(false);
         await service.player.setLoopMode(LoopMode.off);
         
-        // Force refresh shuffled indices
-        ref.invalidate(shuffledIndicesProvider);
+        // Generate new shuffle order
+        final queue = ref.read(playQueueProvider);
+        ref.read(shuffledIndicesProvider.notifier).reshuffle(queue.length);
         break;
       case PlayMode.single:
         // Loop one
