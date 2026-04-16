@@ -67,6 +67,14 @@ class ShuffledIndices extends _$ShuffledIndices {
   void reshuffle(int queueLength) {
     state = List.generate(queueLength, (i) => i)..shuffle();
   }
+
+  /// Remove a queue index and adjust remaining indices to stay valid.
+  void removeIndex(int removedIndex) {
+    state = state
+        .where((i) => i != removedIndex)
+        .map((i) => i > removedIndex ? i - 1 : i)
+        .toList();
+  }
 }
 
 
@@ -261,18 +269,15 @@ class AudioPlayerService {
   Future<void> removeQueueItemAt(int index) async {
     final queue = _ref.read(playQueueProvider);
     final currentIndex = _ref.read(currentIndexProvider);
-    
+
     if (index < 0 || index >= queue.length) return;
 
-    // Logic:
-    // If removing item BEFORE current: current index decrements
-    // If removing item AT current: play next (if avail) or previous or stop.
-    // If removing item AFTER current: current index stays same
-    
-    // We must modify the provider state. 
-    // PlayQueue provider has removeFromQueue method.
     _ref.read(playQueueProvider.notifier).removeFromQueue(index);
-    // After this, queue length is reduced by 1.
+
+    // Keep shuffle indices consistent after removal
+    if (_ref.read(playerModeProvider) == PlayMode.shuffle) {
+      _ref.read(shuffledIndicesProvider.notifier).removeIndex(index);
+    }
 
     if (index < currentIndex) {
       // Removing item before current, so current shifts down

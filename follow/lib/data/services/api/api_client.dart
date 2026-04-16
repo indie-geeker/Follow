@@ -58,10 +58,12 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode == 401) {
+    if (err.response?.statusCode == 401 &&
+        err.requestOptions.extra['_retried'] != true) {
       final refreshed = await _deduplicatedRefresh();
       if (refreshed) {
         final opts = err.requestOptions;
+        opts.extra['_retried'] = true;
         final prefs = await SharedPreferences.getInstance();
         opts.headers['Authorization'] = 'Bearer ${prefs.getString('accessToken')}';
 
