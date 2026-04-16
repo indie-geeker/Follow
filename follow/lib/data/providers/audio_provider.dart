@@ -96,19 +96,17 @@ class AudioPlayerService {
 
   Future<void> playTrack(Track track) async {
     _ref.read(currentTrackProvider.notifier).setTrack(track);
-    
-    // Record history
-    try {
-      await _apiService.addToHistory(track.id);
+
+    // Fire-and-forget: record history without blocking playback
+    _apiService.addToHistory(track.id).then((_) {
       _ref.invalidate(historyProvider);
-    } catch (e) {
-      // Ignore history recording errors to not block playback
+    }).catchError((e) {
       debugPrint('Failed to record history: $e');
-    }
+    });
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('accessToken');
-    
+
     // Check if track is downloaded locally
     if (track.isDownloaded && track.localPath != null) {
       await _player.setFilePath(track.localPath!);
@@ -120,7 +118,7 @@ class AudioPlayerService {
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
       );
     }
-    
+
     await _player.play();
   }
 
