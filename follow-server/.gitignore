@@ -124,3 +124,5 @@ ClientBin/
 Generated_Code/
 *.Cache
 ServiceFabricBackup/
+
+.claude/

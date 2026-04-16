@@ -67,10 +67,9 @@ sudo su - follow
 ```bash
 # 应用目录
 sudo mkdir -p /opt/follow-server
-sudo mkdir -p /data/follow/{postgres,minio,redis}
 
 # 设置权限
-sudo chown -R follow:follow /opt/follow-server /data/follow
+sudo chown -R follow:follow /opt/follow-server
 ```
 
 ---
@@ -83,7 +82,6 @@ sudo chown -R follow:follow /opt/follow-server /data/follow
 |------|------|------|----------|
 | **Docker** | 24.0+ | 容器运行时 | 必须安装 |
 | **Docker Compose** | v2.20+ | 容器编排 | 必须安装 |
-| **.NET SDK** | 10.0 | 构建项目 (仅本地构建需要) | 可选 |
 | **Git** | 2.30+ | 代码拉取 | 推荐安装 |
 | **Nginx** | 1.18+ | 反向代理 (可选) | 推荐安装 |
 
@@ -178,7 +176,7 @@ sudo systemctl enable nginx
 | **Follow API** | 5000 | 入站 | 后端 API 服务 |
 | **PostgreSQL** | 5432 | 内部 | 数据库 (不建议对外开放) |
 | **Redis** | 6379 | 内部 | 缓存服务 (不建议对外开放) |
-| **MinIO API** | 9000 | 内部/入站 | 对象存储 API |
+| **MinIO API** | 9000 | 内部 | 对象存储 API |
 | **MinIO Console** | 9001 | 入站 | MinIO 管理控制台 |
 | **HTTP** | 80 | 入站 | Nginx 反向代理 |
 | **HTTPS** | 443 | 入站 | Nginx SSL |
@@ -236,60 +234,21 @@ sudo firewall-cmd --list-all
 
 ## 项目构建与发布
 
-### 方式一：本地构建后上传 (推荐)
+> [!NOTE]
+> 以下提供三种方式将项目部署到服务器。推荐使用**方式一**（服务器克隆源码）或**方式二**（Docker Hub），操作最简单。
 
-在**开发机器**上执行:
-
-```bash
-# 1. 克隆项目
-git clone https://github.com/your-repo/follow-server.git
-cd follow-server
-
-# 2. 安装 .NET SDK 10.0 (如未安装)
-# macOS
-brew install dotnet@10
-
-# 或访问 https://dotnet.microsoft.com/download/dotnet/10.0
-
-# 3. 发布项目
-dotnet publish src/Follow.Api -c Release -o ./publish
-
-# 4. 打包发布目录
-tar -czvf follow-server-release.tar.gz publish/
-
-# 5. 上传到服务器
-scp follow-server-release.tar.gz user@your-server:/opt/follow-server/
-```
-
-在**服务器**上执行:
-
-```bash
-cd /opt/follow-server
-
-# 解压
-tar -xzvf follow-server-release.tar.gz
-
-# 目录结构
-# /opt/follow-server/publish/
-#   ├── Follow.Api.dll
-#   ├── appsettings.json
-#   └── ...
-```
-
-### 方式二：服务器上直接构建
+### 方式一：在服务器上克隆源码构建 (推荐)
 
 ```bash
 # 1. 克隆项目到服务器
 cd /opt/follow-server
 git clone https://github.com/your-repo/follow-server.git .
 
-# 2. 使用 Docker 构建
-docker build -t follow-api .
-
-# 构建完成后镜像名为: follow-api
+# 项目已包含 Dockerfile 和 docker-compose.yml，可以直接构建
+# 转到 "生产环境配置" 章节继续
 ```
 
-### 方式三：使用 Docker Hub (推荐用于 CI/CD)
+### 方式二：使用 Docker Hub (推荐用于 CI/CD)
 
 ```bash
 # 本地构建并推送镜像
@@ -300,17 +259,63 @@ docker push your-dockerhub-username/follow-api:latest
 docker pull your-dockerhub-username/follow-api:latest
 ```
 
+使用此方式时，需修改 `docker-compose.yml` 中 `api` 服务的 `build: .` 为 `image: your-dockerhub-username/follow-api:latest`。
+
+### 方式三：本地打包上传
+
+在**开发机器**上执行:
+
+```bash
+# 1. 克隆或进入项目目录
+git clone https://github.com/your-repo/follow-server.git
+cd follow-server
+
+# 2. 打包整个项目 (包含 Dockerfile 和 docker-compose.yml)
+tar -czvf follow-server.tar.gz \
+  --exclude='.git' \
+  --exclude='bin' \
+  --exclude='obj' \
+  --exclude='publish' \
+  .
+
+# 3. 上传到服务器
+scp follow-server.tar.gz user@your-server:/opt/follow-server/
+```
+
+在**服务器**上执行:
+
+```bash
+cd /opt/follow-server
+
+# 解压
+tar -xzvf follow-server.tar.gz
+
+# 目录结构应包含:
+# /opt/follow-server/
+#   ├── Dockerfile
+#   ├── docker-compose.yml
+#   ├── src/
+#   │   ├── Follow.Api/
+#   │   ├── Follow.Core/
+#   │   ├── Follow.Infrastructure/
+#   │   └── Follow.Shared/
+#   └── ...
+```
+
+> [!CAUTION]
+> 必须打包完整的源码目录（包含 `Dockerfile`、`docker-compose.yml` 和 `src/`），而不是仅打包 `dotnet publish` 的输出。Docker 构建过程需要源码和 Dockerfile。
+
 ---
 
 ## 生产环境配置
 
-### 1. 创建生产配置文件
+### 1. 修改生产配置文件
 
-在服务器上创建 `appsettings.Production.json`:
+编辑 `src/Follow.Api/appsettings.Production.json`，将占位符替换为实际密码:
 
 ```bash
-cd /opt/follow-server/publish
-nano appsettings.Production.json
+cd /opt/follow-server
+nano src/Follow.Api/appsettings.Production.json
 ```
 
 内容示例:
@@ -347,11 +352,14 @@ nano appsettings.Production.json
 }
 ```
 
+> [!IMPORTANT]
+> 配置中的 `postgres`、`minio`、`redis` 是 Docker Compose 中定义的服务名称，Docker 会自动通过内部 DNS 将其解析为对应容器的 IP。请勿改为 `localhost`。
+
 > [!CAUTION]
 > **安全提醒**:
 > - `JwtSettings.SecretKey` 必须使用随机生成的强密码
+> - `ConnectionStrings.DefaultConnection` 中的密码需与 `.env` 文件中 `POSTGRES_PASSWORD` 保持一致
 > - 不要将生产配置文件提交到 Git
-> - 建议使用环境变量存储敏感信息
 
 ### 2. 生成随机密钥
 
@@ -360,83 +368,9 @@ nano appsettings.Production.json
 openssl rand -base64 32
 ```
 
-### 3. 创建生产环境 docker-compose 文件
+### 3. 创建环境变量文件
 
-创建 `/opt/follow-server/docker-compose.prod.yml`:
-
-```yaml
-services:
-  # 后端 API 服务
-  api:
-    image: follow-api:latest  # 或使用 Docker Hub 镜像
-    container_name: follow-api
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:5000
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./publish/appsettings.Production.json:/app/appsettings.Production.json:ro
-    depends_on:
-      - postgres
-      - redis
-      - minio
-    restart: unless-stopped
-    networks:
-      - follow-network
-
-  # PostgreSQL 数据库
-  postgres:
-    image: postgres:18
-    container_name: follow-postgres
-    environment:
-      POSTGRES_USER: follow
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-你的强密码}
-      POSTGRES_DB: follow
-    volumes:
-      - /data/follow/postgres:/var/lib/postgresql/data
-    restart: unless-stopped
-    networks:
-      - follow-network
-    # 不对外暴露端口
-
-  # Redis 缓存
-  redis:
-    image: redis:8-alpine
-    container_name: follow-redis
-    volumes:
-      - /data/follow/redis:/data
-    command: redis-server --appendonly yes
-    restart: unless-stopped
-    networks:
-      - follow-network
-    # 不对外暴露端口
-
-  # MinIO 对象存储
-  minio:
-    image: minio/minio:latest
-    container_name: follow-minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-follow}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-你的Minio密码}
-    volumes:
-      - /data/follow/minio:/data
-    ports:
-      - "9001:9001"  # MinIO 控制台 (可选对外)
-      # 9000 不对外暴露，仅内部访问
-    restart: unless-stopped
-    networks:
-      - follow-network
-
-networks:
-  follow-network:
-    driver: bridge
-```
-
-### 4. 创建环境变量文件 (可选)
-
-创建 `/opt/follow-server/.env`:
+创建 `/opt/follow-server/.env` 用于存储敏感信息:
 
 ```bash
 # PostgreSQL
@@ -459,20 +393,28 @@ MINIO_ROOT_PASSWORD=你的MinIO强密码
 ```bash
 cd /opt/follow-server
 
-# 1. 构建镜像 (如果使用本地 Dockerfile)
-docker build -t follow-api .
+# 1. 构建并启动所有服务
+docker compose up -d --build
 
-# 2. 启动所有服务
-docker compose -f docker-compose.prod.yml up -d
+# 2. 查看服务状态
+docker compose ps
 
-# 3. 查看服务状态
-docker compose -f docker-compose.prod.yml ps
-
-# 4. 查看日志
-docker compose -f docker-compose.prod.yml logs -f api
+# 3. 查看 API 日志
+docker compose logs -f api
 ```
 
+项目的 `docker-compose.yml` 已包含完整的服务编排:
+- **api**: 后端 API 服务 (通过 Dockerfile 构建)
+- **postgres**: PostgreSQL 数据库
+- **redis**: Redis 缓存
+- **minio**: MinIO 对象存储
+
+所有服务通过 `follow-network` 互联，API 服务监听 5000 端口，MinIO 控制台通过 9001 端口访问。
+
 ### 方式二：直接运行二进制文件
+
+> [!WARNING]
+> 此方式需要单独安装和管理 PostgreSQL、Redis、MinIO 等依赖服务，推荐使用 Docker Compose 方式。
 
 需要先安装 .NET Runtime:
 
@@ -483,8 +425,12 @@ sudo dpkg -i packages-microsoft-prod.deb
 sudo apt update
 sudo apt install -y aspnetcore-runtime-10.0
 
+# 构建项目
+cd /opt/follow-server
+dotnet publish src/Follow.Api -c Release -o ./publish
+
 # 运行应用
-cd /opt/follow-server/publish
+cd publish
 ASPNETCORE_ENVIRONMENT=Production ./Follow.Api
 ```
 
@@ -492,27 +438,27 @@ ASPNETCORE_ENVIRONMENT=Production ./Follow.Api
 
 ```bash
 # 1. 确认所有容器运行正常
-docker compose -f docker-compose.prod.yml ps
+docker compose ps
 
 # 2. 检查 API 健康状态
 curl http://localhost:5000/health
 
-# 3. 检查 MinIO 是否可访问
+# 3. 检查 MinIO 控制台是否可访问
 curl http://localhost:9001
 
 # 4. 查看日志排查问题
-docker compose -f docker-compose.prod.yml logs -f
+docker compose logs -f
 ```
 
 ### 数据库迁移
 
-首次部署需要执行数据库迁移:
+> [!TIP]
+> 应用已配置**自动数据库迁移**，首次启动时会自动创建所有数据库表。无需手动执行迁移命令。
+
+如果需要手动执行迁移 (例如在开发环境中)，可以使用:
 
 ```bash
-# 方式一：进入 API 容器执行 (如果镜像包含 EF 工具)
-docker exec -it follow-api dotnet ef database update
-
-# 方式二：使用 dotnet ef 工具 (需要源码)
+# 需要在有源码和 .NET SDK 的环境中执行
 cd /opt/follow-server
 dotnet ef database update \
   --project src/Follow.Infrastructure \
@@ -617,21 +563,21 @@ sudo certbot renew --dry-run
 
 ```bash
 # 查看所有服务状态
-docker compose -f docker-compose.prod.yml ps
+docker compose ps
 
 # 查看日志
-docker compose -f docker-compose.prod.yml logs -f api
-docker compose -f docker-compose.prod.yml logs -f postgres
+docker compose logs -f api
+docker compose logs -f postgres
 
 # 重启服务
-docker compose -f docker-compose.prod.yml restart api
+docker compose restart api
 
 # 停止所有服务
-docker compose -f docker-compose.prod.yml down
+docker compose down
 
-# 更新镜像并重启
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+# 更新代码并重新构建
+git pull
+docker compose up -d --build
 
 # 进入容器调试
 docker exec -it follow-api /bin/bash
@@ -646,6 +592,7 @@ docker exec -it follow-postgres psql -U follow
 # 创建备份脚本 /opt/follow-server/backup.sh
 #!/bin/bash
 BACKUP_DIR=/data/backups/postgres
+mkdir -p $BACKUP_DIR
 DATE=$(date +%Y%m%d_%H%M%S)
 docker exec follow-postgres pg_dump -U follow follow > $BACKUP_DIR/follow_$DATE.sql
 gzip $BACKUP_DIR/follow_$DATE.sql
@@ -659,14 +606,6 @@ find $BACKUP_DIR -mtime +7 -name "*.sql.gz" -delete
 chmod +x /opt/follow-server/backup.sh
 crontab -e
 # 添加: 0 2 * * * /opt/follow-server/backup.sh
-```
-
-#### 备份 MinIO 数据
-
-```bash
-# MinIO 数据存储在主机目录 /data/follow/minio
-# 可以直接使用 rsync 或其他备份工具
-rsync -avz /data/follow/minio /data/backups/minio/
 ```
 
 ### 监控建议
@@ -690,8 +629,8 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/follow-server
-ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
-ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
 TimeoutStartSec=0
 
 [Install]
@@ -720,28 +659,30 @@ sudo systemctl start follow-server
 docker logs follow-postgres
 
 # 等待完全启动后重启 API
-docker compose -f docker-compose.prod.yml restart api
+docker compose restart api
 ```
 
 ### 2. MinIO 上传失败
 
 **原因**: Bucket 未创建
 
-**解决**:
+**解决**: 应用已配置自动创建 Bucket。如果仍然失败:
 ```bash
 # 访问 MinIO 控制台 http://your-server:9001
 # 手动创建 bucket: follow-music
 
 # 或使用 mc 命令行工具
-docker run --rm -it --network=follow-network minio/mc alias set myminio http://minio:9000 admin password
-docker run --rm -it --network=follow-network minio/mc mb myminio/follow-music
+docker run --rm -it --network=follow-server_follow-network \
+  minio/mc alias set myminio http://minio:9000 admin password
+docker run --rm -it --network=follow-server_follow-network \
+  minio/mc mb myminio/follow-music
 ```
 
 ### 3. 内存不足导致服务崩溃
 
 **解决**: 
 ```yaml
-# 在 docker-compose.prod.yml 中添加资源限制
+# 在 docker-compose.yml 中添加资源限制
 services:
   api:
     deploy:
@@ -775,13 +716,11 @@ services:
 - [ ] 服务器系统已更新
 - [ ] Docker 和 Docker Compose 已安装
 - [ ] 防火墙规则已配置
-- [ ] 数据目录已创建 (`/data/follow/`)
-- [ ] 生产配置文件已创建 (`appsettings.Production.json`)
+- [ ] 项目源码已上传至 `/opt/follow-server`
+- [ ] 生产配置文件已修改 (`appsettings.Production.json`)
 - [ ] 环境变量已配置 (`.env`)
-- [ ] Docker 镜像已构建/拉取
-- [ ] 数据库迁移已执行
-- [ ] MinIO Bucket 已创建
-- [ ] API 健康检查通过 (`/health`)
+- [ ] Docker 服务已启动 (`docker compose up -d --build`)
+- [ ] API 健康检查通过 (`curl http://localhost:5000/health`)
 - [ ] Nginx 反向代理已配置 (可选)
 - [ ] SSL 证书已安装 (可选)
 - [ ] 备份策略已配置

@@ -22,18 +22,11 @@ RUN dotnet publish -c Release -o /app/publish --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
 WORKDIR /app
 
-# Create data directories
-RUN mkdir -p /app/data/music /app/data/covers /app/data/lyrics
-
 # Copy published app
 COPY --from=build /app/publish .
 
 # Set environment variables
 ENV ASPNETCORE_URLS=http://+:5000
-ENV ConnectionStrings__DefaultConnection="Data Source=/app/data/follow.db"
-ENV FileStorage__AudioPath=/app/data/music
-ENV FileStorage__CoverPath=/app/data/covers
-ENV FileStorage__LyricsPath=/app/data/lyrics
 
 EXPOSE 5000
 

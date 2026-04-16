@@ -1,38 +1,67 @@
 services:
+  # 后端 API 服务
+  api:
+    build: .
+    container_name: follow-api
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: unless-stopped
+    networks:
+      - follow-network
+
+  # PostgreSQL 数据库
   postgres:
     image: postgres:18
     container_name: follow-postgres
     environment:
       POSTGRES_USER: follow
-      POSTGRES_PASSWORD: follow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-follow}
       POSTGRES_DB: follow
-    ports:
-      - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    networks:
+      - follow-network
 
+  # Redis 缓存
   redis:
     image: redis:8-alpine
     container_name: follow-redis
-    ports:
-      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
+    networks:
+      - follow-network
 
+  # MinIO 对象存储
   minio:
     image: minio/minio:latest
     container_name: follow-minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: follow
-      MINIO_ROOT_PASSWORD: follow123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-follow}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-follow123}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9001:9001"  # MinIO 控制台
     volumes:
       - minio_data:/data
     restart: unless-stopped
+    networks:
+      - follow-network
 
 volumes:
   postgres_data:
+  redis_data:
   minio_data:
+
+networks:
+  follow-network:
+    driver: bridge

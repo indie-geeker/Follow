@@ -133,4 +133,11 @@ app.MapGet("/", () => Results.Ok(new
     docs = "/swagger"
 }));
 
+// Auto-apply database migrations on startup
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
+    db.Database.Migrate();
+}
+
 app.Run();
