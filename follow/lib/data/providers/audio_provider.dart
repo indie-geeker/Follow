@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/services/api/api_service.dart';
@@ -107,16 +108,34 @@ class AudioPlayerService {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('accessToken');
 
+    // Build MediaItem for notification display
+    final mediaItem = MediaItem(
+      id: track.id,
+      title: track.title,
+      artist: track.artist?.name,
+      album: track.album?.title,
+      artUri: track.coverUrl != null ? Uri.parse(track.coverUrl!) : null,
+      duration: track.durationSeconds > 0
+          ? Duration(seconds: track.durationSeconds)
+          : null,
+    );
+
     // Check if track is downloaded locally
     if (track.isDownloaded && track.localPath != null) {
-      await _player.setFilePath(track.localPath!);
+      final source = AudioSource.file(
+        track.localPath!,
+        tag: mediaItem,
+      );
+      await _player.setAudioSource(source);
     } else {
       // Stream from server
       final url = _apiService.getStreamUrl(track.id);
-      await _player.setUrl(
-        url,
+      final source = AudioSource.uri(
+        Uri.parse(url),
         headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        tag: mediaItem,
       );
+      await _player.setAudioSource(source);
     }
 
     await _player.play();
