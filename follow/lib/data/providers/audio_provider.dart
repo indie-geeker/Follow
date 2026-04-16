@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -58,13 +57,15 @@ class CurrentIndex extends _$CurrentIndex {
   }
 }
 
-/// Shuffled indices provider
+/// Shuffled indices provider — only regenerated explicitly via reshuffle()
 @Riverpod(keepAlive: true)
 class ShuffledIndices extends _$ShuffledIndices {
   @override
-  List<int> build() {
-    final queue = ref.watch(playQueueProvider);
-    return List.generate(queue.length, (i) => i)..shuffle();
+  List<int> build() => [];
+
+  /// Generate a new shuffle order based on current queue length
+  void reshuffle(int queueLength) {
+    state = List.generate(queueLength, (i) => i)..shuffle();
   }
 }
 
@@ -147,8 +148,14 @@ class AudioPlayerService {
     if (tracks.isEmpty) return;
     final index = startIndex.clamp(0, tracks.length - 1);
     _ref.read(playQueueProvider.notifier).setQueue(tracks);
-    _ref.read(currentTrackProvider.notifier).setTrack(tracks[index]);
     _ref.read(currentIndexProvider.notifier).setIndex(index);
+
+    // Regenerate shuffle indices for the new queue
+    final mode = _ref.read(playerModeProvider);
+    if (mode == PlayMode.shuffle) {
+      _ref.read(shuffledIndicesProvider.notifier).reshuffle(tracks.length);
+    }
+
     await playTrack(tracks[index]);
   }
 
@@ -392,8 +399,9 @@ class PlayerMode extends _$PlayerMode {
         await service.player.setShuffleModeEnabled(false);
         await service.player.setLoopMode(LoopMode.off);
         
-        // Force refresh shuffled indices
-        ref.invalidate(shuffledIndicesProvider);
+        // Generate new shuffle order
+        final queue = ref.read(playQueueProvider);
+        ref.read(shuffledIndicesProvider.notifier).reshuffle(queue.length);
         break;
       case PlayMode.single:
         // Loop one
