@@ -574,4 +574,15 @@ assert_log_equals '' "$FOLLOW_TEST_DOTNET_LOG" 'run when the API port becomes oc
 rg -q '127\.0\.0\.1:5050 is already in use' "$FOLLOW_TEST_OUTPUT" ||
   fail 'run when the API port becomes occupied must report the conflict'
 
+FOLLOW_BACKEND_README="$FOLLOW_REPO_ROOT/follow-server/README.md"
+
+rg -q '^### 完整 Docker 栈$' "$FOLLOW_BACKEND_README" ||
+  fail 'README must document the default full Docker stack'
+rg -q '^### 本地后端开发$' "$FOLLOW_BACKEND_README" ||
+  fail 'README must document the isolated local backend workflow'
+rg -q 'scripts/dev-api\.sh run' "$FOLLOW_BACKEND_README" ||
+  fail 'README must use the supported local API command'
+rg -q 'scripts/dev-api\.sh down' "$FOLLOW_BACKEND_README" ||
+  fail 'README must document switching away from development dependencies'
+
 echo 'Development API config checks passed.'

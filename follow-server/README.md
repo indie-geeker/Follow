@@ -149,25 +149,49 @@ docker compose -f docker-compose.yml -f docker-compose.import.yml up -d --build
 
 ## 开发与部署
 
-### 开发环境
+### 完整 Docker 栈
+
+仓库根目录 Compose 是默认入口，启动管理后台、API、PostgreSQL、Redis 和 MinIO：
 
 ```bash
-# 1. 从仓库根目录启动依赖服务
+# 从 follow-server 目录返回仓库根目录；若已在根目录则无需执行
 cd ..
-docker compose up -d postgres redis minio
-
-# 返回后端目录
-cd follow-server
-
-# 2. 迁移数据库
-dotnet ef database update --project src/Follow.Infrastructure --startup-project src/Follow.Api
-
-# 3. 运行 API（自动使用 Development 配置）
-cd src/Follow.Api
-dotnet run
+docker compose up -d --build
 ```
 
-访问: http://localhost:5050/swagger
+API 位于 `http://127.0.0.1:5050`，管理后台位于 `http://127.0.0.1:3000`。API 使用 Docker 内部服务名访问依赖；PostgreSQL、Redis 和 MinIO 不发布宿主机端口。使用此模式时不要同时执行本地 `dotnet run` 或 `dotnet watch`，否则 API 端口会冲突，本地进程也无法通过 `localhost` 连接未发布端口的数据依赖。
+
+### 本地后端开发
+
+需要断点或热重载时，在仓库根目录先停止完整栈；`docker compose down` 默认保留命名卷：
+
+```bash
+docker compose down
+./scripts/dev-api.sh run
+```
+
+该命令启动独立的 `follow-dev` PostgreSQL、Redis 和 MinIO，等待健康后通过 `dotnet watch` 启动 API。开发依赖仅发布到 `127.0.0.1`，并使用独立数据卷；脚本显式不读取根目录 `.env`，也不操作完整栈容器。
+
+常用命令均从仓库根目录执行：
+
+```bash
+./scripts/dev-api.sh up       # 只启动并等待开发依赖
+./scripts/dev-api.sh status   # 查看开发依赖状态
+./scripts/dev-api.sh down     # 停止开发依赖，保留数据卷
+```
+
+切回完整栈：
+
+```bash
+./scripts/dev-api.sh down
+docker compose up -d --build
+```
+
+仅在确认要清空本地开发数据库和对象存储时，精确执行 `./scripts/dev-api.sh reset --confirm`；该命令会删除 `follow-dev` 的独立命名卷。其他参数组合不会执行重置。
+
+如果构建时出现 NuGet `NU1900`，它表示无法联网获取包漏洞元数据；这与 PostgreSQL 的 `Connection refused` 是两类问题。前者通常不会阻止已有依赖完成构建，后者表示目标主机端口没有数据库监听。
+
+本地开发 API 启动后可访问 `http://127.0.0.1:5050/swagger`。
 
 ### 生产环境打包
 
