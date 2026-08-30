@@ -53,10 +53,10 @@ EOF
 case "${1:-}" in
   run)
     require_command lsof
-    require_command dotnet
     if api_port_is_occupied; then
       fail '127.0.0.1:5050 is already in use; stop the full-stack API or choose the Docker workflow'
     fi
+    require_command dotnet
     start_dependencies
     cd "$FOLLOW_API_PROJECT"
     exec dotnet watch run --launch-profile http

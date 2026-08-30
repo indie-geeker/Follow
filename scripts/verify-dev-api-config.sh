@@ -215,6 +215,24 @@ for subcommand in run up down status reset; do
     fail "scripts/dev-api.sh does not handle $subcommand"
 done
 
+FOLLOW_PORT_GUARD_MATCH="$(
+  rg -n -m 1 '^[[:space:]]*if api_port_is_occupied; then' "$FOLLOW_DEV_COMMAND" || true
+)"
+FOLLOW_PORT_CONFLICT_MATCH="$(
+  rg -n -m 1 "fail '127\\.0\\.0\\.1:5050 is already in use;" "$FOLLOW_DEV_COMMAND" || true
+)"
+FOLLOW_DOTNET_REQUIRE_MATCH="$(
+  rg -n -m 1 '^[[:space:]]*require_command dotnet$' "$FOLLOW_DEV_COMMAND" || true
+)"
+[[ -n "$FOLLOW_PORT_GUARD_MATCH" && -n "$FOLLOW_PORT_CONFLICT_MATCH" && -n "$FOLLOW_DOTNET_REQUIRE_MATCH" ]] ||
+  fail 'run must define the API port conflict guard and dotnet prerequisite'
+FOLLOW_PORT_GUARD_LINE="${FOLLOW_PORT_GUARD_MATCH%%:*}"
+FOLLOW_PORT_CONFLICT_LINE="${FOLLOW_PORT_CONFLICT_MATCH%%:*}"
+FOLLOW_DOTNET_REQUIRE_LINE="${FOLLOW_DOTNET_REQUIRE_MATCH%%:*}"
+[[ "$FOLLOW_PORT_GUARD_LINE" -lt "$FOLLOW_PORT_CONFLICT_LINE" &&
+  "$FOLLOW_PORT_CONFLICT_LINE" -lt "$FOLLOW_DOTNET_REQUIRE_LINE" ]] ||
+  fail 'run must report an occupied API port before requiring dotnet'
+
 rg -q 'FOLLOW_DEV_COMPOSE=.*docker-compose\.dev\.yml' "$FOLLOW_DEV_COMMAND" ||
   fail 'development command must resolve docker-compose.dev.yml from the repository root'
 rg -q '^[[:space:]]*docker compose -f "\$FOLLOW_DEV_COMPOSE" "\$@"' "$FOLLOW_DEV_COMMAND" ||
