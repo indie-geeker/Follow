@@ -81,6 +81,12 @@ EOF
 }
 
 case "${1:-}" in
+  run|up|down|status)
+    [[ "$#" -eq 1 ]] || fail "$1 does not accept additional arguments"
+    ;;
+esac
+
+case "${1:-}" in
   run)
     require_command lsof
     if api_port_is_occupied; then

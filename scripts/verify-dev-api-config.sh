@@ -253,12 +253,13 @@ FOLLOW_COMMAND_TEST_ROOT="$(
   mktemp -d "${TMPDIR:-/tmp}/follow-dev-api-command.XXXXXX"
 )" || fail 'could not create the command contract test directory'
 FOLLOW_TEST_BIN="$FOLLOW_COMMAND_TEST_ROOT/bin"
+FOLLOW_TEST_MINIMAL_BIN="$FOLLOW_COMMAND_TEST_ROOT/minimal-bin"
 FOLLOW_TEST_DOCKER_LOG="$FOLLOW_COMMAND_TEST_ROOT/docker.log"
 FOLLOW_TEST_LSOF_LOG="$FOLLOW_COMMAND_TEST_ROOT/lsof.log"
 FOLLOW_TEST_LSOF_COUNTER="$FOLLOW_COMMAND_TEST_ROOT/lsof.count"
 FOLLOW_TEST_DOTNET_LOG="$FOLLOW_COMMAND_TEST_ROOT/dotnet.log"
 FOLLOW_TEST_OUTPUT="$FOLLOW_COMMAND_TEST_ROOT/command.out"
-mkdir -p "$FOLLOW_TEST_BIN"
+mkdir -p "$FOLLOW_TEST_BIN" "$FOLLOW_TEST_MINIMAL_BIN"
 trap 'rm -rf -- "$FOLLOW_COMMAND_TEST_ROOT"' EXIT
 
 cat >"$FOLLOW_TEST_BIN/docker" <<'EOF'
@@ -348,6 +349,17 @@ set -euo pipefail
 EOF
 
 chmod +x "$FOLLOW_TEST_BIN/docker" "$FOLLOW_TEST_BIN/lsof" "$FOLLOW_TEST_BIN/dotnet"
+ln -s /bin/bash "$FOLLOW_TEST_MINIMAL_BIN/bash"
+ln -s /usr/bin/dirname "$FOLLOW_TEST_MINIMAL_BIN/dirname"
+ln -s "$FOLLOW_TEST_BIN/lsof" "$FOLLOW_TEST_MINIMAL_BIN/lsof"
+for minimal_command in bash dirname lsof; do
+  PATH="$FOLLOW_TEST_MINIMAL_BIN" command -v "$minimal_command" >/dev/null 2>&1 ||
+    fail "minimal port-priority PATH is missing $minimal_command"
+done
+if PATH="$FOLLOW_TEST_MINIMAL_BIN" command -v docker >/dev/null 2>&1 ||
+  PATH="$FOLLOW_TEST_MINIMAL_BIN" command -v dotnet >/dev/null 2>&1; then
+  fail 'minimal port-priority PATH must not contain docker or dotnet'
+fi
 
 reset_command_test_logs() {
   : >"$FOLLOW_TEST_DOCKER_LOG"
@@ -370,6 +382,15 @@ run_command_test() {
     export FOLLOW_TEST_LSOF_MODE="$lsof_mode"
     export FOLLOW_TEST_WAIT_MODE="$wait_mode"
     "$FOLLOW_DEV_COMMAND" "$@"
+  ) >"$FOLLOW_TEST_OUTPUT" 2>&1
+}
+
+run_port_priority_test() {
+  (
+    export PATH="$FOLLOW_TEST_MINIMAL_BIN"
+    export FOLLOW_TEST_LSOF_LOG FOLLOW_TEST_LSOF_COUNTER
+    export FOLLOW_TEST_LSOF_MODE='occupied'
+    "$FOLLOW_DEV_COMMAND" run
   ) >"$FOLLOW_TEST_OUTPUT" 2>&1
 }
 
@@ -402,6 +423,19 @@ assert_rejected_without_docker() {
   run_command_test free supported "$@" || command_exit=$?
   [[ "$command_exit" -ne 0 ]] || fail "$scenario must be rejected"
   assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" "$scenario"
+}
+
+assert_rejected_without_prerequisites() {
+  local scenario="$1"
+  shift
+  local command_exit=0
+
+  reset_command_test_logs
+  run_command_test free supported "$@" || command_exit=$?
+  [[ "$command_exit" -ne 0 ]] || fail "$scenario must be rejected"
+  assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" "$scenario"
+  assert_log_equals '' "$FOLLOW_TEST_LSOF_LOG" "$scenario"
+  assert_log_equals '' "$FOLLOW_TEST_DOTNET_LOG" "$scenario"
 }
 
 FOLLOW_EXPECT_DOCKER_STATUS="$(
@@ -445,6 +479,13 @@ command_exit=0
 run_command_test free supported unknown || command_exit=$?
 assert_command_exit 2 "$command_exit" 'unknown command'
 assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" 'unknown command'
+
+for strict_subcommand in run up down status; do
+  assert_rejected_without_prerequisites \
+    "$strict_subcommand with a trailing argument" "$strict_subcommand" unexpected
+  assert_rejected_without_prerequisites \
+    "$strict_subcommand with a trailing help argument" "$strict_subcommand" --help
+done
 
 reset_command_test_logs
 command_exit=0
@@ -490,6 +531,19 @@ assert_command_exit 1 "$command_exit" 'run with an occupied API port'
 assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" 'run with an occupied API port'
 assert_log_equals '' "$FOLLOW_TEST_DOTNET_LOG" 'run with an occupied API port'
 assert_log_equals "$FOLLOW_EXPECT_LSOF_CALL" "$FOLLOW_TEST_LSOF_LOG" 'run with an occupied API port'
+
+reset_command_test_logs
+command_exit=0
+run_port_priority_test || command_exit=$?
+assert_command_exit 1 "$command_exit" 'occupied API port without docker or dotnet'
+rg -q '127\.0\.0\.1:5050 is already in use' "$FOLLOW_TEST_OUTPUT" ||
+  fail 'occupied API port without docker or dotnet must report the port conflict'
+if rg -q '(docker|dotnet) is required' "$FOLLOW_TEST_OUTPUT"; then
+  fail 'occupied API port without docker or dotnet must not report a prerequisite failure'
+fi
+assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" 'occupied API port without docker or dotnet'
+assert_log_equals '' "$FOLLOW_TEST_DOTNET_LOG" 'occupied API port without docker or dotnet'
+assert_log_equals "$FOLLOW_EXPECT_LSOF_CALL" "$FOLLOW_TEST_LSOF_LOG" 'occupied API port without docker or dotnet'
 
 for lsof_failure_mode in rc2 error-output; do
   reset_command_test_logs
