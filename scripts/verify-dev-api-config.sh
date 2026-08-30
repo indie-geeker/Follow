@@ -580,9 +580,52 @@ rg -q '^### 完整 Docker 栈$' "$FOLLOW_BACKEND_README" ||
   fail 'README must document the default full Docker stack'
 rg -q '^### 本地后端开发$' "$FOLLOW_BACKEND_README" ||
   fail 'README must document the isolated local backend workflow'
-rg -q 'scripts/dev-api\.sh run' "$FOLLOW_BACKEND_README" ||
-  fail 'README must use the supported local API command'
-rg -q 'scripts/dev-api\.sh down' "$FOLLOW_BACKEND_README" ||
-  fail 'README must document switching away from development dependencies'
+
+FOLLOW_FULL_STACK_SECTION="$(
+  awk '
+    $0 == "### 完整 Docker 栈" { capture = 1; next }
+    capture && /^### / { exit }
+    capture { print }
+  ' "$FOLLOW_BACKEND_README"
+)"
+FOLLOW_LOCAL_BACKEND_SECTION="$(
+  awk '
+    $0 == "### 本地后端开发" { capture = 1; next }
+    capture && /^### / { exit }
+    capture { print }
+  ' "$FOLLOW_BACKEND_README"
+)"
+
+rg -q '^docker compose up -d --build$' <<<"$FOLLOW_FULL_STACK_SECTION" ||
+  fail 'the full Docker stack section must use the root Compose startup command'
+
+FOLLOW_LOCAL_DOWN_MATCH="$(
+  rg -n -m 1 '^docker compose down$' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" || true
+)"
+FOLLOW_LOCAL_RUN_MATCH="$(
+  rg -n -m 1 '^\./scripts/dev-api\.sh run$' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" || true
+)"
+[[ -n "$FOLLOW_LOCAL_DOWN_MATCH" && -n "$FOLLOW_LOCAL_RUN_MATCH" ]] ||
+  fail 'the local backend section must stop the full stack before running the local API'
+FOLLOW_LOCAL_DOWN_LINE="${FOLLOW_LOCAL_DOWN_MATCH%%:*}"
+FOLLOW_LOCAL_RUN_LINE="${FOLLOW_LOCAL_RUN_MATCH%%:*}"
+[[ "$FOLLOW_LOCAL_DOWN_LINE" -lt "$FOLLOW_LOCAL_RUN_LINE" ]] ||
+  fail 'the local backend section must stop the full stack before running the local API'
+
+for development_subcommand in up status down; do
+  rg -q "^\\./scripts/dev-api\\.sh $development_subcommand([[:space:]]|$)" \
+    <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+    fail "the local backend section must document dev-api.sh $development_subcommand"
+done
+
+rg -q 'docker compose down.*保留.*卷' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must explain that root Compose volumes are retained'
+rg -q '`\./scripts/dev-api\.sh reset --confirm`' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must document the exact confirmed reset command'
+rg -q '删除.*follow-dev.*卷' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must warn that reset deletes follow-dev volumes'
+
+rg -q 'docker-compose\.yml.*(旧版|非推荐).*后端 Compose' "$FOLLOW_BACKEND_README" ||
+  fail 'the project structure must mark follow-server Compose as a legacy non-recommended entry'
 
 echo 'Development API config checks passed.'

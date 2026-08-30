@@ -74,7 +74,7 @@ API 容器启动时会自动执行数据库迁移，并根据根目录 `.env` �
 
 ```
 follow-server/
-├── docker-compose.yml       # 开发环境
+├── docker-compose.yml       # 旧版/非推荐后端 Compose
 ├── src/
 │   ├── Follow.Api/          # API 入口
 │   ├── Follow.Core/         # 实体和接口
