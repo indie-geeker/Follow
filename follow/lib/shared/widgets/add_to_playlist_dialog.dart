@@ -5,6 +5,7 @@ import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/playlist_provider.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/services/api/api_service.dart';
+import 'package:follow/shared/widgets/create_playlist_dialog.dart';
 
 class AddToPlaylistDialog extends ConsumerWidget {
   final Track track;
@@ -18,7 +19,9 @@ class AddToPlaylistDialog extends ConsumerWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     return Dialog(
-      backgroundColor: isDark ? LoginColors.gradientMid1 : theme.colorScheme.surface,
+      backgroundColor: isDark
+          ? LoginColors.gradientMid1
+          : theme.colorScheme.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
@@ -36,25 +39,74 @@ class AddToPlaylistDialog extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                      color: isDark
+                          ? Colors.white
+                          : theme.colorScheme.onSurface,
                     ),
                   ),
                   IconButton(
-                    icon: Icon(Icons.close, color: isDark ? Colors.white70 : theme.colorScheme.onSurfaceVariant),
+                    tooltip: '关闭',
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: isDark
+                          ? Colors.white70
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
                     onPressed: () => Navigator.pop(context),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  key: const ValueKey('create-playlist-from-add-dialog'),
+                  onPressed: () => showCreatePlaylistDialog(
+                    context,
+                    onCreate: (name) =>
+                        ref.read(playlistsProvider.notifier).create(name),
+                  ),
+                  icon: const Icon(Icons.playlist_add_rounded),
+                  label: const Text('新建歌单'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Divider(color: theme.colorScheme.outlineVariant),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Text(
+                      '选择保存位置',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Divider(color: theme.colorScheme.outlineVariant),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
             Flexible(
               child: playlistsAsync.when(
                 data: (playlists) {
+                  final editablePlaylists = playlists
+                      .where((playlist) => playlist.canEdit)
+                      .toList(growable: false);
                   return ListView.builder(
                     shrinkWrap: true,
-                    itemCount: playlists.length + 1,
+                    itemCount: editablePlaylists.length + 1,
                     itemBuilder: (context, index) {
                       if (index == 0) {
                         return ListTile(
@@ -73,7 +125,9 @@ class AddToPlaylistDialog extends ConsumerWidget {
                           title: Text(
                             '我的收藏',
                             style: TextStyle(
-                              color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                              color: isDark
+                                  ? Colors.white
+                                  : theme.colorScheme.onSurface,
                             ),
                           ),
                           onTap: () async {
@@ -103,30 +157,40 @@ class AddToPlaylistDialog extends ConsumerWidget {
                           },
                         );
                       }
-                      
-                      final playlist = playlists[index - 1];
+
+                      final playlist = editablePlaylists[index - 1];
                       return ListTile(
                         leading: Container(
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: isDark ? LoginColors.accentPurple.withValues(alpha: 0.2) : theme.colorScheme.primaryContainer,
+                            color: isDark
+                                ? LoginColors.accentPurple.withValues(
+                                    alpha: 0.2,
+                                  )
+                                : theme.colorScheme.primaryContainer,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Icon(
                             Icons.queue_music_rounded,
-                            color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+                            color: isDark
+                                ? LoginColors.accentPurple
+                                : theme.colorScheme.primary,
                           ),
                         ),
                         title: Text(
                           playlist.name,
                           style: TextStyle(
-                            color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                            color: isDark
+                                ? Colors.white
+                                : theme.colorScheme.onSurface,
                           ),
                         ),
                         onTap: () async {
-                           try {
-                            await ref.read(playlistsProvider.notifier).addTrack(playlist.id, track.id);
+                          try {
+                            await ref
+                                .read(playlistsProvider.notifier)
+                                .addTrack(playlist.id, track.id);
                             if (context.mounted) {
                               Navigator.pop(context);
                               ScaffoldMessenger.of(context).showSnackBar(

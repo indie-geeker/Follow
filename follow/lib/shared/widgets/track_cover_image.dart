@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:follow/core/network/media_url.dart';
 import 'package:follow/data/models/track.dart';
-import 'package:follow/core/config/app_config.dart';
 
 class TrackCoverImage extends StatelessWidget {
   final Track? track;
@@ -36,12 +36,10 @@ class TrackCoverImage extends StatelessWidget {
   }
 
   Widget _buildImage() {
-    if (track?.coverUrl != null && track!.coverUrl!.isNotEmpty) {
-      final url = track!.coverUrl!.startsWith('http')
-          ? track!.coverUrl!
-          : '${AppConfig.apiBaseUrl}/api/tracks/cover/${Uri.encodeComponent(track!.coverUrl!)}';
+    final coverUri = resolveCoverUri(track?.coverUrl);
+    if (coverUri != null) {
       return CachedNetworkImage(
-        imageUrl: url,
+        imageUrl: coverUri.toString(),
         width: size,
         height: size,
         fit: fit,

@@ -46,8 +46,10 @@ class FavoritesView extends ConsumerWidget {
                   final apiService = ref.read(apiServiceProvider);
                   await apiService.removeFromFavorites(track.id);
                   ref.invalidate(favoritesProvider);
+                  if (!context.mounted) return;
                   SnackBarHelper.showSuccess(context, '已移出收藏');
                 } catch (e) {
+                  if (!context.mounted) return;
                   SnackBarHelper.showError(context, '操作失败: $e');
                 }
               },
@@ -55,29 +57,17 @@ class FavoritesView extends ConsumerWidget {
           },
         );
       },
-      loading: () => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
             const SizedBox(height: 16),
-            Text(
-              '加载失败',
-              style: TextStyle(
-                color: theme.colorScheme.error,
-              ),
-            ),
+            Text('加载失败', style: TextStyle(color: theme.colorScheme.error)),
           ],
         ),
       ),
     );
   }
 }
-

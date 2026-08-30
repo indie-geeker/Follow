@@ -1,4 +1,3 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 
 import 'package:follow/data/models/track.dart';
@@ -14,7 +13,7 @@ final searchQueryProvider = StateProvider<String>((ref) => '');
 @riverpod
 Future<List<Track>> popupSearchTracks(Ref ref, String query) async {
   if (query.isEmpty) return [];
-  
+
   final apiService = ApiService();
   // We can use the existing getTracks with a small pageSize
   final response = await apiService.getTracks(

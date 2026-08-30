@@ -1,12 +1,30 @@
 namespace Follow.Shared.DTOs;
 
-public record RegisterRequest(string Username, string Email, string Password);
+public record RegisterRequest(
+    string Username,
+    string Email,
+    string Password,
+    string TokenTransport = "body",
+    string? DeviceName = null);
 
-public record LoginRequest(string Email, string Password);
+public record CreateUserRequest(string Username, string Email, string Password, string Role);
 
-public record RefreshTokenRequest(string RefreshToken);
+public record LoginRequest(
+    string Email,
+    string Password,
+    string TokenTransport = "body",
+    string? DeviceName = null);
 
-public record AuthResponse(string AccessToken, string RefreshToken, UserDto User);
+public record RefreshTokenRequest(
+    string? RefreshToken = null,
+    string TokenTransport = "body");
+
+public record AuthResponse(
+    string? AccessToken,
+    string? RefreshToken,
+    Guid SessionId,
+    DateTime ExpiresAt,
+    UserDto User);
 
 public record UserDto(
     Guid Id,

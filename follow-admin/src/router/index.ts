@@ -26,6 +26,24 @@ const router = createRouter({
           component: () => import('@/views/music/TracksView.vue')
         },
         {
+          path: 'tracks/imports',
+          name: 'MusicImports',
+          component: () => import('@/views/music/imports/MusicImportListView.vue'),
+          meta: { activeMenu: '/tracks', title: '音乐导入任务' }
+        },
+        {
+          path: 'tracks/imports/new',
+          name: 'MusicImportCreate',
+          component: () => import('@/views/music/imports/MusicImportCreateView.vue'),
+          meta: { activeMenu: '/tracks', title: '创建导入任务' }
+        },
+        {
+          path: 'tracks/imports/:jobId',
+          name: 'MusicImportDetail',
+          component: () => import('@/views/music/imports/MusicImportDetailView.vue'),
+          meta: { activeMenu: '/tracks', title: '导入任务详情' }
+        },
+        {
           path: 'artists',
           name: 'Artists',
           component: () => import('@/views/music/ArtistsView.vue')
@@ -50,16 +68,25 @@ const router = createRouter({
   ]
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
 
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next('/login')
-  } else if (to.path === '/login' && authStore.isAuthenticated) {
-    next('/')
-  } else {
-    next()
+  if (!authStore.isRestored) {
+    await authStore.restoreSession()
   }
+
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+    return {
+      path: '/login',
+      query: { redirect: to.fullPath }
+    }
+  }
+
+  if (to.path === '/login' && authStore.isAuthenticated) {
+    return '/'
+  }
+
+  return true
 })
 
 export default router

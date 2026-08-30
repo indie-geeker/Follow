@@ -20,7 +20,6 @@ class SearchPage extends ConsumerStatefulWidget {
 class _SearchPageState extends ConsumerState<SearchPage> {
   final _searchController = TextEditingController();
   final _focusNode = FocusNode();
-  
 
   @override
   void dispose() {
@@ -76,13 +75,23 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        l10n.search,
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : theme.colorScheme.onSurface,
-                        ),
+                      Row(
+                        children: [
+                          BackButton(
+                            onPressed: () => context.router.maybePop(),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            l10n.search,
+                            style: TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              color: isDark
+                                  ? Colors.white
+                                  : theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
 
@@ -109,8 +118,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                         child: TextField(
                           controller: _searchController,
                           focusNode: _focusNode,
+                          autofocus: true,
                           style: TextStyle(
-                            color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                            color: isDark
+                                ? Colors.white
+                                : theme.colorScheme.onSurface,
                             fontSize: 16,
                           ),
                           decoration: InputDecoration(
@@ -150,7 +162,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                                     ),
                                     onPressed: () {
                                       _searchController.clear();
-                                      ref.read(searchQueryProvider.notifier).state = '';
+                                      ref
+                                              .read(
+                                                searchQueryProvider.notifier,
+                                              )
+                                              .state =
+                                          '';
                                     },
                                   )
                                 : null,
@@ -161,11 +178,13 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                             ),
                           ),
                           onChanged: (value) {
-                             // Optional: Debounce here if needed, but strict state sync is simpler for now
-                             ref.read(searchQueryProvider.notifier).state = value;
+                            // Optional: Debounce here if needed, but strict state sync is simpler for now
+                            ref.read(searchQueryProvider.notifier).state =
+                                value;
                           },
                           onSubmitted: (value) {
-                             ref.read(searchQueryProvider.notifier).state = value.trim();
+                            ref.read(searchQueryProvider.notifier).state = value
+                                .trim();
                           },
                         ),
                       ),
@@ -176,12 +195,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 // Results
                 Expanded(
                   child: query.isEmpty
-                    ? const EmptyState(
-                        icon: Icons.search_rounded,
-                        title: '搜索音乐',
-                        subtitle: '输入关键词搜索歌曲、艺术家或专辑',
-                      )
-                    : _buildSearchResults(ref, currentTrack, isDark, query),
+                      ? const EmptyState(
+                          icon: Icons.search_rounded,
+                          title: '搜索音乐',
+                          subtitle: '输入关键词搜索歌曲、艺术家或专辑',
+                        )
+                      : _buildSearchResults(ref, currentTrack, isDark, query),
                 ),
               ],
             ),
@@ -191,7 +210,12 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     );
   }
 
-  Widget _buildSearchResults(WidgetRef ref, currentTrack, bool isDark, String query) {
+  Widget _buildSearchResults(
+    WidgetRef ref,
+    currentTrack,
+    bool isDark,
+    String query,
+  ) {
     final resultsAsync = ref.watch(searchTracksProvider(query));
     final theme = Theme.of(context);
 
@@ -252,10 +276,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               track: track,
               isPlaying: currentTrack?.id == track.id,
               onTap: () {
-                ref.read(currentTrackProvider.notifier).setTrack(track);
-                ref.read(playQueueProvider.notifier).setQueue(tracks);
-                ref.read(currentIndexProvider.notifier).setIndex(index);
-                ref.read(audioPlayerServiceProvider).playTrack(track);
+                ref
+                    .read(audioPlayerServiceProvider)
+                    .playAll(tracks, startIndex: index);
               },
             );
           },
@@ -266,16 +289,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
             const SizedBox(height: 16),
-            Text(
-              '搜索失败',
-              style: TextStyle(color: theme.colorScheme.error),
-            ),
+            Text('搜索失败', style: TextStyle(color: theme.colorScheme.error)),
           ],
         ),
       ),

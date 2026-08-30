@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:follow/app.dart';
+import 'package:follow/data/services/auth/remembered_email_store.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await migrateLegacyAuthPreferences();
 
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.follow.music.channel',
@@ -13,9 +16,5 @@ void main() async {
     androidStopForegroundOnPause: true,
   );
 
-  runApp(
-    const ProviderScope(
-      child: FollowApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: FollowApp()));
 }

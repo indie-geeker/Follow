@@ -58,6 +58,10 @@ abstract class Playlist with _$Playlist {
     @Default(false) bool isPublic,
     @Default(0) int trackCount,
     DateTime? createdAt,
+    String? ownerId,
+    String? ownerName,
+    @Default(false) bool isOwnedByCurrentUser,
+    @Default(false) bool canEdit,
   }) = _Playlist;
 
   factory Playlist.fromJson(Map<String, dynamic> json) =>
@@ -74,6 +78,10 @@ abstract class PlaylistDetail with _$PlaylistDetail {
     @Default(false) bool isPublic,
     @Default([]) List<Track> tracks,
     DateTime? createdAt,
+    String? ownerId,
+    String? ownerName,
+    @Default(false) bool isOwnedByCurrentUser,
+    @Default(false) bool canEdit,
   }) = _PlaylistDetail;
 
   factory PlaylistDetail.fromJson(Map<String, dynamic> json) =>

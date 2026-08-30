@@ -4,7 +4,6 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/features/search/providers/search_provider.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
 import 'package:follow/data/providers/audio_provider.dart';
-import 'package:follow/data/providers/track_provider.dart';
 
 class LibrarySearchBox extends ConsumerStatefulWidget {
   const LibrarySearchBox({super.key});
@@ -82,7 +81,9 @@ class _LibrarySearchBoxState extends ConsumerState<LibrarySearchBox> {
               : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isDark ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.1)
+                : Colors.transparent,
           ),
         ),
         child: TextField(
@@ -126,7 +127,10 @@ class _LibrarySearchBoxState extends ConsumerState<LibrarySearchBox> {
                     },
                   )
                 : null,
-            contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 8),
+            contentPadding: const EdgeInsets.symmetric(
+              vertical: 0,
+              horizontal: 8,
+            ),
             border: InputBorder.none,
             isDense: true,
           ),
@@ -155,10 +159,7 @@ class _SearchResultsPopup extends ConsumerWidget {
   final String query;
   final VoidCallback onClose;
 
-  const _SearchResultsPopup({
-    required this.query,
-    required this.onClose,
-  });
+  const _SearchResultsPopup({required this.query, required this.onClose});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -173,7 +174,9 @@ class _SearchResultsPopup extends ConsumerWidget {
         color: isDark ? LoginColors.cardBackground : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isDark ? LoginColors.cardBorder : theme.colorScheme.outlineVariant,
+          color: isDark
+              ? LoginColors.cardBorder
+              : theme.colorScheme.outlineVariant,
         ),
         boxShadow: [
           BoxShadow(
@@ -208,10 +211,12 @@ class _SearchResultsPopup extends ConsumerWidget {
                   shrinkWrap: true,
                   itemCount: tracks.length,
                   separatorBuilder: (_, __) => Divider(
-                    height: 1, 
-                    color: isDark 
-                      ? Colors.white.withValues(alpha: 0.05) 
-                      : theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                    height: 1,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : theme.colorScheme.outlineVariant.withValues(
+                            alpha: 0.5,
+                          ),
                   ),
                   itemBuilder: (context, index) {
                     final track = tracks[index];
@@ -219,10 +224,10 @@ class _SearchResultsPopup extends ConsumerWidget {
                       track: track,
                       isPlaying: currentTrack?.id == track.id,
                       onTap: () {
-                         ref.read(currentTrackProvider.notifier).setTrack(track);
-                         ref.read(audioPlayerServiceProvider).playTrack(track);
-                         onClose();
-                         // Also clear query if desired?
+                        ref
+                            .read(audioPlayerServiceProvider)
+                            .playAll(tracks, startIndex: index);
+                        onClose();
                       },
                     );
                   },
@@ -235,7 +240,10 @@ class _SearchResultsPopup extends ConsumerWidget {
             ),
             error: (e, s) => Padding(
               padding: const EdgeInsets.all(16),
-              child: Text('搜索失败', style: TextStyle(color: theme.colorScheme.error)),
+              child: Text(
+                '搜索失败',
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
             ),
           ),
         ],

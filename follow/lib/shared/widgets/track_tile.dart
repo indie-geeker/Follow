@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:follow/data/models/track.dart';
-import 'package:follow/core/config/app_config.dart';
+import 'package:follow/core/network/media_url.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/utils/duration_utils.dart';
 import 'package:follow/shared/widgets/indicators/playing_indicator.dart';
@@ -97,12 +97,13 @@ class TrackTile extends StatelessWidget {
                               track.title,
                               style: TextStyle(
                                 fontSize: 15,
-                                fontWeight:
-                                    isPlaying ? FontWeight.w600 : FontWeight.w500,
+                                fontWeight: isPlaying
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
                                 color: isPlaying
                                     ? (isDark
-                                        ? LoginColors.accentPurple
-                                        : theme.colorScheme.primary)
+                                          ? LoginColors.accentPurple
+                                          : theme.colorScheme.primary)
                                     : theme.colorScheme.onSurface,
                               ),
                               maxLines: 1,
@@ -158,10 +159,12 @@ class TrackTile extends StatelessWidget {
                       const SizedBox(width: 8),
                       IconButton(
                         icon: Icon(
-                          isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                          color: isFavorite 
-                            ? (isDark ? const Color(0xFFFF5252) : Colors.red)
-                            : theme.colorScheme.onSurfaceVariant,
+                          isFavorite
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: isFavorite
+                              ? (isDark ? const Color(0xFFFF5252) : Colors.red)
+                              : theme.colorScheme.onSurfaceVariant,
                         ),
                         iconSize: 20,
                         visualDensity: VisualDensity.compact,
@@ -210,12 +213,10 @@ class TrackTile extends StatelessWidget {
   }
 
   Widget _buildCoverImage(double size) {
-    if (track.coverUrl != null && track.coverUrl!.isNotEmpty) {
-      final url = track.coverUrl!.startsWith('http')
-          ? track.coverUrl!
-          : '${AppConfig.apiBaseUrl}/api/tracks/cover/${Uri.encodeComponent(track.coverUrl!)}';
+    final coverUri = resolveCoverUri(track.coverUrl);
+    if (coverUri != null) {
       return CachedNetworkImage(
-        imageUrl: url,
+        imageUrl: coverUri.toString(),
         width: size,
         height: size,
         fit: BoxFit.cover,
@@ -234,10 +235,7 @@ class TrackTile extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            LoginColors.gradientMid1,
-            LoginColors.gradientMid2,
-          ],
+          colors: [LoginColors.gradientMid1, LoginColors.gradientMid2],
         ),
         borderRadius: BorderRadius.circular(8),
       ),

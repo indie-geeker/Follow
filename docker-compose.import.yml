@@ -1,0 +1,12 @@
+services:
+  api:
+    environment:
+      MusicImport__Enabled: "true"
+      MusicImport__SourceRoot: /imports/library
+    volumes:
+      - type: bind
+        source: "${FOLLOW_IMPORT_SOURCE_PATH:?Set FOLLOW_IMPORT_SOURCE_PATH in .env to an existing absolute music library directory}"
+        target: /imports/library
+        read_only: true
+        bind:
+          create_host_path: false

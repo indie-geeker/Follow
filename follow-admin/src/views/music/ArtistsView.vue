@@ -11,13 +11,18 @@
     </div>
 
     <el-card class="content-card">
-      <el-table :data="artists" v-loading="loading" class="custom-table">
+      <el-table
+        :data="artists"
+        v-loading="loading"
+        empty-text="暂无艺术家"
+        class="custom-table"
+      >
         <el-table-column prop="name" label="名称" min-width="150">
           <template #default="{ row }">
             <div class="artist-cell">
               <el-image
-                v-if="row.coverUrl"
-                :src="getCoverUrl(row.coverUrl)"
+                v-if="toCoverProxyUrl(row.coverUrl)"
+                :src="toCoverProxyUrl(row.coverUrl)"
                 class="artist-avatar"
                 fit="cover"
               />
@@ -52,18 +57,15 @@
         
         <el-form-item label="封面">
           <div class="cover-edit-area">
-             <el-input v-model="form.coverUrl" placeholder="输入封面图片 URL" style="margin-bottom: 10px;" />
-             
              <div class="upload-section" v-if="form.id">
                <el-image
-                v-if="form.coverUrl"
-                :src="getCoverUrl(form.coverUrl)"
+                v-if="toCoverProxyUrl(form.coverUrl)"
+                :src="toCoverProxyUrl(form.coverUrl)"
                 class="edit-preview"
                 fit="cover"
                />
                <el-upload
-                 :action="coverUploadUrl"
-                 :headers="uploadHeaders"
+                 :http-request="uploadArtistCover"
                  :show-file-list="false"
                  :on-success="handleCoverUpload"
                  accept=".jpg,.jpeg,.png,.webp,.gif"
@@ -94,31 +96,24 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import api from '@/api'
+import { createApiUpload } from '@/api/upload'
+import { normalizeCoverObjectKey, toCoverProxyUrl } from '@/utils/coverUrl'
 
 const loading = ref(false)
 const artists = ref<any[]>([])
 const dialogVisible = ref(false)
 const form = reactive({ id: '', name: '', bio: '', coverUrl: '' })
 
-const baseUrl = computed(() => import.meta.env.VITE_API_URL || 'http://localhost:5000')
-
-const coverUploadUrl = computed(() => `${baseUrl.value}/api/artists/${form.id}/cover`)
-
-const uploadHeaders = computed(() => ({
-  Authorization: `Bearer ${localStorage.getItem('token')}`
-}))
-
-function getCoverUrl(coverPath: string): string {
-  if (!coverPath) return ''
-  if (coverPath.startsWith('http')) return coverPath
-  return `${baseUrl.value}/api/tracks/cover/${encodeURIComponent(coverPath)}`
-}
+const coverUploadUrl = computed(() => `/api/artists/${form.id}/cover`)
+const uploadArtistCover = createApiUpload(() => coverUploadUrl.value)
 
 async function loadArtists() {
   loading.value = true
   try {
     const response = await api.get('/api/artists')
     artists.value = response.data
+  } catch {
+    ElMessage.error('加载艺术家失败')
   } finally {
     loading.value = false
   }
@@ -128,13 +123,14 @@ function showDialog(artist?: any) {
   form.id = artist?.id || ''
   form.name = artist?.name || ''
   form.bio = artist?.bio || ''
-  form.coverUrl = artist?.coverUrl || ''
+  form.coverUrl = normalizeCoverObjectKey(artist?.coverUrl) ?? ''
   dialogVisible.value = true
 }
 
 function handleCoverUpload(response: any) {
-  if (response.coverUrl) {
-    form.coverUrl = response.coverUrl
+  const coverObjectKey = normalizeCoverObjectKey(response.coverUrl)
+  if (coverObjectKey) {
+    form.coverUrl = coverObjectKey
     ElMessage.success('封面上传成功')
   }
 }
@@ -142,7 +138,7 @@ function handleCoverUpload(response: any) {
 async function saveArtist() {
   try {
     if (form.id) {
-      await api.put(`/api/artists/${form.id}`, { name: form.name, bio: form.bio, coverUrl: form.coverUrl || null })
+      await api.put(`/api/artists/${form.id}`, { name: form.name, bio: form.bio })
     } else {
       await api.post('/api/artists', { name: form.name, bio: form.bio })
     }

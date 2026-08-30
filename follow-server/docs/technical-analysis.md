@@ -1,786 +1,286 @@
-# Follow Music Player Backend - 技术分析文档
+# Follow 家庭音乐后端技术分析
 
-> 基于 .NET 10 的跨平台音乐播放器后端服务
+> 基于 .NET 10 的家庭音乐库服务。产品范围是家庭成员共享音乐、个人收藏/历史/歌单和多端播放。
 
-## 目录
+## 1. 系统边界
 
-- [技术栈概览](#技术栈概览)
-- [项目结构](#项目结构)
-- [架构设计](#架构设计)
-- [数据库设计](#数据库设计)
-- [API 模块](#api-模块)
-- [配置与脚本](#配置与脚本)
-- [部署方案](#部署方案)
-
----
-
-## 技术栈概览
-
-### 核心框架
-
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **.NET** | 10.0 | 运行时框架 |
-| **ASP.NET Core** | 10.0 | Web API 框架 (Minimal API) |
-| **Entity Framework Core** | 10.0.1 | ORM 框架 |
-| **Npgsql.EntityFrameworkCore.PostgreSQL** | 10.0.0 | PostgreSQL 数据库驱动 |
-
-### 数据存储
-
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **PostgreSQL** | 18 | 关系型数据库 |
-| **Redis** | 8 (Alpine) | 缓存服务 |
-| **MinIO** | Latest | 对象存储 (音乐/封面/歌词) |
-
-### 核心依赖库
-
-| 包 | 版本 | 用途 |
-|---|------|------|
-| `Microsoft.AspNetCore.Authentication.JwtBearer` | 10.0.1 | JWT 认证 |
-| `Swashbuckle.AspNetCore` | 10.1.0 | Swagger API 文档 |
-| `Minio` | 7.0.0 | MinIO SDK |
-| `StackExchange.Redis` | 2.10.1 | Redis 客户端 |
-| `System.IdentityModel.Tokens.Jwt` | 8.15.0 | JWT Token 处理 |
-| `TagLibSharp` | 2.3.0 | 音频元数据提取 |
-
-### 测试框架
-
-| 包 | 版本 | 用途 |
-|---|------|------|
-| `xunit` | 2.9.3 | 单元测试框架 |
-| `Microsoft.NET.Test.Sdk` | 17.14.1 | 测试 SDK |
-| `coverlet.collector` | 6.0.4 | 代码覆盖率 |
-
----
-
-## 项目结构
-
-### 整体目录结构
-
+```mermaid
+flowchart LR
+    App["Flutter Release App"] -->|"HTTPS / body token"| TLS["运维提供的 HTTPS 入口"]
+    Web["Vue 管理后台"] -->|"同源 HTTPS / HttpOnly Cookie"| TLS
+    TLS --> Admin["Admin Nginx + 静态站点"]
+    Admin -->|"/api/*"| API["ASP.NET Core API"]
+    Emulator["Android Emulator Debug"] -.->|"HTTP 10.0.2.2:5050"| API
+    API --> PG["PostgreSQL"]
+    API --> Redis["Redis"]
+    API --> MinIO["MinIO 内网对象存储"]
 ```
+
+- 仓库不内置 TLS 网关；生产由运维提供唯一的公共 HTTPS origin。Web 静态资源、`/api/*`、封面、歌词和音频播放均使用该 origin。
+- Compose 仅把 Admin `3000` 与 API `5050` 绑定到宿主机 loopback。PostgreSQL、Redis 与 MinIO 不发布宿主机端口，数据服务通过 `docker compose exec` 维护。
+- Android Emulator Debug 是唯一明文例外，通过 `10.0.2.2:5050` 访问宿主机 API；Profile、Release 和非本地 origin 仍强制 HTTPS。
+- API 只信任显式配置的反向代理转发头，避免伪造客户端 IP 或 HTTPS scheme 后绕过安全策略和限流分区。
+
+## 2. 技术栈
+
+| 层 | 技术 | 职责 |
+|---|---|---|
+| API | .NET 10、ASP.NET Core Minimal API | 路由、认证、授权、限流、媒体响应 |
+| 数据 | EF Core 10、Npgsql、PostgreSQL 18 | 领域数据、设备会话、对象删除任务 |
+| 缓存 | Redis 8 | 缓存基础设施 |
+| 对象存储 | MinIO | 音频、封面、歌词对象 |
+| 元数据 | TagLibSharp | 音频标签和内嵌封面提取 |
+| 测试 | xUnit | 契约、服务和端点验证 |
+
+## 3. 项目结构
+
+```text
 follow-server/
-├── docker-compose.yml       # Docker 开发环境配置
-├── Dockerfile               # 生产环境容器构建
-├── Follow.slnx              # 解决方案文件
-├── README.md                # 项目说明文档
-├── docs/                    # 文档目录
-│   └── technical-analysis.md
-├── src/                     # 源代码
-│   ├── Follow.Api/          # API 入口层
-│   ├── Follow.Core/         # 核心领域层
-│   ├── Follow.Infrastructure/  # 基础设施层
-│   └── Follow.Shared/       # 共享层
-└── tests/                   # 测试项目
+├── src/
+│   ├── Follow.Api/
+│   │   ├── Auth/                 # Cookie 传输
+│   │   ├── Endpoints/            # Minimal API 端点
+│   │   ├── Media/                # 路径策略、Range 解析、流式结果
+│   │   ├── Middleware/           # 统一异常响应
+│   │   ├── RateLimiting/         # 限流策略
+│   │   ├── Security/             # 可信 Forwarded Headers
+│   │   └── Program.cs
+│   ├── Follow.Core/
+│   │   ├── Entities/             # 领域实体
+│   │   ├── Interfaces/           # 服务接口
+│   │   └── Services/             # 领域规则
+│   ├── Follow.Infrastructure/
+│   │   ├── Data/                 # DbContext 与 EF 迁移
+│   │   └── Services/             # 数据库、MinIO、认证、后台 worker
+│   └── Follow.Shared/
+│       ├── Constants/
+│       └── DTOs/
+└── tests/
     ├── Follow.Api.Tests/
     └── Follow.Core.Tests/
 ```
 
-### 分层详解
+依赖方向保持为 API/Infrastructure 依赖 Core 与 Shared；Core 不依赖具体的数据库或对象存储实现。
 
-#### 1. Follow.Api (API 入口层)
+## 4. 认证与会话
 
-```
-Follow.Api/
-├── Endpoints/               # API 端点定义
-│   ├── AdminEndpoints.cs
-│   ├── AlbumEndpoints.cs
-│   ├── ArtistEndpoints.cs
-│   ├── AuthEndpoints.cs
-│   ├── PlaylistEndpoints.cs
-│   ├── RssEndpoints.cs
-│   ├── TagEndpoints.cs
-│   ├── TrackEndpoints.cs
-│   └── UserMusicEndpoints.cs
-├── Properties/
-│   └── launchSettings.json
-├── Program.cs               # 应用入口和配置
-├── appsettings.json         # 基础配置
-├── appsettings.Development.json  # 开发环境配置
-└── Follow.Api.csproj
-```
+### 4.1 传输契约
 
-**职责**: HTTP 请求处理、路由定义、中间件配置、依赖注入配置
+登录、注册和刷新请求通过 `tokenTransport` 明确客户端类型：
 
-#### 2. Follow.Core (核心领域层)
+| 模式 | Access Token | Refresh Token | 适用端 |
+|---|---|---|---|
+| `cookie` | `follow_access`，`Path=/api` | `follow_refresh`，`Path=/api/auth` | Web 管理后台 |
+| `body` | `AuthResponse.accessToken` | `AuthResponse.refreshToken` | Flutter App |
 
-```
-Follow.Core/
-├── Entities/               # 领域实体
-│   ├── BaseEntity.cs
-│   ├── User.cs
-│   ├── Track.cs
-│   ├── Artist.cs
-│   ├── Album.cs
-│   ├── Playlist.cs
-│   ├── PlaylistTrack.cs
-│   ├── PlayHistory.cs
-│   ├── Favorite.cs
-│   ├── RssSubscription.cs
-│   ├── RssEpisode.cs
-│   ├── Tag.cs
-│   └── TrackTag.cs
-├── Interfaces/             # 服务接口定义
-│   ├── IAdminService.cs
-│   ├── IAuthService.cs
-│   ├── IJwtService.cs
-│   ├── IMusicServices.cs
-│   ├── IPasswordHasher.cs
-│   ├── IPlaylistService.cs
-│   ├── IRssService.cs
-│   ├── IStorageService.cs
-│   ├── ITrackService.cs
-│   └── IUserMusicService.cs
-└── Follow.Core.csproj
-```
+Cookie 均为 `HttpOnly`、`Secure`、`SameSite=Strict`。`cookie` 模式下 JSON 中的两个 token 必须为 `null`，浏览器 JavaScript 不保存或拼接 `Authorization`。`body` 模式由 App 将令牌写入平台安全存储；普通偏好存储只允许保存非敏感信息，例如记住的邮箱。
 
-**职责**: 领域模型定义、业务接口声明、领域规则
+### 4.2 `UserSession` 模型
 
-#### 3. Follow.Infrastructure (基础设施层)
+每次登录创建一个设备会话，核心字段包括：
 
-```
-Follow.Infrastructure/
-├── Data/
-│   ├── FollowDbContext.cs   # 数据库上下文
-│   └── Migrations/          # EF Core 迁移
-│       ├── 20251228144621_InitialCreate.cs
-│       ├── 20251229065708_AddLyricsUrlToTrack.cs
-│       └── FollowDbContextModelSnapshot.cs
-├── Services/               # 服务实现
-│   ├── AdminService.cs
-│   ├── AlbumService.cs
-│   ├── ArtistService.cs
-│   ├── AuthService.cs
-│   ├── JwtService.cs
-│   ├── MinioStorageService.cs
-│   ├── PasswordHasher.cs
-│   ├── PlaylistService.cs
-│   ├── RssService.cs
-│   ├── TagService.cs
-│   ├── TrackService.cs
-│   └── UserMusicService.cs
-└── Follow.Infrastructure.csproj
-```
+| 字段 | 说明 |
+|---|---|
+| `UserId` | 会话所属用户 |
+| `RefreshTokenHash` | 当前 Refresh Token 的不可逆哈希；数据库不保存明文 |
+| `PreviousRefreshTokenHash` | 用于识别轮换后的令牌重放 |
+| `DeviceName` / `ClientType` / `UserAgent` | 设备展示和审计信息 |
+| `LastUsedAt` / `ExpiresAt` | 最近使用与到期时间 |
+| `RotatedAt` / `RevokedAt` / `RevokedReason` | 轮换、撤销和原因 |
+| `Version` | 并发更新控制 |
 
-**职责**: 数据访问、外部服务集成、接口实现
+Access Token 包含 `sid`。JWT 签名和有效期通过后，API 仍会校验对应 `UserSession` 未过期、未撤销，因此注销或远程撤销会立即阻止旧 Access Token 继续访问。
 
-#### 4. Follow.Shared (共享层)
+### 4.3 会话端点
 
-```
-Follow.Shared/
-├── Constants/
-│   └── Roles.cs            # 角色和策略常量
-├── DTOs/
-│   ├── AuthDtos.cs         # 认证相关 DTO
-│   ├── MusicDtos.cs        # 音乐相关 DTO
-│   └── PlaylistDtos.cs     # 播放列表 DTO
-└── Follow.Shared.csproj
-```
+| 方法 | 路径 | 行为 |
+|---|---|---|
+| POST | `/api/auth/register` | 创建 Member 和独立设备会话 |
+| POST | `/api/auth/login` | 登录并创建独立设备会话 |
+| POST | `/api/auth/refresh` | 校验并轮换当前会话 Refresh Token |
+| POST | `/api/auth/logout` | 撤销当前 `sid` 并清除 Web Cookie |
+| POST | `/api/auth/logout-all` | 撤销当前用户全部设备会话 |
+| GET | `/api/auth/sessions` | 返回当前用户设备列表和 `isCurrent` |
+| DELETE | `/api/auth/sessions/{id}` | 撤销当前用户指定设备；禁止跨用户操作 |
+| GET | `/api/auth/me` | 返回当前用户信息 |
 
-**职责**: 跨层共享的数据传输对象、常量定义
+`SessionDto` 返回 `id`、`deviceName`、`clientType`、`createdAt`、`lastUsedAt`、`expiresAt` 和 `isCurrent`，不返回任何令牌哈希或明文令牌。
 
----
+无效或过期凭据返回 `401`，权限不足返回 `403`，输入不合法返回 `400`，唯一性冲突返回 `409`。客户端只在 `401` 时尝试一次 refresh；并发 `401` 共享一次刷新，失败后停止重放并回到登录页。
 
-## 架构设计
+### 4.4 限流
 
-### 整体架构模式
+ASP.NET Core Rate Limiting 按真实客户端 IP 或认证用户分区：
 
-本项目采用 **Clean Architecture (整洁架构)** 的变体，结合 **Minimal API** 模式：
+| 策略 | 默认限制 |
+|---|---|
+| 注册 | 每 IP 每小时 3 次 |
+| 登录 | 每 IP 每分钟 5 次 |
+| 刷新 | 每 IP 每分钟 10 次 |
+| 普通 API | 每用户或 IP 每分钟 120 次 |
+| 上传 | 每用户或 IP 每小时 20 次 |
+| 播放 | 每用户或 IP 并发 3 路 |
+
+限制可由 `RateLimiting.*` 配置覆盖。拒绝时返回统一 JSON `429` 和 `Retry-After`，客户端不得无间隔重试。
+
+## 5. 媒体访问与对象安全
+
+### 5.1 真实流式播放
+
+`GET`/`HEAD /api/tracks/{id}/stream` 先读取对象元数据，再把需要的字节区间直接复制到响应体：
+
+| 请求 | 响应 |
+|---|---|
+| 无 `Range` | `200`、完整 `Content-Length`、`Accept-Ranges: bytes` |
+| 合法单段 `Range` | `206`、准确 `Content-Range` 和分段长度 |
+| 越界、格式错误或多段 `Range` | `416`、`Content-Range: bytes */<length>` |
+| `HEAD` | 与对应 `GET` 相同的状态和头，不写响应体 |
+
+流式复制支持请求取消，并把 offset/length 下推到 MinIO SDK；服务端不使用整文件 `MemoryStream`，因此大文件播放和拖动不会按整首音乐占用内存。
+
+### 5.2 匿名封面代理
+
+`GET /api/tracks/cover/{path}` 只允许以下受管前缀中的图片扩展名：
+
+- `covers/`
+- `artists/`
+- `albums/`
+
+路径穿越、绝对路径、音频/歌词扩展、其他前缀和任意 MinIO key 均返回不可用结果。音频和歌词必须经过认证的曲目端点，客户端不能直接访问 MinIO。
+
+### 5.3 数据库与对象一致性
+
+对象存储不参与 PostgreSQL 事务，因此采用“数据库事务 + 补偿 + 持久删除任务”：
 
 ```mermaid
-graph TB
-    subgraph "API Layer"
-        A[Endpoints]
-        B[Program.cs]
-    end
-    
-    subgraph "Core Layer"
-        C[Entities]
-        D[Interfaces]
-    end
-    
-    subgraph "Infrastructure Layer"
-        E[Services]
-        F[Data/DbContext]
-    end
-    
-    subgraph "Shared Layer"
-        G[DTOs]
-        H[Constants]
-    end
-    
-    A --> D
-    E --> D
-    E --> F
-    A --> G
-    E --> G
-    A --> H
+flowchart TD
+    Upload["上传新对象"] --> Write["写入数据库事务"]
+    Write -->|"成功"| Commit["提交元数据"]
+    Write -->|"失败"| Compensate["立即补偿删除新对象"]
+    Replace["替换或删除资源"] --> Tx["同一事务更新/删除数据并写 StorageDeletionJob"]
+    Tx --> Worker["StorageDeletionWorker"]
+    Worker -->|"成功"| Done["标记完成"]
+    Worker -->|"失败"| Retry["记录错误并指数退避重试"]
 ```
 
-### 依赖关系
+`StorageDeletionQueue` 只接受受管对象前缀。曲目删除会在同一数据库事务处理曲目关系并排队清理音频、封面和歌词；艺术家/专辑封面替换或删除同样排队清理旧对象。任务失败不会丢失，可由后台 worker 重试。
 
-```
-Follow.Api
-├── Follow.Core
-├── Follow.Infrastructure
-└── Follow.Shared
-
-Follow.Infrastructure
-├── Follow.Core
-└── Follow.Shared
-
-Follow.Core
-└── Follow.Shared
-
-Follow.Shared
-└── (无依赖)
-```
-
-### 关键架构模式
-
-#### 1. Minimal API 路由模式
-
-使用扩展方法组织 API 端点：
-
-```csharp
-// Program.cs
-app.MapAuthEndpoints();
-app.MapTrackEndpoints();
-app.MapArtistEndpoints();
-// ...
-
-// AuthEndpoints.cs
-public static void MapAuthEndpoints(this IEndpointRouteBuilder app)
-{
-    var group = app.MapGroup("/api/auth").WithTags("Authentication");
-    group.MapPost("/register", Register).AllowAnonymous();
-    group.MapPost("/login", Login).AllowAnonymous();
-    // ...
-}
-```
-
-#### 2. 依赖注入
-
-在 `Program.cs` 中配置所有服务：
-
-```csharp
-// 数据库
-builder.Services.AddDbContext<FollowDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-// 服务注册
-builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
-builder.Services.AddScoped<IJwtService, JwtService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddSingleton<IStorageService, MinioStorageService>();
-// ...
-```
-
-#### 3. JWT 认证
-
-基于 Bearer Token 的 JWT 认证：
-
-```csharp
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        // ...
-    };
-});
-```
-
-#### 4. 基于策略的授权
-
-```csharp
-// 策略定义
-builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(Policies.AdminOnly, policy => policy.RequireRole(Roles.Admin))
-    .AddPolicy(Policies.UserOnly, policy => policy.RequireRole(Roles.Admin, Roles.Member));
-
-// 端点使用
-group.MapPost("/upload", UploadTrack)
-    .RequireAuthorization(Policies.AdminOnly);
-```
-
----
-
-## 数据库设计
-
-### 实体关系图
+## 6. 数据模型
 
 ```mermaid
 erDiagram
+    User ||--o{ UserSession : has
     User ||--o{ Playlist : owns
     User ||--o{ PlayHistory : has
     User ||--o{ Favorite : has
-    User ||--o{ RssSubscription : subscribes
-    
-    Artist ||--o{ Track : performs
     Artist ||--o{ Album : creates
-    
+    Artist ||--o{ Track : performs
     Album ||--o{ Track : contains
-    
     Playlist ||--o{ PlaylistTrack : contains
     Track ||--o{ PlaylistTrack : included_in
-    
     Track ||--o{ PlayHistory : played
     Track ||--o{ Favorite : favorited
-    
-    RssSubscription ||--o{ RssEpisode : has
-
-    Tag ||--o{ TrackTag : has
     Track ||--o{ TrackTag : tagged_with
+    Tag ||--o{ TrackTag : has
 ```
 
-### 实体详解
-
-#### BaseEntity (基础实体)
-
-```csharp
-public abstract class BaseEntity
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-}
-```
-
-#### User (用户)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Username | string | 用户名 (唯一) |
-| Email | string | 邮箱 (唯一) |
-| PasswordHash | string | 密码哈希 |
-| Role | UserRole | 角色 (Admin/Member) |
-| AvatarUrl | string? | 头像 URL |
-| RefreshToken | string? | 刷新令牌 |
-| RefreshTokenExpiryTime | DateTime? | 刷新令牌过期时间 |
-
-#### Track (曲目)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Title | string | 曲目标题 |
-| DurationSeconds | int | 时长 (秒) |
-| FilePath | string | MinIO 存储路径 |
-| CoverUrl | string? | 封面 URL |
-| LyricsUrl | string? | 歌词 URL |
-| BitRate | int | 比特率 |
-| Format | string? | 格式 (mp3/flac/...) |
-| ArtistId | Guid? | 艺术家 ID |
-| AlbumId | Guid? | 专辑 ID |
-
-#### Artist (艺术家)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Name | string | 艺术家名称 |
-| CoverUrl | string? | 封面 URL |
-| Bio | string? | 简介 |
-
-#### Album (专辑)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Title | string | 专辑标题 |
-| Year | int? | 发行年份 |
-| CoverUrl | string? | 封面 URL |
-| ArtistId | Guid? | 艺术家 ID |
-
-#### Playlist (播放列表)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Name | string | 播放列表名称 |
-| Description | string? | 描述 |
-| CoverUrl | string? | 封面 URL |
-| IsPublic | bool | 是否公开 |
-| UserId | Guid | 所属用户 ID |
-
-#### PlaylistTrack (播放列表-曲目关联)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| PlaylistId | Guid | 播放列表 ID |
-| TrackId | Guid | 曲目 ID |
-| Position | int | 位置序号 |
-
-#### PlayHistory (播放历史)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| UserId | Guid | 用户 ID |
-| TrackId | Guid | 曲目 ID |
-| PlayedAt | DateTime | 播放时间 |
-| PlayDurationSeconds | int | 播放时长 (秒) |
-
-#### Favorite (收藏)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| UserId | Guid | 用户 ID |
-| TrackId | Guid | 曲目 ID |
-
-#### RssSubscription (RSS 订阅)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| FeedUrl | string | RSS Feed URL |
-| Title | string? | 订阅标题 |
-| Description | string? | 描述 |
-| CoverUrl | string? | 封面 URL |
-| LastFetchedAt | DateTime? | 最后抓取时间 |
-| UserId | Guid | 用户 ID |
-
-#### RssEpisode (RSS 单集)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Title | string | 标题 |
-| Description | string? | 描述 |
-| AudioUrl | string | 音频 URL |
-| DurationSeconds | int | 时长 (秒) |
-| PublishedAt | DateTime? | 发布时间 |
-| IsPlayed | bool | 是否已播放 |
-| SubscriptionId | Guid | 订阅 ID |
-
-#### Tag (标签)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| Name | string | 标签名称 |
-| Category | string? | 分类 |
-| CoverUrl | string? | 封面 URL |
-
-#### TrackTag (曲目-标签关联)
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| TrackId | Guid | 曲目 ID |
-| TagId | Guid | 标签 ID |
-
-### 关系配置
-
-关键的外键删除行为：
-
-| 关系 | 删除行为 |
-|------|----------|
-| Track → Artist/Album | SetNull |
-| Album → Artist | SetNull |
-| Playlist → User | Cascade |
-| PlaylistTrack → Playlist/Track | Cascade |
-| PlayHistory → User/Track | Cascade |
-| Favorite → User/Track | Cascade |
-| RssSubscription → User | Cascade |
-| RssEpisode → Subscription | Cascade |
-
----
-
-## API 模块
-
-### 端点概览
-
-| 模块 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| **认证** | `/api/auth` | 登录/注册/刷新 Token | 公开/认证 |
-| **曲目** | `/api/tracks` | 音乐上传/播放/封面/歌词 | 认证/管理员 |
-| **艺术家** | `/api/artists` | 艺术家管理 | 认证/管理员 |
-| **专辑** | `/api/albums` | 专辑管理 | 认证/管理员 |
-| **播放列表** | `/api/playlists` | 用户播放列表 | 认证 |
-| **用户功能** | `/api/user` | 收藏/播放历史 | 认证 |
-| **管理员** | `/api/admin` | 用户管理/仪表盘 | 管理员 |
-| **RSS** | `/api/rss` | 播客订阅 | 认证 |
-| **标签** | `/api/tags` | 音乐标签管理 | 认证/管理员 |
-| **健康检查** | `/health` | 服务状态 | 公开 |
-
-### 认证模块 (`/api/auth`)
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| POST | `/register` | 注册新用户 (首个用户自动成为 Admin) | 公开 |
-| POST | `/login` | 用户登录 | 公开 |
-| POST | `/refresh` | 刷新 Access Token | 公开 |
-| POST | `/logout` | 退出登录 | 认证 |
-| GET | `/me` | 获取当前用户信息 | 认证 |
-
-### 曲目模块 (`/api/tracks`)
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/` | 获取曲目列表 (分页/搜索) | 认证 |
-| GET | `/{id}` | 获取曲目详情 | 认证 |
-| GET | `/{id}/stream` | 流式播放音频 | 认证 |
-| GET | `/{id}/lyrics` | 获取歌词 | 认证 |
-| POST | `/upload` | 上传新曲目 | 管理员 |
-| POST | `/{id}/cover` | 上传封面 | 管理员 |
-| POST | `/{id}/lyrics` | 上传歌词 | 管理员 |
-| PUT | `/{id}` | 更新曲目信息 | 管理员 |
-| DELETE | `/{id}` | 删除曲目 | 管理员 |
-
-**支持的音频格式**: `.mp3`, `.flac`, `.wav`, `.aac`, `.ogg`, `.m4a`
-
-**支持的图片格式**: `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`
-
-**支持的歌词格式**: `.lrc`, `.txt`
-
-### 艺术家模块 (`/api/artists`)
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/` | 获取艺术家列表 | 认证 |
-| GET | `/{id}` | 获取艺术家详情 | 认证 |
-| POST | `/` | 创建艺术家 | 管理员 |
-| PUT | `/{id}` | 更新艺术家信息 (支持设置 coverUrl) | 管理员 |
-| DELETE | `/{id}` | 删除艺术家 | 管理员 |
-| POST | `/{id}/cover` | 上传封面 | 管理员 |
-
-### 专辑模块 (`/api/albums`)
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/` | 获取专辑列表 | 认证 |
-| GET | `/{id}` | 获取专辑详情 | 认证 |
-| POST | `/` | 创建专辑 | 管理员 |
-| PUT | `/{id}` | 更新专辑信息 (支持设置 coverUrl) | 管理员 |
-| DELETE | `/{id}` | 删除专辑 | 管理员 |
-| POST | `/{id}/cover` | 上传封面 | 管理员 |
-
-### 标签模块 (`/api/tags`)
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/` | 获取标签列表 | 认证 |
-| GET | `/{id}` | 获取标签详情 | 认证 |
-| GET | `/{id}/tracks` | 获取标签下的曲目 | 认证 |
-| POST | `/` | 创建标签 | 管理员 |
-| PUT | `/{id}` | 更新标签 | 管理员 |
-| DELETE | `/{id}` | 删除标签 | 管理员 |
-
-### 播放列表模块 (`/api/playlists`)
-
-> 用户自定义歌单功能
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/` | 获取当前用户的歌单列表 | 认证 |
-| GET | `/{id}` | 获取歌单详情 (包含曲目) | 认证 |
-| POST | `/` | 创建新歌单 | 认证 |
-| PUT | `/{id}` | 更新歌单信息 | 认证 |
-| DELETE | `/{id}` | 删除歌单 | 认证 |
-| POST | `/{id}/tracks` | 添加曲目到歌单 | 认证 |
-| DELETE | `/{id}/tracks/{trackId}` | 从歌单移除曲目 | 认证 |
-| PUT | `/{id}/tracks/reorder` | 重新排序歌单曲目 | 认证 |
-
-### 用户音乐模块 (`/api/user`)
-
-> 包含收藏和播放历史功能
-
-| 方法 | 路径 | 描述 | 权限 |
-|------|------|------|------|
-| GET | `/favorites` | 获取收藏的曲目列表 | 认证 |
-| POST | `/favorites/{trackId}` | 收藏曲目 | 认证 |
-| DELETE | `/favorites/{trackId}` | 取消收藏 | 认证 |
-| GET | `/favorites/{trackId}/check` | 检查是否已收藏 | 认证 |
-| GET | `/history` | 获取播放历史 | 认证 |
-| POST | `/history` | 记录播放历史 | 认证 |
-
-#### 播放历史规则
-- **去重机制**: 同一首歌曲多次播放只保留最后一次记录 (Upsert)。
-- **数量限制**: 每个用户最多保存 **300** 条最近播放记录。
-- **排序**: 按播放时间倒序排列 (最近播放的在前)。
-
-### 用户角色
-
-| 角色 | 权限 |
-|------|------|
-| **Admin** | 上传/删除音乐、管理用户、管理艺术家/专辑 |
-| **Member** | 播放音乐、收藏曲目、创建个人播放列表 |
-
-> [!NOTE]
-> 首个注册的用户自动成为 Admin
-
----
-
-## 配置与脚本
-
-### 配置文件
-
-| 文件 | 用途 | 是否提交 Git |
-|------|------|--------------|
-| `appsettings.json` | 基础配置 | ✅ |
-| `appsettings.Development.json` | 开发环境配置 | ✅ |
-| `appsettings.Production.json` | 生产环境配置 | ❌ (需手动创建) |
-
-### 配置项说明
-
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=follow;Username=follow;Password=follow"
-  },
-  "JwtSettings": {
-    "SecretKey": "至少32字符的密钥",
-    "Issuer": "FollowMusicApi",
-    "Audience": "FollowMusicClient",
-    "AccessTokenExpirationMinutes": 60,
-    "RefreshTokenExpirationDays": 7
-  },
-  "MinioSettings": {
-    "Endpoint": "localhost:9000",
-    "AccessKey": "follow",
-    "SecretKey": "follow123",
-    "BucketName": "follow-music",
-    "UseSSL": false
-  },
-  "RedisSettings": {
-    "ConnectionString": "localhost:6379"
-  }
-}
-```
-
-### 常用命令
-
-#### 开发环境
+主要删除行为：
+
+| 关系 | 数据库行为 |
+|---|---|
+| `UserSession → User` | 用户删除时级联删除会话 |
+| `Playlist → User` | 级联 |
+| `PlaylistTrack → Playlist/Track` | 级联 |
+| `PlayHistory/Favorite → User/Track` | 级联 |
+| `Track → Artist/Album` | 置空 |
+| `Album → Artist` | 置空 |
+
+`StorageDeletionJob` 是独立的持久后台任务，保存对象路径、尝试次数、下次执行时间、完成时间和最后错误；它不以客户端提供的任意路径作为删除目标。
+
+## 7. 歌单所有权与排序
+
+- 私有歌单只对所有者可见；公开歌单对其他已认证家庭成员只读。
+- 所有写操作都以 JWT 用户 ID 在服务端校验所有权，不能依赖客户端传入的 owner 或 UI 是否显示编辑按钮。
+- 歌单响应提供 `ownerId`、`ownerName`、`isOwnedByCurrentUser` 和 `canEdit`；Flutter 只在 `canEdit` 为真时显示更新、删除、增删曲目和重排入口。
+- 重排请求必须是当前歌单曲目 ID 的完整、无重复排列；缺项、重复、外来曲目或非所有者请求不会产生部分更新。
+
+## 8. 分页契约
+
+列表接口统一遵守以下原则：
+
+- `page` 从 1 开始；`pageSize` 或 `limit` 必须在 `1..100`。
+- 非法页码或大小返回 `400`，不能通过负数、零或超大值触发无界查询。
+- 查询使用 `AsNoTracking`，先按业务字段排序，再以实体 ID 作稳定次级排序。
+- 分页元数据至少包含当前页、页大小、总记录数和总页数；空结果的总页数为 0。
+- 曲目筛选、管理员用户列表和标签曲目分页的计数与数据查询使用相同条件；播放历史的 `limit` 也执行 `1..100` 边界校验和稳定排序。
+
+## 9. API 模块
+
+| 模块 | 路径 | 主要能力 | 权限 |
+|---|---|---|---|
+| 认证 | `/api/auth` | 注册、登录、刷新、注销、设备会话 | 公开/认证 |
+| 曲目 | `/api/tracks` | 列表、元数据、Range 播放、封面、歌词、标签 | 认证/管理员 |
+| 艺术家 | `/api/artists` | 列表、详情、维护、封面 | 认证/管理员 |
+| 专辑 | `/api/albums` | 列表、详情、维护、封面 | 认证/管理员 |
+| 标签 | `/api/tags` | 标签及其曲目 | 认证/管理员 |
+| 歌单 | `/api/playlists` | 私有/公开读取、所有者写入、重排 | 认证 |
+| 用户音乐 | `/api/user` | 收藏、播放历史 | 认证 |
+| 管理员 | `/api/admin` | 仪表盘、创建/维护用户 | Admin |
+| 健康检查 | `/health` | 服务健康状态 | 公开 |
+
+支持的上传格式：
+
+- 音频：`.mp3`、`.flac`、`.wav`、`.aac`、`.ogg`、`.m4a`
+- 图片：`.jpg`、`.jpeg`、`.png`、`.webp`、`.gif`
+- 歌词：`.lrc`、`.txt`
+
+播放历史按用户和曲目 upsert，只保留最近一次；每个用户最多保留 300 条，按播放时间倒序读取。
+
+## 10. 配置与部署
+
+### 10.1 关键配置
+
+| 配置 | 说明 |
+|---|---|
+| `ConnectionStrings.DefaultConnection` | PostgreSQL 连接字符串 |
+| `JwtSettings.*` | JWT 签名、issuer、audience、Access/Refresh 有效期 |
+| `MinioSettings.*` | API 到内部 MinIO 的连接和 bucket |
+| `RedisSettings.ConnectionString` | Redis 连接 |
+| `RateLimiting.*` | 各限流窗口和并发数 |
+| `ForwardedHeaders.KnownProxies` / `KnownNetworks` | 上线时由运维显式配置的可信 HTTPS 代理地址或 CIDR；本地 Compose 不默认信任转发头 |
+| `AdminAccount.*` | 启动时维护的管理员账号 |
+
+生产敏感值从根目录 `.env` 注入，不把 MinIO/JWT/数据库密码写入 Web 包、App 偏好存储或文档示例。
+
+### 10.2 完整栈
 
 ```bash
-# 启动 Docker 服务
-docker compose up -d
-
-# 安装 EF Core 工具 (首次)
-dotnet tool install --global dotnet-ef
-
-# 执行数据库迁移
-dotnet ef database update --project src/Follow.Infrastructure --startup-project src/Follow.Api
-
-# 运行 API
-dotnet run --project src/Follow.Api
-
-# 运行测试
-dotnet test
+cp .env.example .env
+# 替换所有占位值
+docker compose up -d --build
 ```
 
-#### 数据库迁移
+本机管理后台使用 `http://127.0.0.1:3000`，API 诊断使用 `http://127.0.0.1:5050`。生产必须在 Admin loopback 端口前配置真实域名和公共可信 HTTPS；API 通过 Docker 服务名连接内网 MinIO，该容器地址不是客户端或公网入口。
+
+### 10.3 开发验证
 
 ```bash
-# 创建新迁移
-dotnet ef migrations add <MigrationName> --project src/Follow.Infrastructure --startup-project src/Follow.Api
+dotnet ef database update \
+  --project follow-server/src/Follow.Infrastructure \
+  --startup-project follow-server/src/Follow.Api
 
-# 应用迁移
-dotnet ef database update --project src/Follow.Infrastructure --startup-project src/Follow.Api
-
-# 回滚迁移
-dotnet ef database update <PreviousMigrationName> --project src/Follow.Infrastructure --startup-project src/Follow.Api
+dotnet test follow-server/tests/Follow.Api.Tests
+dotnet test follow-server/tests/Follow.Core.Tests
 ```
 
-#### 生产环境构建
+Production 启动会自动应用 EF Core 迁移并维护环境指定的管理员。上线前仍需备份真实 PostgreSQL、验证迁移、确认公共 HTTPS 证书与代理配置、检查 Range/Cookie/多设备注销和对象删除 worker；自动化测试不能替代真实浏览器、真实设备和局域网验证。
 
-```bash
-# 发布到 publish 目录
-dotnet publish src/Follow.Api -c Release -o ./publish
+## 11. 设计结论
 
-# Docker 构建
-docker build -t follow-api .
+当前架构以家庭网络的低运维成本为目标，同时保留清晰的安全边界：
 
-# 运行容器
-docker run -d -p 5000:5000 \
-  -e ASPNETCORE_ENVIRONMENT=Production \
-  follow-api
-```
-
----
-
-## 部署方案
-
-### Docker Compose 开发环境
-
-```yaml
-services:
-  postgres:
-    image: postgres:18
-    container_name: follow-postgres
-    environment:
-      POSTGRES_USER: follow
-      POSTGRES_PASSWORD: follow
-      POSTGRES_DB: follow
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql
-
-  redis:
-    image: redis:8-alpine
-    container_name: follow-redis
-    ports:
-      - "6379:6379"
-
-  minio:
-    image: minio/minio:latest
-    container_name: follow-minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: follow
-      MINIO_ROOT_PASSWORD: follow123
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio_data:/data
-```
-
-### 生产环境 Dockerfile
-
-```dockerfile
-# Build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
-WORKDIR /src
-# ... 构建步骤
-
-# Runtime stage  
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS runtime
-WORKDIR /app
-ENV ASPNETCORE_URLS=http://+:5000
-EXPOSE 5000
-ENTRYPOINT ["dotnet", "Follow.Api.dll"]
-```
-
-### 环境变量覆盖
-
-```bash
-# 数据库连接
-export ConnectionStrings__DefaultConnection="Host=prod-db;..."
-
-# JWT 密钥
-export JwtSettings__SecretKey="your-production-secret-key"
-```
-
----
-
-## 总结
-
-### 架构亮点
-
-1. **Clean Architecture**: 分层清晰，依赖反转，易于测试和维护
-2. **Minimal API**: 简洁的 API 定义，编译时路由，高性能
-3. **EF Core + PostgreSQL**: 成熟的 ORM 解决方案，强类型查询
-4. **MinIO 对象存储**: S3 兼容，适合大文件存储，易于扩展
-5. **JWT + Refresh Token**: 标准的无状态认证方案
-6. **Docker 化**: 开发环境一键启动，生产环境容器化部署
-
-### 扩展建议
-
-- 添加 Redis 缓存层优化查询性能
-- 实现音频转码服务支持更多格式
-- 添加 WebSocket 支持实时播放同步
-- 集成搜索引擎 (如 Elasticsearch) 提升搜索体验
-- 添加 CI/CD 流水线自动化测试和部署
+1. 单一 HTTPS origin 解决 Cookie、媒体播放和跨端地址漂移问题。
+2. 哈希化、可撤销的多设备 Session 让注销真正生效，不再依赖单个用户字段中的明文 Refresh Token。
+3. Range 下推和响应体直传让播放、暂停和拖动符合真实流媒体语义。
+4. 持久删除任务把 PostgreSQL 与 MinIO 的最终一致性变成可观察、可重试的工作流。
+5. 服务端所有权、完整重排和有界稳定分页避免客户端 UI 成为安全边界。

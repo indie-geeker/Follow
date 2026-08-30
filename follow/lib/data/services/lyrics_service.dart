@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/data/services/api/api_client.dart';
-import 'package:follow/core/config/app_config.dart';
+import 'package:follow/core/network/media_url.dart';
 
 class LyricsService {
   final Dio _dio;
@@ -10,9 +10,11 @@ class LyricsService {
 
   Future<List<LyricLine>> fetchLyrics(String trackId) async {
     try {
-      final url = '${AppConfig.apiBaseUrl}/api/tracks/$trackId/lyrics';
+      final url = resolveTrackLyricsUri(trackId).toString();
       final response = await _dio.get(url);
-      final content = response.data is String ? response.data : response.data.toString();
+      final content = response.data is String
+          ? response.data
+          : response.data.toString();
       return parseLrc(content);
     } catch (e) {
       return [];
@@ -34,14 +36,16 @@ class LyricsService {
         final text = match.group(4)!.trim();
 
         if (text.isNotEmpty) {
-          lines.add(LyricLine(
-            timestamp: Duration(
-              minutes: minutes,
-              seconds: seconds,
-              milliseconds: millis,
+          lines.add(
+            LyricLine(
+              timestamp: Duration(
+                minutes: minutes,
+                seconds: seconds,
+                milliseconds: millis,
+              ),
+              text: text,
             ),
-            text: text,
-          ));
+          );
         }
       }
     }

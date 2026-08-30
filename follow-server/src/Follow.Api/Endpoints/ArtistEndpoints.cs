@@ -1,4 +1,5 @@
 using Follow.Core.Interfaces;
+using Follow.Api.RateLimiting;
 using Follow.Shared.Constants;
 using Follow.Shared.DTOs;
 
@@ -34,6 +35,7 @@ public static class ArtistEndpoints
             .WithName("UploadArtistCover")
             .WithDescription("Upload cover image for an artist (Admin only)")
             .RequireAuthorization(Policies.AdminOnly)
+            .RequireRateLimiting(RateLimitPolicies.Upload)
             .DisableAntiforgery();
     }
 

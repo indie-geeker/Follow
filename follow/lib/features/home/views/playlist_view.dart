@@ -23,10 +23,12 @@ class PlaylistView extends ConsumerWidget {
       data: (playlist) {
         final tracks = playlist.tracks;
         if (tracks.isEmpty) {
-          return const EmptyStateCard(
+          return EmptyStateCard(
             icon: Icons.music_note_rounded,
             title: '空歌单',
-            subtitle: '添加一些歌曲吧',
+            subtitle: playlist.canEdit
+                ? '添加一些歌曲吧'
+                : '该公开歌单由 ${playlist.ownerName ?? '其他家庭成员'} 管理',
           );
         }
         return ListView.builder(
@@ -45,39 +47,35 @@ class PlaylistView extends ConsumerWidget {
             return SmartTrackTile(
               track: track,
               playlist: tracks,
-              onRemoveFromList: () async {
-                try {
-                  final apiService = ref.read(apiServiceProvider);
-                  await apiService.removeTrackFromPlaylist(playlistId, track.id);
-                  ref.invalidate(playlistDetailProvider(playlistId));
-                  SnackBarHelper.showSuccess(context, '已移出歌单');
-                } catch (e) {
-                  SnackBarHelper.showError(context, '操作失败: $e');
-                }
-              },
+              onRemoveFromList: playlist.canEdit
+                  ? () async {
+                      try {
+                        final apiService = ref.read(apiServiceProvider);
+                        await apiService.removeTrackFromPlaylist(
+                          playlistId,
+                          track.id,
+                        );
+                        ref.invalidate(playlistDetailProvider(playlistId));
+                        if (!context.mounted) return;
+                        SnackBarHelper.showSuccess(context, '已移出歌单');
+                      } catch (e) {
+                        if (!context.mounted) return;
+                        SnackBarHelper.showError(context, '操作失败: $e');
+                      }
+                    }
+                  : null,
             );
           },
         );
       },
-      loading: () => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
             const SizedBox(height: 16),
-            Text(
-              '加载失败',
-              style: TextStyle(
-                color: theme.colorScheme.error,
-              ),
-            ),
+            Text('加载失败', style: TextStyle(color: theme.colorScheme.error)),
           ],
         ),
       ),

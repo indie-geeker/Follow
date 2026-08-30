@@ -1,747 +1,201 @@
-# Follow Music Player Backend - 部署指南
+# Follow 家庭音乐服务部署指南
 
-> 本文档提供从服务器环境准备到项目部署上线的完整操作指南
+本文描述当前仓库的本机 Compose 边界以及上线要求：仓库不再内置 TLS 网关；网页管理后台与 API 仍必须通过运维提供的 HTTPS origin 对外服务。PostgreSQL、Redis 与 MinIO 不作为家庭网络中的独立服务暴露。
 
-## 目录
+## 1. 网络边界
 
-- [环境要求](#环境要求)
-- [服务器准备](#服务器准备)
-- [软件安装](#软件安装)
-- [端口配置](#端口配置)
-- [项目构建与发布](#项目构建与发布)
-- [生产环境配置](#生产环境配置)
-- [部署方式](#部署方式)
-- [反向代理配置](#反向代理配置)
-- [运维与监控](#运维与监控)
-- [常见问题](#常见问题)
+```text
+家庭浏览器 / Follow App
+          |
+   运维提供的 HTTPS 入口
+          |
+  127.0.0.1:3000 Admin Nginx
+      /api       其他路径
+       |          Admin SPA
+   API:5000（Docker 内网）
+       |
+ PostgreSQL / Redis / MinIO（Docker 内网）
 
----
-
-## 环境要求
-
-### 硬件配置 (最低要求)
-
-| 配置项 | 最低配置 | 推荐配置 |
-|--------|----------|----------|
-| **CPU** | 1 核 | 2 核+ |
-| **内存** | 2 GB | 4 GB+ |
-| **硬盘** | 20 GB SSD | 根据音乐库大小而定 |
-| **带宽** | 5 Mbps | 10 Mbps+ |
-
-### 操作系统
-
-支持以下 Linux 发行版:
-
-- **Ubuntu** 20.04/22.04/24.04 LTS (推荐)
-- **Debian** 11/12
-- **CentOS** 8/9 / Rocky Linux 8/9
-- **其他** 支持 Docker 的 Linux 发行版
-
----
-
-## 服务器准备
-
-### 1. 更新系统
-
-```bash
-# Ubuntu/Debian
-sudo apt update && sudo apt upgrade -y
-
-# CentOS/Rocky Linux
-sudo dnf update -y
+Android Emulator Debug -- HTTP 10.0.2.2:5050 --> API
 ```
 
-### 2. 创建应用用户 (可选但推荐)
+根目录 `docker-compose.yml` 的端口策略：
+
+| 服务 | 宿主机端口 | 作用域 |
+|---|---:|---|
+| API | `127.0.0.1:5050` | 本机诊断与 Android Emulator Debug |
+| PostgreSQL | 无宿主机端口 | 通过 `docker compose exec postgres ...` 维护 |
+| Redis | 无宿主机端口 | 通过 `docker compose exec redis ...` 维护 |
+| Admin | `127.0.0.1:3000` | 本机管理后台；Nginx 将 `/api/*` 代理到内部 API |
+| MinIO API / Console | 无 | 仅 API 容器访问 |
+
+不要为 MinIO 增加 `ports`，也不要让 App 或浏览器持有 MinIO 地址和密钥。封面与音频均通过受约束的 API 路由访问。
+
+## 2. 前置条件
+
+- Docker Engine 与 Docker Compose v2
+- 一台在家庭网络中地址稳定的主机
+- 上线时使用的真实域名和公共可信 TLS 证书
+- 能转发到宿主机 `127.0.0.1:3000` 的独立 HTTPS 反向代理或负载均衡器
+- 迁移前数据库备份空间
+
+本地 Docker 健康检查使用 `http://127.0.0.1:5050`。手机、浏览器或其他电脑不得直接访问本地 HTTP 端口；上线客户端编译时的 `API_URL` 必须使用运维提供的真实 HTTPS origin。
+
+## 3. 配置
+
+在仓库根目录执行：
 
 ```bash
-# 创建专用用户
-sudo useradd -m -s /bin/bash follow
-sudo usermod -aG docker follow
-
-# 切换到应用用户
-sudo su - follow
+cp .env.example .env
+chmod 600 .env
 ```
 
-### 3. 创建目录结构
+至少替换以下值：
+
+```dotenv
+POSTGRES_USER=follow
+POSTGRES_DB=follow
+POSTGRES_PASSWORD=使用随机生成的数据库强密码
+
+JWT_SECRET=至少32字符的高熵随机值
+
+ADMIN_USERNAME=admin
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=同时包含大小写字母数字和特殊字符的强密码
+
+MINIO_ROOT_USER=follow
+MINIO_ROOT_PASSWORD=使用随机生成的对象存储强密码
+```
+
+Admin 与 API 共享 `internal` web 网络，Admin Nginx 只代理 `/api/*`；API、PostgreSQL、Redis 与 MinIO 共享独立的 `internal` data 网络。宿主机端口显式绑定 `127.0.0.1`，不能改成 `0.0.0.0` 作为上线捷径。若生产代理提供 `X-Forwarded-*`，只将该代理的确定地址或专用网络加入 `ForwardedHeaders` 信任列表。
+
+不要提交 `.env`。环境管理员密码是启动配置的权威值；修改后重启 API 会使环境管理员的数据库密码同步更新。
+
+## 4. 部署前门禁
+
+先验证配置和构建，不触碰数据库：
 
 ```bash
-# 应用目录
-sudo mkdir -p /opt/follow-server
-
-# 设置权限
-sudo chown -R follow:follow /opt/follow-server
+docker compose config --quiet
+bash scripts/verify-docker-config.sh
+docker compose build api admin
 ```
 
----
+任何一步失败都应停止，不要继续迁移。
 
-## 软件安装
+## 5. 备份现有数据库
 
-### 必需软件列表
-
-| 软件 | 版本 | 用途 | 安装方式 |
-|------|------|------|----------|
-| **Docker** | 24.0+ | 容器运行时 | 必须安装 |
-| **Docker Compose** | v2.20+ | 容器编排 | 必须安装 |
-| **Git** | 2.30+ | 代码拉取 | 推荐安装 |
-| **Nginx** | 1.18+ | 反向代理 (可选) | 推荐安装 |
-
-### 安装 Docker
-
-#### Ubuntu/Debian
+先启动或确认 PostgreSQL 正常：
 
 ```bash
-# 移除旧版本
-sudo apt remove docker docker-engine docker.io containerd runc
-
-# 安装依赖
-sudo apt install -y apt-transport-https ca-certificates curl gnupg lsb-release
-
-# 添加 Docker 官方 GPG 密钥
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-
-# 添加 Docker 仓库
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-# 安装 Docker
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-# 启动并设置开机启动
-sudo systemctl start docker
-sudo systemctl enable docker
-
-# 将当前用户添加到 docker 组（需重新登录生效）
-sudo usermod -aG docker $USER
+docker compose up -d postgres
+docker compose ps postgres
 ```
 
-#### CentOS/Rocky Linux
+创建自定义格式备份：
 
 ```bash
-# 安装依赖
-sudo dnf install -y yum-utils
-
-# 添加 Docker 仓库
-sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-# 安装 Docker
-sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-
-# 启动并设置开机启动
-sudo systemctl start docker
-sudo systemctl enable docker
-
-# 将当前用户添加到 docker 组
-sudo usermod -aG docker $USER
+mkdir -p .local-backups
+chmod 700 .local-backups
+docker compose exec -T postgres sh -lc 'exec pg_dump --format=custom --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' > .local-backups/follow-before-migration.dump
+chmod 600 .local-backups/follow-before-migration.dump
+docker run --rm -v "$PWD/.local-backups:/backups:ro" postgres:18 pg_restore --list /backups/follow-before-migration.dump
 ```
 
-### 验证 Docker 安装
+最后一条命令必须能列出表、数据和约束。将备份复制到 Docker 主机之外再继续。
+
+本次家庭音乐迁移会删除旧订阅功能的数据表；恢复旧版本必须使用迁移前备份，不能假设向下迁移能恢复已删除的数据。
+
+## 6. 依赖、迁移与启动
+
+按依赖顺序执行：
 
 ```bash
-docker --version
-docker compose version
-```
-
-### 安装 Git
-
-```bash
-# Ubuntu/Debian
-sudo apt install -y git
-
-# CentOS/Rocky Linux
-sudo dnf install -y git
-```
-
-### 安装 Nginx (可选，用于反向代理)
-
-```bash
-# Ubuntu/Debian
-sudo apt install -y nginx
-
-# CentOS/Rocky Linux
-sudo dnf install -y nginx
-
-# 启动并设置开机启动
-sudo systemctl start nginx
-sudo systemctl enable nginx
-```
-
----
-
-## 端口配置
-
-### 服务端口说明
-
-| 服务 | 端口 | 方向 | 说明 |
-|------|------|------|------|
-| **Follow API** | 5000 | 入站 | 后端 API 服务 |
-| **PostgreSQL** | 5432 | 内部 | 数据库 (不建议对外开放) |
-| **Redis** | 6379 | 内部 | 缓存服务 (不建议对外开放) |
-| **MinIO API** | 9000 | 内部 | 对象存储 API |
-| **MinIO Console** | 9001 | 入站 | MinIO 管理控制台 |
-| **HTTP** | 80 | 入站 | Nginx 反向代理 |
-| **HTTPS** | 443 | 入站 | Nginx SSL |
-
-### 防火墙配置
-
-#### UFW (Ubuntu/Debian)
-
-```bash
-# 开启防火墙
-sudo ufw enable
-
-# 允许 SSH
-sudo ufw allow ssh
-
-# 允许 HTTP/HTTPS
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-# 允许 API 端口 (如果不使用反向代理)
-sudo ufw allow 5000/tcp
-
-# 允许 MinIO 控制台 (可选，仅管理员访问时开启)
-# sudo ufw allow 9001/tcp
-
-# 查看状态
-sudo ufw status
-```
-
-#### Firewalld (CentOS/Rocky Linux)
-
-```bash
-# 启动防火墙
-sudo systemctl start firewalld
-sudo systemctl enable firewalld
-
-# 允许 HTTP/HTTPS
-sudo firewall-cmd --permanent --add-service=http
-sudo firewall-cmd --permanent --add-service=https
-
-# 允许 API 端口
-sudo firewall-cmd --permanent --add-port=5000/tcp
-
-# 重新加载
-sudo firewall-cmd --reload
-
-# 查看状态
-sudo firewall-cmd --list-all
-```
-
-> [!IMPORTANT]
-> **安全建议**: PostgreSQL (5432) 和 Redis (6379) 端口不应对外网开放，仅允许内部容器网络通信。
-
----
-
-## 项目构建与发布
-
-> [!NOTE]
-> 以下提供三种方式将项目部署到服务器。推荐使用**方式一**（服务器克隆源码）或**方式二**（Docker Hub），操作最简单。
-
-### 方式一：在服务器上克隆源码构建 (推荐)
-
-```bash
-# 1. 克隆项目到服务器
-cd /opt/follow-server
-git clone https://github.com/your-repo/follow-server.git .
-
-# 项目已包含 Dockerfile 和 docker-compose.yml，可以直接构建
-# 转到 "生产环境配置" 章节继续
-```
-
-### 方式二：使用 Docker Hub (推荐用于 CI/CD)
-
-```bash
-# 本地构建并推送镜像
-docker build -t your-dockerhub-username/follow-api:latest .
-docker push your-dockerhub-username/follow-api:latest
-
-# 服务器拉取镜像
-docker pull your-dockerhub-username/follow-api:latest
-```
-
-使用此方式时，需修改 `docker-compose.yml` 中 `api` 服务的 `build: .` 为 `image: your-dockerhub-username/follow-api:latest`。
-
-### 方式三：本地打包上传
-
-在**开发机器**上执行:
-
-```bash
-# 1. 克隆或进入项目目录
-git clone https://github.com/your-repo/follow-server.git
-cd follow-server
-
-# 2. 打包整个项目 (包含 Dockerfile 和 docker-compose.yml)
-tar -czvf follow-server.tar.gz \
-  --exclude='.git' \
-  --exclude='bin' \
-  --exclude='obj' \
-  --exclude='publish' \
-  .
-
-# 3. 上传到服务器
-scp follow-server.tar.gz user@your-server:/opt/follow-server/
-```
-
-在**服务器**上执行:
-
-```bash
-cd /opt/follow-server
-
-# 解压
-tar -xzvf follow-server.tar.gz
-
-# 目录结构应包含:
-# /opt/follow-server/
-#   ├── Dockerfile
-#   ├── docker-compose.yml
-#   ├── src/
-#   │   ├── Follow.Api/
-#   │   ├── Follow.Core/
-#   │   ├── Follow.Infrastructure/
-#   │   └── Follow.Shared/
-#   └── ...
-```
-
-> [!CAUTION]
-> 必须打包完整的源码目录（包含 `Dockerfile`、`docker-compose.yml` 和 `src/`），而不是仅打包 `dotnet publish` 的输出。Docker 构建过程需要源码和 Dockerfile。
-
----
-
-## 生产环境配置
-
-### 1. 修改生产配置文件
-
-编辑 `src/Follow.Api/appsettings.Production.json`，将占位符替换为实际密码:
-
-```bash
-cd /opt/follow-server
-nano src/Follow.Api/appsettings.Production.json
-```
-
-内容示例:
-
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Warning",
-      "Microsoft.AspNetCore": "Warning",
-      "Microsoft.EntityFrameworkCore": "Warning"
-    }
-  },
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=postgres;Port=5432;Database=follow;Username=follow;Password=你的强密码"
-  },
-  "JwtSettings": {
-    "SecretKey": "生成至少32字符的随机字符串_用于生产环境JWT签名",
-    "Issuer": "FollowMusicApi",
-    "Audience": "FollowMusicClient",
-    "AccessTokenExpirationMinutes": 30,
-    "RefreshTokenExpirationDays": 7
-  },
-  "MinioSettings": {
-    "Endpoint": "minio:9000",
-    "AccessKey": "你的Minio访问密钥",
-    "SecretKey": "你的Minio密钥",
-    "BucketName": "follow-music",
-    "UseSSL": false
-  },
-  "RedisSettings": {
-    "ConnectionString": "redis:6379"
-  }
-}
-```
-
-> [!IMPORTANT]
-> 配置中的 `postgres`、`minio`、`redis` 是 Docker Compose 中定义的服务名称，Docker 会自动通过内部 DNS 将其解析为对应容器的 IP。请勿改为 `localhost`。
-
-> [!CAUTION]
-> **安全提醒**:
-> - `JwtSettings.SecretKey` 必须使用随机生成的强密码
-> - `ConnectionStrings.DefaultConnection` 中的密码需与 `.env` 文件中 `POSTGRES_PASSWORD` 保持一致
-> - 不要将生产配置文件提交到 Git
-
-### 2. 生成随机密钥
-
-```bash
-# 生成 32 位随机字符串
-openssl rand -base64 32
-```
-
-### 3. 创建环境变量文件
-
-创建 `/opt/follow-server/.env` 用于存储敏感信息:
-
-```bash
-# PostgreSQL
-POSTGRES_PASSWORD=你的数据库强密码
-
-# MinIO
-MINIO_ROOT_USER=admin
-MINIO_ROOT_PASSWORD=你的MinIO强密码
-```
-
-> [!NOTE]
-> 环境变量文件包含敏感信息，确保权限设置正确: `chmod 600 .env`
-
----
-
-## 部署方式
-
-### 方式一：Docker Compose 部署 (推荐)
-
-```bash
-cd /opt/follow-server
-
-# 1. 构建并启动所有服务
-docker compose up -d --build
-
-# 2. 查看服务状态
+docker compose up -d postgres redis minio
 docker compose ps
-
-# 3. 查看 API 日志
-docker compose logs -f api
+docker compose up -d api
+docker compose logs --tail=200 api
 ```
 
-项目的 `docker-compose.yml` 已包含完整的服务编排:
-- **api**: 后端 API 服务 (通过 Dockerfile 构建)
-- **postgres**: PostgreSQL 数据库
-- **redis**: Redis 缓存
-- **minio**: MinIO 对象存储
-
-所有服务通过 `follow-network` 互联，API 服务监听 5000 端口，MinIO 控制台通过 9001 端口访问。
-
-### 方式二：直接运行二进制文件
-
-> [!WARNING]
-> 此方式需要单独安装和管理 PostgreSQL、Redis、MinIO 等依赖服务，推荐使用 Docker Compose 方式。
-
-需要先安装 .NET Runtime:
+API 启动时应用 EF Core 迁移。日志中必须没有迁移失败、数据库连接失败或 MinIO 初始化失败，然后再启动用户入口：
 
 ```bash
-# Ubuntu
-wget https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb
-sudo dpkg -i packages-microsoft-prod.deb
-sudo apt update
-sudo apt install -y aspnetcore-runtime-10.0
-
-# 构建项目
-cd /opt/follow-server
-dotnet publish src/Follow.Api -c Release -o ./publish
-
-# 运行应用
-cd publish
-ASPNETCORE_ENVIRONMENT=Production ./Follow.Api
-```
-
-### 首次部署检查步骤
-
-```bash
-# 1. 确认所有容器运行正常
+docker compose up -d admin
 docker compose ps
-
-# 2. 检查 API 健康状态
-curl http://localhost:5000/health
-
-# 3. 检查 MinIO 控制台是否可访问
-curl http://localhost:9001
-
-# 4. 查看日志排查问题
-docker compose logs -f
 ```
 
-### 数据库迁移
+禁止使用 `docker compose down -v`；它会删除持久化卷。
 
-> [!TIP]
-> 应用已配置**自动数据库迁移**，首次启动时会自动创建所有数据库表。无需手动执行迁移命令。
+## 7. 配置生产 HTTPS 入口
 
-如果需要手动执行迁移 (例如在开发环境中)，可以使用:
+仓库不绑定具体网关产品。生产环境必须由宿主机或基础设施提供以下能力：
+
+- 使用真实域名和公共可信证书监听 HTTPS `443`；
+- 把请求转发到 `127.0.0.1:3000`，由 Admin Nginx 继续分流静态页面和 `/api/*`；
+- 保留 Range、Authorization、Cookie 与请求体流，不缓存认证 API 或音频响应；
+- 只在明确配置可信代理后传递并信任 `X-Forwarded-For` / `X-Forwarded-Proto`；
+- 禁止从公网直接连接 `3000`、`5050`、PostgreSQL、Redis 或 MinIO。
+
+Release App 只接受 HTTPS，不安装或注入仓库私有 CA。证书部署、续期和回滚由选定的生产网关负责。
+
+## 8. 验收
+
+在服务器本机验证容器与 API：
 
 ```bash
-# 需要在有源码和 .NET SDK 的环境中执行
-cd /opt/follow-server
-dotnet ef database update \
-  --project src/Follow.Infrastructure \
-  --startup-project src/Follow.Api
-```
-
----
-
-## 反向代理配置
-
-### Nginx 配置示例
-
-创建 `/etc/nginx/sites-available/follow`:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    # 重定向到 HTTPS (可选)
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
-
-    # SSL 证书 (使用 Let's Encrypt 或其他)
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
-
-    # SSL 配置
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
-    ssl_prefer_server_ciphers off;
-
-    # API 代理
-    location /api {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # 文件上传大小限制
-        client_max_body_size 100M;
-    }
-
-    # 音频流代理 (增加缓冲)
-    location /api/tracks {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_buffering off;
-        proxy_cache off;
-
-        client_max_body_size 500M;  # 音频文件上传限制
-    }
-
-    # Swagger 文档 (生产环境可禁用)
-    location /swagger {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-    }
-
-    # 健康检查
-    location /health {
-        proxy_pass http://127.0.0.1:5000;
-    }
-}
-```
-
-启用配置:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/follow /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-### 申请 SSL 证书 (Let's Encrypt)
-
-```bash
-# 安装 Certbot
-sudo apt install -y certbot python3-certbot-nginx
-
-# 申请证书
-sudo certbot --nginx -d your-domain.com
-
-# 自动续期测试
-sudo certbot renew --dry-run
-```
-
----
-
-## 运维与监控
-
-### 常用运维命令
-
-```bash
-# 查看所有服务状态
 docker compose ps
-
-# 查看日志
-docker compose logs -f api
-docker compose logs -f postgres
-
-# 重启服务
-docker compose restart api
-
-# 停止所有服务
-docker compose down
-
-# 更新代码并重新构建
-git pull
-docker compose up -d --build
-
-# 进入容器调试
-docker exec -it follow-api /bin/bash
-docker exec -it follow-postgres psql -U follow
+curl --fail http://127.0.0.1:5050/health
+curl --fail --head http://127.0.0.1:3000/
 ```
 
-### 数据备份
-
-#### 备份 PostgreSQL
+在家庭设备上验证生产 HTTPS 入口：
 
 ```bash
-# 创建备份脚本 /opt/follow-server/backup.sh
-#!/bin/bash
-BACKUP_DIR=/data/backups/postgres
-mkdir -p $BACKUP_DIR
-DATE=$(date +%Y%m%d_%H%M%S)
-docker exec follow-postgres pg_dump -U follow follow > $BACKUP_DIR/follow_$DATE.sql
-gzip $BACKUP_DIR/follow_$DATE.sql
-
-# 保留最近 7 天的备份
-find $BACKUP_DIR -mtime +7 -name "*.sql.gz" -delete
+curl --fail https://music.home.arpa/health
+curl --fail --head https://music.home.arpa/
 ```
+
+然后执行产品验收：
+
+1. 管理后台登录；开发者工具中不得出现保存在 Local Storage / Session Storage 的 token。
+2. 同一账号登录两台设备，能看到两个独立会话；撤销其中一个不会影响另一个。
+3. 注销后旧 Access Token 立即失效，旧 Refresh Token 不能再次换取 token。
+4. 对登录与刷新接口做短时重复请求，确认返回限流响应，而不是继续消耗密码校验或数据库资源。
+5. 上传一首音乐，浏览器 Network 中播放请求应带 `Range`；服务端返回 `206`、`Accept-Ranges: bytes` 和正确的 `Content-Range`。
+6. 删除曲目后数据库引用立即消失；对象清理任务最终删除音频、封面与歌词。重复执行清理任务应保持成功。
+7. Member 不能修改其他用户的公开播放列表；列表分页连续读取时不重复、不跳项。
+8. 从家庭网络另一台机器确认 9000/9001 无法连接，MinIO Console 不可见。
+
+## 9. 日志与备份
 
 ```bash
-# 添加定时任务
-chmod +x /opt/follow-server/backup.sh
-crontab -e
-# 添加: 0 2 * * * /opt/follow-server/backup.sh
+docker compose logs --tail=200 api
+docker compose logs --tail=200 minio
 ```
 
-### 监控建议
+至少定期备份：
 
-- **容器监控**: 使用 `docker stats` 或 Portainer
-- **日志聚合**: ELK Stack 或 Loki + Grafana
-- **应用监控**: 集成 Prometheus + Grafana
-- **告警**: 配置 AlertManager 或云服务告警
+- PostgreSQL 自定义格式 dump
+- MinIO 数据卷或其底层存储快照
+- 当前 `.env` 的加密副本
+- 生产 HTTPS 网关的独立配置和证书恢复方案
 
-### 设置 Systemd 服务 (可选)
+数据库与 MinIO 必须来自同一备份时间点，否则数据库对象键与实际对象可能不一致。
 
-创建 `/etc/systemd/system/follow-server.service`:
+## 10. 回滚
 
-```ini
-[Unit]
-Description=Follow Music Server
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/follow-server
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose down
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-```
-
-启用服务:
+若 API 迁移或验收失败：
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable follow-server
-sudo systemctl start follow-server
+docker compose stop admin api
 ```
 
----
+保留现场日志和当前卷，不要执行 `down -v`。推荐把 `.local-backups/follow-before-migration.dump` 恢复到一个新的临时数据库中验证，再由维护者明确决定是否替换当前数据库。回滚应用版本时，数据库必须同时恢复到与该版本兼容的迁移点。
 
-## 常见问题
+恢复后重新执行第 8 节；只有数据库、对象存储、API 与客户端契约同时通过才算回滚完成。
 
-### 1. API 启动失败，连接数据库超时
+## 11. 本地开发例外
 
-**原因**: PostgreSQL 容器还未完全启动
+Vite 开发服务器只使用相对 `/api`，由 `follow-admin/vite.config.ts` 代理到本机 API。Flutter Android Debug 默认通过官方 Emulator 宿主机别名直连 `http://10.0.2.2:5050`，不需要启动参数；Android 网络策略只对 Debug 的这个地址放行 HTTP。Profile、Release 和所有非本地 origin 仍强制 HTTPS。
 
-**解决**: 
-```bash
-# 检查 PostgreSQL 状态
-docker logs follow-postgres
-
-# 等待完全启动后重启 API
-docker compose restart api
-```
-
-### 2. MinIO 上传失败
-
-**原因**: Bucket 未创建
-
-**解决**: 应用已配置自动创建 Bucket。如果仍然失败:
-```bash
-# 访问 MinIO 控制台 http://your-server:9001
-# 手动创建 bucket: follow-music
-
-# 或使用 mc 命令行工具
-docker run --rm -it --network=follow-server_follow-network \
-  minio/mc alias set myminio http://minio:9000 admin password
-docker run --rm -it --network=follow-server_follow-network \
-  minio/mc mb myminio/follow-music
-```
-
-### 3. 内存不足导致服务崩溃
-
-**解决**: 
-```yaml
-# 在 docker-compose.yml 中添加资源限制
-services:
-  api:
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-        reservations:
-          memory: 256M
-```
-
-### 4. 音频文件上传失败
-
-**原因**: 文件大小超过限制
-
-**解决**:
-- 检查 Nginx `client_max_body_size` 配置
-- 检查 ASP.NET Core 的请求限制配置
-
-### 5. JWT Token 无效
-
-**原因**: 生产环境和开发环境使用了不同的 SecretKey
-
-**解决**: 确保 `appsettings.Production.json` 中的 `JwtSettings.SecretKey` 配置正确，并重启 API 服务
-
----
-
-## 附录
-
-### 快速部署检查清单
-
-- [ ] 服务器系统已更新
-- [ ] Docker 和 Docker Compose 已安装
-- [ ] 防火墙规则已配置
-- [ ] 项目源码已上传至 `/opt/follow-server`
-- [ ] 生产配置文件已修改 (`appsettings.Production.json`)
-- [ ] 环境变量已配置 (`.env`)
-- [ ] Docker 服务已启动 (`docker compose up -d --build`)
-- [ ] API 健康检查通过 (`curl http://localhost:5000/health`)
-- [ ] Nginx 反向代理已配置 (可选)
-- [ ] SSL 证书已安装 (可选)
-- [ ] 备份策略已配置
-
-### 服务端口汇总
-
-| 端口 | 协议 | 用途 | 对外开放 |
-|------|------|------|----------|
-| 22 | TCP | SSH | ✅ 是 |
-| 80 | TCP | HTTP | ✅ 是 |
-| 443 | TCP | HTTPS | ✅ 是 |
-| 5000 | TCP | Follow API | ⚠️ 视情况 |
-| 5432 | TCP | PostgreSQL | ❌ 否 |
-| 6379 | TCP | Redis | ❌ 否 |
-| 9000 | TCP | MinIO API | ❌ 否 |
-| 9001 | TCP | MinIO Console | ⚠️ 管理用 |
-
-### 相关资源
-
-- [.NET 10 下载](https://dotnet.microsoft.com/download/dotnet/10.0)
-- [Docker 安装文档](https://docs.docker.com/engine/install/)
-- [MinIO 文档](https://docs.min.io/)
-- [Nginx 配置指南](https://nginx.org/en/docs/)
-- [Let's Encrypt 证书](https://letsencrypt.org/)
+这些开发例外不能复制到家庭部署配置，也不能把绝对 API origin 编译进管理后台。

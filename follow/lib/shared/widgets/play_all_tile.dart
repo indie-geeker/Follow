@@ -32,7 +32,7 @@ class PlayAllTile extends StatelessWidget {
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: LoginColors.accentPurple.withOpacity(0.3),
+                    color: LoginColors.accentPurple.withValues(alpha: 0.3),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -61,7 +61,9 @@ class PlayAllTile extends StatelessWidget {
                   '$count 首歌曲',
                   style: TextStyle(
                     fontSize: 12,
-                    color: isDark ? LoginColors.textSecondary : theme.colorScheme.onSurfaceVariant,
+                    color: isDark
+                        ? LoginColors.textSecondary
+                        : theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],

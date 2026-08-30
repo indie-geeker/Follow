@@ -1,7 +1,17 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:follow/data/models/user.dart';
+import 'package:follow/data/providers/audio_provider.dart';
+import 'package:follow/data/providers/download_provider.dart';
+import 'package:follow/data/providers/history_provider.dart';
+import 'package:follow/data/providers/lyrics_provider.dart';
+import 'package:follow/data/providers/playlist_provider.dart';
+import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/services/api/api_client.dart';
 import 'package:follow/data/services/api/api_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:follow/data/services/auth/auth_repository.dart';
+import 'package:follow/data/services/auth/client_device.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'auth_provider.g.dart';
@@ -36,31 +46,29 @@ class AuthStateError extends AuthState {
 /// Auth provider with Riverpod generator
 @riverpod
 class Auth extends _$Auth {
-  late final ApiService _apiService;
+  late final AuthRepository _repository;
 
   @override
   AuthState build() {
-    _apiService = ApiService();
-    _checkAuth();
+    _repository = AuthRepository(
+      api: ApiService(),
+      tokenStore: ApiClient.tokenStore,
+      deviceName: clientDeviceName(),
+      clearAccountState: _clearAccountState,
+    );
+    unawaited(_checkAuth());
     return const AuthStateInitial();
   }
 
   Future<void> _checkAuth() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('accessToken');
-    
-    if (token != null) {
-      state = const AuthStateLoading();
-      try {
-        final user = await _apiService.getCurrentUser();
-        state = AuthStateAuthenticated(user);
-      } catch (e) {
-        await prefs.remove('accessToken');
-        await prefs.remove('refreshToken');
-        state = const AuthStateUnauthenticated();
-      }
-    } else {
-      state = const AuthStateUnauthenticated();
+    state = const AuthStateLoading();
+    try {
+      final user = await _repository.restoreCurrentUser();
+      state = user == null
+          ? const AuthStateUnauthenticated()
+          : AuthStateAuthenticated(user);
+    } catch (error) {
+      state = AuthStateError(_parseError(error));
     }
   }
 
@@ -68,16 +76,8 @@ class Auth extends _$Auth {
     state = const AuthStateLoading();
 
     try {
-      final response = await _apiService.login(LoginRequest(
-        email: email,
-        password: password,
-      ));
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('accessToken', response.accessToken);
-      await prefs.setString('refreshToken', response.refreshToken);
-
-      state = AuthStateAuthenticated(response.user);
+      final user = await _repository.login(email, password);
+      state = AuthStateAuthenticated(user);
     } catch (e) {
       state = AuthStateError(_parseError(e));
     }
@@ -87,28 +87,49 @@ class Auth extends _$Auth {
     state = const AuthStateLoading();
 
     try {
-      final response = await _apiService.register(RegisterRequest(
-        username: username,
-        email: email,
-        password: password,
-      ));
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('accessToken', response.accessToken);
-      await prefs.setString('refreshToken', response.refreshToken);
-
-      state = AuthStateAuthenticated(response.user);
+      final user = await _repository.register(username, email, password);
+      state = AuthStateAuthenticated(user);
     } catch (e) {
       state = AuthStateError(_parseError(e));
     }
   }
 
-  Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('accessToken');
-    await prefs.remove('refreshToken');
-    ApiClient.resetInstance();
-    state = const AuthStateUnauthenticated();
+  Future<bool> logout() async {
+    final previous = state;
+    final revoked = await _repository.logout();
+    if (revoked) {
+      state = const AuthStateUnauthenticated();
+      return true;
+    }
+    state = previous;
+    return false;
+  }
+
+  Future<void> sessionExpired() async {
+    try {
+      await _repository.clearLocalSession();
+    } finally {
+      state = const AuthStateUnauthenticated();
+    }
+  }
+
+  Future<void> _clearAccountState() async {
+    try {
+      await ref.read(audioPlayerServiceProvider).clearQueue();
+    } catch (error) {
+      debugPrint('Failed to clear playback state on logout: $error');
+    }
+    try {
+      await ref.read(downloadManagerProvider.notifier).clearForLogout();
+    } catch (error) {
+      debugPrint('Failed to clear download request state on logout: $error');
+    }
+    ref.read(lyricsOverlayVisibleProvider.notifier).hide();
+    ref.invalidate(downloadedTracksProvider);
+    ref.invalidate(favoritesProvider);
+    ref.invalidate(historyProvider);
+    ref.invalidate(playlistsProvider);
+    ref.invalidate(tracksProvider);
   }
 
   String _parseError(dynamic error) {

@@ -9,7 +9,9 @@ import 'package:follow/shared/widgets/empty_state_card.dart';
 import 'package:follow/core/utils/snackbar_helper.dart';
 
 class RecentlyPlayedView extends ConsumerWidget {
-  const RecentlyPlayedView({super.key});
+  const RecentlyPlayedView({super.key, required this.onBrowseLibrary});
+
+  final VoidCallback onBrowseLibrary;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -19,10 +21,13 @@ class RecentlyPlayedView extends ConsumerWidget {
     return historyAsync.when(
       data: (tracks) {
         if (tracks.isEmpty) {
-          return const EmptyStateCard(
+          return EmptyStateCard(
             icon: Icons.history_rounded,
             title: '暂无播放记录',
-            subtitle: '快去听听歌吧',
+            subtitle: '从音乐库挑一首喜欢的歌开始播放',
+            actionLabel: '进入音乐库',
+            actionIcon: Icons.library_music_rounded,
+            onAction: onBrowseLibrary,
           );
         }
         return ListView.builder(
@@ -46,8 +51,10 @@ class RecentlyPlayedView extends ConsumerWidget {
                   final apiService = ref.read(apiServiceProvider);
                   await apiService.removeFromHistory(track.id);
                   ref.invalidate(historyProvider);
+                  if (!context.mounted) return;
                   SnackBarHelper.showSuccess(context, '已移出最近播放');
                 } catch (e) {
+                  if (!context.mounted) return;
                   SnackBarHelper.showError(context, '操作失败: $e');
                 }
               },
@@ -55,25 +62,14 @@ class RecentlyPlayedView extends ConsumerWidget {
           },
         );
       },
-      loading: () => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
             const SizedBox(height: 16),
-            Text(
-              '加载失败',
-              style: TextStyle(
-                color: theme.colorScheme.error,
-              ),
-            ),
+            Text('加载失败', style: TextStyle(color: theme.colorScheme.error)),
           ],
         ),
       ),

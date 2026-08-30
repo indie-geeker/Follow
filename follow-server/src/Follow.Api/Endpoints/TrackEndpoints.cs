@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using Follow.Api.RateLimiting;
+using Follow.Api.Media;
 using Follow.Core.Interfaces;
 using Follow.Shared.Constants;
 
@@ -21,28 +23,32 @@ public static class TrackEndpoints
             .WithDescription("Get a track by ID")
             .RequireAuthorization();
 
-        group.MapGet("/{id:guid}/stream", StreamTrack)
+        group.MapMethods("/{id:guid}/stream", [HttpMethods.Get, HttpMethods.Head], StreamTrack)
             .WithName("StreamTrack")
             .WithDescription("Stream audio for playback")
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .RequireRateLimiting(RateLimitPolicies.Stream);
 
         // Admin endpoints
         group.MapPost("/upload", UploadTrack)
             .WithName("UploadTrack")
             .WithDescription("Upload a new track (Admin only)")
             .RequireAuthorization(Policies.AdminOnly)
+            .RequireRateLimiting(RateLimitPolicies.Upload)
             .DisableAntiforgery();
 
         group.MapPost("/{id:guid}/cover", UploadCover)
             .WithName("UploadTrackCover")
             .WithDescription("Upload cover image for a track (Admin only)")
             .RequireAuthorization(Policies.AdminOnly)
+            .RequireRateLimiting(RateLimitPolicies.Upload)
             .DisableAntiforgery();
 
         group.MapPost("/{id:guid}/lyrics", UploadLyrics)
             .WithName("UploadTrackLyrics")
             .WithDescription("Upload lyrics file for a track (Admin only)")
             .RequireAuthorization(Policies.AdminOnly)
+            .RequireRateLimiting(RateLimitPolicies.Upload)
             .DisableAntiforgery();
 
         group.MapGet("/{id:guid}/lyrics", GetLyrics)
@@ -103,17 +109,18 @@ public static class TrackEndpoints
         return track == null ? Results.NotFound() : Results.Ok(track);
     }
 
-    private static async Task<IResult> StreamTrack(Guid id, ITrackService trackService, HttpContext context)
+    private static async Task<IResult> StreamTrack(
+        Guid id,
+        ITrackService trackService,
+        IStorageService storageService)
     {
-        var (stream, contentType, length) = await trackService.GetTrackStreamAsync(id);
-        
-        if (stream == null)
+        var storedObject = await trackService.GetTrackObjectAsync(id);
+        if (storedObject == null)
             return Results.NotFound();
-
-        context.Response.Headers["Accept-Ranges"] = "bytes";
-        context.Response.Headers["Content-Length"] = length?.ToString();
-        
-        return Results.Stream(stream, contentType ?? "audio/mpeg", enableRangeProcessing: true);
+        return new StorageObjectResult(
+            storageService,
+            storedObject.Path,
+            storedObject.ContentType);
     }
 
     private static async Task<IResult> UploadTrack(
@@ -202,18 +209,18 @@ public static class TrackEndpoints
         }
     }
 
-    private static async Task<IResult> GetLyrics(Guid id, ITrackService trackService)
+    private static async Task<IResult> GetLyrics(
+        Guid id,
+        ITrackService trackService,
+        IStorageService storageService)
     {
-        var result = await trackService.GetLyricsStreamAsync(id);
-        
-        if (result == null)
+        var storedObject = await trackService.GetLyricsObjectAsync(id);
+        if (storedObject == null)
             return Results.NotFound();
-
-        var (stream, contentType) = result.Value;
-        if (stream == null)
-            return Results.NotFound();
-
-        return Results.Stream(stream, contentType ?? "text/plain");
+        return new StorageObjectResult(
+            storageService,
+            storedObject.Path,
+            storedObject.ContentType);
     }
 
     private static async Task<IResult> GetTrackTags(Guid id, ITrackService trackService)
@@ -233,18 +240,12 @@ public static class TrackEndpoints
 
     private static async Task<IResult> GetCoverImage(
         string path,
-        IStorageService storageService,
-        HttpContext context)
+        IStorageService storageService)
     {
-        // Decode the path since it comes from the URL
-        var decodedPath = System.Net.WebUtility.UrlDecode(path);
-        
-        var stream = await storageService.GetFileAsync(decodedPath);
-        if (stream == null)
+        if (!MediaPathPolicy.AllowsAnonymousCover(path))
             return Results.NotFound();
 
-        var extension = Path.GetExtension(decodedPath).ToLowerInvariant();
-        var contentType = extension switch
+        var contentType = Path.GetExtension(path).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => "image/jpeg",
             ".png" => "image/png",
@@ -253,7 +254,7 @@ public static class TrackEndpoints
             _ => "application/octet-stream"
         };
         
-        return Results.Stream(stream, contentType);
+        return new StorageObjectResult(storageService, path, contentType);
     }
 }
 

@@ -12,6 +12,9 @@ public class Track : BaseEntity
     public string? LyricsUrl { get; set; }
     public int BitRate { get; set; }
     public string? Format { get; set; }
+    public byte[]? ContentSha256 { get; set; }
+    public long? FileSizeBytes { get; set; }
+    public string? OriginalFileName { get; set; }
     
     // Foreign keys
     public Guid? ArtistId { get; set; }

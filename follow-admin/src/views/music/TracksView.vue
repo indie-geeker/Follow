@@ -4,26 +4,39 @@
       <div class="header-left">
         <p class="page-subtitle">管理和上传您的音乐曲目</p>
       </div>
-      <el-upload
-        :action="uploadUrl"
-        :headers="uploadHeaders"
-        :on-success="handleUploadSuccess"
-        :on-error="handleUploadError"
-        :show-file-list="false"
-        accept=".mp3,.flac,.wav,.m4a,.aac,.ogg"
-      >
-        <el-button type="primary" :icon="Upload" class="upload-btn">上传音乐</el-button>
-      </el-upload>
+      <div class="upload-actions">
+        <el-button
+          :icon="FolderOpened"
+          @click="router.push({ name: 'MusicImportCreate' })"
+        >
+          初始化音乐库
+        </el-button>
+        <el-upload
+          :http-request="uploadTrack"
+          :on-success="handleUploadSuccess"
+          :on-error="handleUploadError"
+          :show-file-list="false"
+          accept=".mp3,.flac,.wav,.m4a,.aac,.ogg"
+        >
+          <el-button type="primary" :icon="Upload" class="upload-btn">上传音乐</el-button>
+        </el-upload>
+      </div>
     </div>
 
     <el-card class="content-card">
-      <el-table :data="tracks" v-loading="loading" style="width: 100%" class="custom-table">
+      <el-table
+        :data="tracks"
+        v-loading="loading"
+        empty-text="暂无曲目"
+        style="width: 100%"
+        class="custom-table"
+      >
         <el-table-column label="封面" width="80">
           <template #default="{ row }">
             <el-image
-              v-if="row.coverUrl"
-              :src="getCoverUrl(row.coverUrl)"
-              :preview-src-list="[getCoverUrl(row.coverUrl)]"
+              v-if="toCoverProxyUrl(row.coverUrl)"
+              :src="toCoverProxyUrl(row.coverUrl)"
+              :preview-src-list="[toCoverProxyUrl(row.coverUrl)]"
               :preview-teleported="true"
               fit="cover"
               class="track-cover"
@@ -78,7 +91,14 @@
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <div class="action-buttons">
-              <el-button link type="primary" @click="playTrack(row)" class="action-btn play">
+              <el-button
+                link
+                type="primary"
+                class="action-btn play"
+                :aria-label="`播放：${row.title}`"
+                :title="`播放：${row.title}`"
+                @click="playTrack(row)"
+              >
                 <el-icon><VideoPlay /></el-icon>
               </el-button>
               <el-button link type="primary" @click="editTrack(row)" class="action-btn">
@@ -92,13 +112,11 @@
         </el-table-column>
       </el-table>
 
-      <el-pagination
+      <AdminPagination
         v-model:current-page="pagination.page"
         :page-size="pagination.pageSize"
         :total="pagination.total"
-        layout="total, prev, pager, next"
         @current-change="loadTracks"
-        class="pagination"
       />
     </el-card>
 
@@ -107,8 +125,8 @@
       <div v-if="currentTrack" class="audio-player">
         <div class="player-info">
           <el-image
-            v-if="currentTrack.coverUrl"
-            :src="getCoverUrl(currentTrack.coverUrl)"
+            v-if="toCoverProxyUrl(currentTrack.coverUrl)"
+            :src="toCoverProxyUrl(currentTrack.coverUrl)"
             fit="cover"
             class="player-cover"
           />
@@ -125,12 +143,14 @@
           :src="streamUrl"
           controls
           @ended="onAudioEnded"
+          @error="handlePlaybackError"
           class="player-audio"
         />
         <el-button
           :icon="Close"
           circle
           size="small"
+          aria-label="关闭播放器"
           @click="stopPlayback"
           class="player-close"
         />
@@ -146,14 +166,13 @@
         <el-form-item label="封面">
           <div class="cover-upload-area">
             <el-image
-              v-if="editForm.coverUrl"
-              :src="getCoverUrl(editForm.coverUrl)"
+              v-if="toCoverProxyUrl(editForm.coverUrl)"
+              :src="toCoverProxyUrl(editForm.coverUrl)"
               fit="cover"
               class="edit-cover-preview"
             />
             <el-upload
-              :action="coverUploadUrl"
-              :headers="uploadHeaders"
+              :http-request="uploadTrackCover"
               :show-file-list="false"
               :on-success="handleCoverUpload"
               accept=".jpg,.jpeg,.png,.webp,.gif"
@@ -167,8 +186,7 @@
             <el-tag v-if="editForm.lyricsUrl" type="success">已上传歌词</el-tag>
             <el-tag v-else type="info">未上传歌词</el-tag>
             <el-upload
-              :action="lyricsUploadUrl"
-              :headers="uploadHeaders"
+              :http-request="uploadTrackLyrics"
               :show-file-list="false"
               :on-success="handleLyricsUpload"
               accept=".lrc,.txt"
@@ -219,11 +237,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onBeforeUnmount, onMounted, computed, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload, VideoPlay, Close, Picture, Headset } from '@element-plus/icons-vue'
-import api from '@/api'
+import { Upload, VideoPlay, Close, Picture, Headset, FolderOpened } from '@element-plus/icons-vue'
+import api, { refreshSession } from '@/api'
+import { createApiUpload } from '@/api/upload'
+import AdminPagination from '@/components/AdminPagination.vue'
+import { normalizeCoverObjectKey, toCoverProxyUrl } from '@/utils/coverUrl'
 
+const router = useRouter()
 const loading = ref(false)
 const tracks = ref<any[]>([])
 const pagination = reactive({
@@ -235,7 +258,8 @@ const pagination = reactive({
 // Audio player state
 const currentTrack = ref<any>(null)
 const audioRef = ref<HTMLAudioElement | null>(null)
-const audioBlobUrl = ref<string>('')
+const streamUrl = ref('')
+const playbackRefreshAttempted = ref(false)
 
 const editDialogVisible = ref(false)
 const editForm = reactive({
@@ -255,26 +279,15 @@ const lyricsLoading = ref(false)
 const allTags = ref<any[]>([])
 const loadingTags = ref(false)
 
-const baseUrl = computed(() => import.meta.env.VITE_API_URL || 'http://localhost:5000')
+const uploadUrl = computed(() => '/api/tracks/upload')
 
-const uploadUrl = computed(() => `${baseUrl.value}/api/tracks/upload`)
+const coverUploadUrl = computed(() => `/api/tracks/${editForm.id}/cover`)
 
-const coverUploadUrl = computed(() => `${baseUrl.value}/api/tracks/${editForm.id}/cover`)
+const lyricsUploadUrl = computed(() => `/api/tracks/${editForm.id}/lyrics`)
 
-const lyricsUploadUrl = computed(() => `${baseUrl.value}/api/tracks/${editForm.id}/lyrics`)
-
-const streamUrl = computed(() => audioBlobUrl.value)
-
-const uploadHeaders = computed(() => ({
-  Authorization: `Bearer ${localStorage.getItem('token')}`
-}))
-
-function getCoverUrl(coverPath: string): string {
-  // If it's already a full URL, return it
-  if (coverPath.startsWith('http')) return coverPath
-  // Otherwise, construct presigned URL request (simplified - adjust based on your API)
-  return `${baseUrl.value}/api/tracks/cover/${encodeURIComponent(coverPath)}`
-}
+const uploadTrack = createApiUpload(() => uploadUrl.value)
+const uploadTrackCover = createApiUpload(() => coverUploadUrl.value)
+const uploadTrackLyrics = createApiUpload(() => lyricsUploadUrl.value)
 
 function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60)
@@ -307,38 +320,57 @@ function handleUploadError() {
 }
 
 async function playTrack(track: any) {
-  // Cleanup previous blob URL
-  if (audioBlobUrl.value) {
-    URL.revokeObjectURL(audioBlobUrl.value)
-    audioBlobUrl.value = ''
-  }
-  
+  stopPlayback()
   currentTrack.value = track
-  
+  playbackRefreshAttempted.value = false
+  streamUrl.value = `/api/tracks/${track.id}/stream`
+
+  await nextTick()
   try {
-    // Fetch audio with auth header and create blob URL
-    const response = await api.get(`/api/tracks/${track.id}/stream`, {
-      responseType: 'blob'
-    })
-    audioBlobUrl.value = URL.createObjectURL(response.data)
-    
-    // Wait for DOM update before playing
-    setTimeout(() => {
-      audioRef.value?.play()
-    }, 100)
-  } catch (error) {
-    ElMessage.error('加载音频失败')
-    currentTrack.value = null
+    await audioRef.value?.play()
+  } catch {
+    // Browser autoplay policy may require the native play control.
   }
 }
 
 function stopPlayback() {
-  audioRef.value?.pause()
-  if (audioBlobUrl.value) {
-    URL.revokeObjectURL(audioBlobUrl.value)
-    audioBlobUrl.value = ''
-  }
+  const audio = audioRef.value
+  audio?.pause()
+  audio?.removeAttribute('src')
+  audio?.load()
+  streamUrl.value = ''
+  playbackRefreshAttempted.value = false
   currentTrack.value = null
+}
+
+async function handlePlaybackError() {
+  if (!streamUrl.value) return
+
+  if (!playbackRefreshAttempted.value) {
+    playbackRefreshAttempted.value = true
+    const failedUrl = streamUrl.value
+    try {
+      await refreshSession()
+      if (streamUrl.value !== failedUrl) return
+
+      streamUrl.value = ''
+      await nextTick()
+      streamUrl.value = failedUrl
+      await nextTick()
+      audioRef.value?.load()
+      try {
+        await audioRef.value?.play()
+      } catch {
+        // The refreshed stream remains available through the native play control.
+      }
+      return
+    } catch {
+      // The shared refresh handler redirects when the cookie session is no longer valid.
+    }
+  }
+
+  ElMessage.error('加载音频失败')
+  stopPlayback()
 }
 
 function onAudioEnded() {
@@ -348,7 +380,7 @@ function onAudioEnded() {
 async function editTrack(track: any) {
   editForm.id = track.id
   editForm.title = track.title
-  editForm.coverUrl = track.coverUrl || ''
+  editForm.coverUrl = normalizeCoverObjectKey(track.coverUrl) ?? ''
   editForm.lyricsUrl = track.lyricsUrl || ''
   editForm.tagIds = []
   editDialogVisible.value = true
@@ -376,8 +408,9 @@ async function editTrack(track: any) {
 }
 
 function handleCoverUpload(response: any) {
-  if (response.coverUrl) {
-    editForm.coverUrl = response.coverUrl
+  const coverObjectKey = normalizeCoverObjectKey(response.coverUrl)
+  if (coverObjectKey) {
+    editForm.coverUrl = coverObjectKey
     ElMessage.success('封面上传成功')
   }
 }
@@ -411,7 +444,6 @@ async function saveTrack() {
   try {
     await api.put(`/api/tracks/${editForm.id}`, {
       title: editForm.title,
-      coverUrl: editForm.coverUrl || null,
       lyricsUrl: editForm.lyricsUrl || null
     })
     
@@ -442,6 +474,7 @@ async function deleteTrack(id: string) {
 }
 
 onMounted(loadTracks)
+onBeforeUnmount(stopPlayback)
 </script>
 
 <style scoped>
@@ -470,6 +503,17 @@ onMounted(loadTracks)
 .upload-btn {
   padding: 12px 24px;
   font-weight: 600;
+}
+
+.upload-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.upload-actions .el-button {
+  min-height: 40px;
+  margin: 0;
 }
 
 /* Content Card */
@@ -562,36 +606,6 @@ onMounted(loadTracks)
 
 .action-btn.play {
   font-size: 18px;
-}
-
-/* Pagination */
-.pagination {
-  padding: 16px 20px;
-  justify-content: flex-end;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.pagination :deep(.btn-prev),
-.pagination :deep(.btn-next),
-.pagination :deep(.el-pager li) {
-  background: rgba(255, 255, 255, 0.05) !important;
-  border-radius: 4px;
-  margin: 0 4px;
-  min-width: 32px;
-  height: 32px;
-  line-height: 32px;
-  color: rgba(255, 255, 255, 0.7) !important;
-}
-
-.pagination :deep(.el-pager li.is-active) {
-  background: var(--primary-color, #409EFF) !important;
-  color: #fff !important;
-  font-weight: bold;
-}
-
-.pagination :deep(.el-pagination__total) {
-  color: rgba(255, 255, 255, 0.6);
-  margin-right: 12px;
 }
 
 /* Audio Player */
@@ -720,5 +734,24 @@ onMounted(loadTracks)
   text-align: center;
   color: #909399;
   padding: 20px;
+}
+
+@media (max-width: 640px) {
+  .page-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .upload-actions {
+    width: 100%;
+  }
+
+  .upload-actions > .el-button,
+  .upload-actions :deep(.el-upload),
+  .upload-actions :deep(.el-upload .el-button) {
+    flex: 1;
+    width: 100%;
+  }
 }
 </style>

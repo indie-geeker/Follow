@@ -1,6 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:follow/core/network/media_url.dart';
 import 'package:follow/data/providers/album_provider.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
@@ -26,67 +27,79 @@ class AlbumDetailPage extends ConsumerWidget {
             expandedHeight: 280,
             flexibleSpace: FlexibleSpaceBar(
               background: albumAsync.when(
-                data: (album) => Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (album.coverUrl != null)
-                      Image.network(
-                        album.coverUrl!,
-                        fit: BoxFit.cover,
-                      )
-                    else
+                data: (album) {
+                  final coverUri = resolveCoverUri(album.coverUrl);
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (coverUri != null)
+                        Image.network(
+                          coverUri.toString(),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            color: theme.colorScheme.primaryContainer,
+                            child: Icon(
+                              Icons.album,
+                              size: 120,
+                              color: theme.colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          color: theme.colorScheme.primaryContainer,
+                          child: Icon(
+                            Icons.album,
+                            size: 120,
+                            color: theme.colorScheme.onPrimaryContainer,
+                          ),
+                        ),
+                      // Gradient overlay
                       Container(
-                        color: theme.colorScheme.primaryContainer,
-                        child: Icon(
-                          Icons.album,
-                          size: 120,
-                          color: theme.colorScheme.onPrimaryContainer,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.7),
+                            ],
+                          ),
                         ),
                       ),
-                    // Gradient overlay
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.7),
+                      Positioned(
+                        bottom: 16,
+                        left: 16,
+                        right: 16,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              album.title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (album.artist != null)
+                              Text(
+                                album.artist!.name,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 16,
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                    ),
-                    Positioned(
-                      bottom: 16,
-                      left: 16,
-                      right: 16,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            album.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          if (album.artist != null)
-                            Text(
-                              album.artist!.name,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 16,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+                    ],
+                  );
+                },
                 loading: () => Container(color: theme.colorScheme.surface),
-                error: (_, __) => Container(color: theme.colorScheme.errorContainer),
+                error: (_, __) =>
+                    Container(color: theme.colorScheme.errorContainer),
               ),
             ),
           ),
@@ -116,22 +129,20 @@ class AlbumDetailPage extends ConsumerWidget {
                       );
                     }
                     final track = tracks[index - 1];
-                    return SmartTrackTile(
-                      track: track,
-                      playlist: tracks,
-                    );
+                    return SmartTrackTile(track: track, playlist: tracks);
                   },
                 );
               },
               loading: () => const SliverToBoxAdapter(
-                child: Center(child: Padding(
-                  padding: EdgeInsets.all(32.0),
-                  child: CircularProgressIndicator(),
-                )),
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
               ),
-              error: (e, _) => SliverToBoxAdapter(
-                child: Center(child: Text('加载失败: $e')),
-              ),
+              error: (e, _) =>
+                  SliverToBoxAdapter(child: Center(child: Text('加载失败: $e'))),
             ),
           ),
           // Bottom padding for player bar

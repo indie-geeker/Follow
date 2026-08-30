@@ -27,7 +27,8 @@ class SmartTrackTile extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final isFavorite = favoritesAsync.value?.any((t) => t.id == track.id) ?? false;
+    final isFavorite =
+        favoritesAsync.value?.any((t) => t.id == track.id) ?? false;
     final isPlaying = currentTrack?.id == track.id;
 
     return TrackTile(
@@ -35,13 +36,10 @@ class SmartTrackTile extends ConsumerWidget {
       isPlaying: isPlaying,
       isFavorite: isFavorite,
       onTap: () {
-        ref.read(currentTrackProvider.notifier).setTrack(track);
-        ref.read(playQueueProvider.notifier).setQueue(playlist);
         final index = playlist.indexOf(track);
-        if (index != -1) {
-          ref.read(currentIndexProvider.notifier).setIndex(index);
-        }
-        ref.read(audioPlayerServiceProvider).playTrack(track);
+        ref
+            .read(audioPlayerServiceProvider)
+            .playAll(playlist, startIndex: index < 0 ? 0 : index);
       },
       onFavoriteToggle: (val) async {
         try {
@@ -79,10 +77,8 @@ class SmartTrackTile extends ConsumerWidget {
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          builder: (context) => TrackOptionsSheet(
-            track: track,
-            onRemove: onRemoveFromList,
-          ),
+          builder: (context) =>
+              TrackOptionsSheet(track: track, onRemove: onRemoveFromList),
         );
       },
     );

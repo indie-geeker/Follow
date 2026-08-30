@@ -7,7 +7,5 @@ namespace Follow.Core.Interfaces;
 /// </summary>
 public interface IJwtService
 {
-    string GenerateAccessToken(User user);
-    string GenerateRefreshToken();
-    (bool isValid, Guid userId) ValidateRefreshToken(string refreshToken);
+    string GenerateAccessToken(User user, Guid sessionId);
 }

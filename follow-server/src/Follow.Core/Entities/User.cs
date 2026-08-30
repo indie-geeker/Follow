@@ -10,14 +10,12 @@ public class User : BaseEntity
     public required string PasswordHash { get; set; }
     public UserRole Role { get; set; } = UserRole.Member;
     public string? AvatarUrl { get; set; }
-    public string? RefreshToken { get; set; }
-    public DateTime? RefreshTokenExpiryTime { get; set; }
 
     // Navigation properties
     public ICollection<Playlist> Playlists { get; set; } = [];
     public ICollection<PlayHistory> PlayHistories { get; set; } = [];
     public ICollection<Favorite> Favorites { get; set; } = [];
-    public ICollection<RssSubscription> RssSubscriptions { get; set; } = [];
+    public ICollection<UserSession> Sessions { get; set; } = [];
 }
 
 /// <summary>

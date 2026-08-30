@@ -6,7 +6,6 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/shared/widgets/player_progress_bar.dart';
-import 'package:follow/shared/widgets/player_controls.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_track_info.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_controls.dart';
@@ -83,7 +82,9 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
       error: (_, __) => Duration.zero,
     );
     final trackDuration = Duration(seconds: currentTrack?.durationSeconds ?? 0);
-    final fallbackDuration = trackDuration.inSeconds > 0 ? trackDuration : const Duration(seconds: 1);
+    final fallbackDuration = trackDuration.inSeconds > 0
+        ? trackDuration
+        : const Duration(seconds: 1);
     final duration = durationAsync.when(
       data: (v) => (v == null || v.inSeconds <= 1) ? fallbackDuration : v,
       loading: () => fallbackDuration,
@@ -142,9 +143,21 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                         builder: (layoutContext, constraints) {
                           final isWide = constraints.maxWidth >= 600;
                           if (isWide) {
-                            return _buildWideLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
+                            return _buildWideLayout(
+                              context,
+                              currentTrack,
+                              lyricsAsync,
+                              currentLyricIdx,
+                              audioService,
+                            );
                           } else {
-                            return _buildNarrowLayout(context, currentTrack, lyricsAsync, currentLyricIdx, audioService);
+                            return _buildNarrowLayout(
+                              context,
+                              currentTrack,
+                              lyricsAsync,
+                              currentLyricIdx,
+                              audioService,
+                            );
                           }
                         },
                       ),
@@ -181,7 +194,8 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                 },
                 onPrevious: () => audioService.playPrevious(),
                 onNext: () => audioService.playNext(),
-                onModeToggle: () => ref.read(playerModeProvider.notifier).nextMode(),
+                onModeToggle: () =>
+                    ref.read(playerModeProvider.notifier).nextMode(),
               ),
               const SizedBox(height: 24),
             ],
@@ -204,7 +218,10 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                 color: _foregroundColor(context, alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(Icons.keyboard_arrow_down, color: _foregroundColor(context)),
+              child: Icon(
+                Icons.keyboard_arrow_down,
+                color: _foregroundColor(context),
+              ),
             ),
             onPressed: _close,
           ),
@@ -217,7 +234,9 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
               ),
               child: Icon(Icons.more_horiz, color: _foregroundColor(context)),
             ),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             onSelected: (value) {
               // TODO: Implement actions
             },
@@ -249,7 +268,13 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     );
   }
 
-  Widget _buildWideLayout(BuildContext context, Track? currentTrack, AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, AudioPlayerService audioService) {
+  Widget _buildWideLayout(
+    BuildContext context,
+    Track? currentTrack,
+    AsyncValue<List<LyricLine>> lyricsAsync,
+    int currentLyricIdx,
+    AudioPlayerService audioService,
+  ) {
     return Row(
       children: [
         // Left side: Cover + Info
@@ -259,8 +284,11 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             builder: (context, constraints) {
               // Calculate available height for the image
               // Reserve space for info (~80px) and spacing (24px)
-              final maxImageSize = (constraints.maxHeight - 110).clamp(100.0, 240.0);
-              
+              final maxImageSize = (constraints.maxHeight - 110).clamp(
+                100.0,
+                240.0,
+              );
+
               return Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -279,13 +307,24 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
         // Right side: Lyrics
         Expanded(
           flex: 1,
-          child: _buildLyricsList(context, lyricsAsync, currentLyricIdx, audioService),
+          child: _buildLyricsList(
+            context,
+            lyricsAsync,
+            currentLyricIdx,
+            audioService,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildNarrowLayout(BuildContext context, Track? currentTrack, AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, AudioPlayerService audioService) {
+  Widget _buildNarrowLayout(
+    BuildContext context,
+    Track? currentTrack,
+    AsyncValue<List<LyricLine>> lyricsAsync,
+    int currentLyricIdx,
+    AudioPlayerService audioService,
+  ) {
     return Column(
       children: [
         const SizedBox(height: 16),
@@ -298,13 +337,23 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
         LyricsTrackInfo(track: currentTrack),
         const SizedBox(height: 16),
         Expanded(
-          child: _buildLyricsList(context, lyricsAsync, currentLyricIdx, audioService),
+          child: _buildLyricsList(
+            context,
+            lyricsAsync,
+            currentLyricIdx,
+            audioService,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildLyricsList(BuildContext context, AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, AudioPlayerService audioService) {
+  Widget _buildLyricsList(
+    BuildContext context,
+    AsyncValue<List<LyricLine>> lyricsAsync,
+    int currentLyricIdx,
+    AudioPlayerService audioService,
+  ) {
     return lyricsAsync.when(
       data: (lyrics) {
         if (lyrics.isEmpty) {
@@ -322,7 +371,12 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
         final viewportHeight = MediaQuery.of(context).size.height * 0.4;
         return ListView.builder(
           controller: _lyricsScrollController,
-          padding: EdgeInsets.only(left: 24, right: 24, top: 16, bottom: viewportHeight),
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 16,
+            bottom: viewportHeight,
+          ),
           itemCount: lyrics.length,
           itemBuilder: (context, index) {
             final lyric = lyrics[index];
@@ -412,15 +466,19 @@ class _HoverVolumeControlState extends State<_HoverVolumeControl> {
                   child: SliderTheme(
                     data: SliderThemeData(
                       activeTrackColor: widget.foregroundColor.withValues(
-                          alpha: 0.9),
+                        alpha: 0.9,
+                      ),
                       inactiveTrackColor: widget.foregroundColor.withValues(
-                          alpha: 0.2),
+                        alpha: 0.2,
+                      ),
                       thumbColor: widget.foregroundColor,
                       trackHeight: 4,
                       thumbShape: const RoundSliderThumbShape(
-                          enabledThumbRadius: 6),
+                        enabledThumbRadius: 6,
+                      ),
                       overlayShape: const RoundSliderOverlayShape(
-                          overlayRadius: 14),
+                        overlayRadius: 14,
+                      ),
                     ),
                     child: Slider(
                       value: widget.volumeAsync.value ?? 1.0,
@@ -440,7 +498,8 @@ class _HoverVolumeControlState extends State<_HoverVolumeControl> {
                   ? Icons.volume_up_rounded
                   : Icons.volume_off_rounded,
               color: widget.foregroundColor.withValues(
-                  alpha: _isHovering ? 1.0 : 0.7),
+                alpha: _isHovering ? 1.0 : 0.7,
+              ),
               size: 24,
             ),
           ),

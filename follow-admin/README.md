@@ -1,14 +1,14 @@
-# Follow Music Admin
+# Follow 家庭音乐管理后台
 
 Vue 3 + Element Plus 管理后台
 
 ## 功能
 
 - 📊 仪表盘统计
-- 🎵 曲目管理（上传/删除/试听/封面/歌词）
+- 🎵 曲目管理（上传/删除、Range 流式试听、封面/歌词）
 - 🎤 艺术家管理
 - 💿 专辑管理
-- 👥 用户管理
+- 👥 用户管理（创建/邀请、角色调整、删除）
 
 ## 开发环境
 
@@ -20,7 +20,7 @@ pnpm install
 pnpm dev
 ```
 
-访问 http://localhost:3000
+开发服务器通过 Vite 将相对 `/api` 请求代理到本机 API。完整 Docker 栈统一从 `https://localhost`（或 `.env` 中配置的家庭域名）访问。
 
 ## 生产环境打包
 
@@ -32,59 +32,26 @@ pnpm build
 pnpm preview
 ```
 
-构建产物位于 `dist/` 目录，可部署到任意静态服务器（Nginx、Vercel、Cloudflare Pages 等）。
+构建产物位于 `dist/`。生产环境必须把静态页面与 `/api` 部署在同一 HTTPS origin，不能再把 API 绝对地址编入 JavaScript。
 
-## 环境配置
+## 同源认证
 
-| 文件 | 用途 | 加载时机 |
-|------|------|----------|
-| `.env.development` | 开发环境 | `pnpm dev` |
-| `.env.production` | 生产环境 | `pnpm build` |
-| `.env.production.local` | 本地生产配置（不提交 Git） | `pnpm build` |
+- 浏览器不保存 Access Token 或 Refresh Token。
+- 登录、刷新和播放请求依赖同源的 Secure、HttpOnly Cookie。
+- 页面启动时先通过 `/api/auth/me` 检查 Access Cookie，仅在 `401` 时轮换 Refresh Token，再进入受保护路由。
+- 同一标签页的并发 `401` 只触发一次刷新；支持 Web Locks 的现代浏览器还会跨标签页串行化刷新并在持锁后重查 Access Cookie。生产管理后台以支持 Web Locks 为浏览器基线。
+- 刷新成功后每个请求最多重放一次；重放仍为 `401` 时回到登录页。
+- 退出登录会先调用服务端注销当前设备会话，再清理前端状态；不能只删除本地状态。
 
-### 配置项
+## 容器部署
 
-| 变量 | 说明 | 示例 |
-|------|------|------|
-| `VITE_API_URL` | 后端 API 地址 | `http://localhost:5000` |
+根目录 Compose 将管理后台绑定到宿主机 `127.0.0.1:3000`。容器内 Nginx 把 `/api/*` 反向代理到 API，其余路径提供静态站点，因此生产构建中的请求和音频 URL 继续保持同源相对路径；MinIO 不对浏览器开放。
 
-### 开发环境 (.env.development)
-
-```
-VITE_API_URL=http://localhost:5000
-```
-
-### 生产环境 (.env.production)
-
-```
-VITE_API_URL=https://api.your-domain.com
-```
-
-## Nginx 部署示例
-
-```nginx
-server {
-    listen 80;
-    server_name admin.your-domain.com;
-    root /var/www/follow-admin;
-    index index.html;
-
-    # SPA 路由支持
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    # API 代理（可选）
-    location /api {
-        proxy_pass http://localhost:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
+上线时必须在宿主机 loopback 端口前配置独立的 HTTPS 反向代理或负载均衡器，并使用公共可信证书。不要把 `3000`、`5050` 或 MinIO 端口绑定到公网网卡。
 
 ## 注意
 
 - 需要先启动后端 API 服务
-- 首个注册用户自动成为管理员
+- 管理员账号由根目录 `.env` 中的 `ADMIN_USERNAME`、`ADMIN_EMAIL`、`ADMIN_PASSWORD` 维护
+- “邀请用户”会直接创建账号并生成临时密码；当前不会自动发送邮件
 - 仅 Admin 角色可登录管理后台

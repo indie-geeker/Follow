@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/auth_provider.dart';
+import 'package:follow/data/services/auth/remembered_email_store.dart';
 import 'package:follow/router/app_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -26,7 +27,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
   final _usernameController = TextEditingController();
   bool _isLogin = true;
   bool _obscurePassword = true;
-  bool _rememberPassword = false;
+  bool _rememberEmail = false;
 
   // Animation controllers
   late AnimationController _gradientController;
@@ -44,16 +45,11 @@ class _LoginPageState extends ConsumerState<LoginPage>
   // Circle positions (random initial positions)
   late List<_CircleConfig> _circles;
 
-  // SharedPreferences keys
-  static const _keyRememberPassword = 'rememberPassword';
-  static const _keySavedEmail = 'savedEmail';
-  static const _keySavedPassword = 'savedPassword';
-
   @override
   void initState() {
     super.initState();
     _initAnimations();
-    _loadSavedCredentials();
+    _loadRememberedEmail();
   }
 
   void _initAnimations() {
@@ -143,30 +139,25 @@ class _LoginPageState extends ConsumerState<LoginPage>
     ];
   }
 
-  Future<void> _loadSavedCredentials() async {
+  Future<void> _loadRememberedEmail() async {
     final prefs = await SharedPreferences.getInstance();
-    final remember = prefs.getBool(_keyRememberPassword) ?? false;
-    if (remember) {
-      final email = prefs.getString(_keySavedEmail) ?? '';
-      final password = prefs.getString(_keySavedPassword) ?? '';
-      setState(() {
-        _rememberPassword = remember;
-        _emailController.text = email;
-        _passwordController.text = password;
-      });
-    }
+    final store = RememberedEmailStore(prefs);
+    await store.migrateLegacyCredentials();
+    final email = await store.read();
+    if (!mounted || email == null) return;
+    setState(() {
+      _rememberEmail = true;
+      _emailController.text = email;
+    });
   }
 
-  Future<void> _saveCredentials() async {
+  Future<void> _saveRememberedEmail() async {
     final prefs = await SharedPreferences.getInstance();
-    if (_rememberPassword) {
-      await prefs.setBool(_keyRememberPassword, true);
-      await prefs.setString(_keySavedEmail, _emailController.text.trim());
-      await prefs.setString(_keySavedPassword, _passwordController.text);
+    final store = RememberedEmailStore(prefs);
+    if (_rememberEmail) {
+      await store.save(_emailController.text);
     } else {
-      await prefs.remove(_keyRememberPassword);
-      await prefs.remove(_keySavedEmail);
-      await prefs.remove(_keySavedPassword);
+      await store.clear();
     }
   }
 
@@ -258,10 +249,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
                     final opacity = _cardAnimation.value.clamp(0.0, 1.0);
                     return Transform.translate(
                       offset: Offset(0, 30 * (1 - _cardAnimation.value)),
-                      child: Opacity(
-                        opacity: opacity,
-                        child: child,
-                      ),
+                      child: Opacity(opacity: opacity, child: child),
                     );
                   },
                   child: _buildLoginCard(l10n, isLoading),
@@ -278,7 +266,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
     return List.generate(_circles.length, (index) {
       final circle = _circles[index];
       final controller = _circleControllers[index];
-      
+
       return AnimatedBuilder(
         animation: controller,
         builder: (context, child) {
@@ -286,7 +274,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
           final progress = controller.value;
           final xOffset = math.sin(progress * math.pi * 2) * 50;
           final yOffset = math.cos(progress * math.pi * 2) * 30;
-          
+
           return Positioned(
             left: size.width * circle.initialX + xOffset - circle.size / 2,
             top: size.height * circle.initialY + yOffset - circle.size / 2,
@@ -379,8 +367,11 @@ class _LoginPageState extends ConsumerState<LoginPage>
                       label: l10n.get('username'),
                       icon: Icons.person_outline,
                       validator: (v) {
-                        if (!_isLogin && (v == null || v.length < 2)) {
-                          return '用户名至少2个字符';
+                        if (!_isLogin &&
+                            (v == null ||
+                                v.trim().length < 3 ||
+                                v.trim().length > 32)) {
+                          return '用户名必须为3-32个字符';
                         }
                         return null;
                       },
@@ -421,15 +412,26 @@ class _LoginPageState extends ConsumerState<LoginPage>
                       },
                     ),
                     validator: (v) {
-                      if (v == null || v.length < 6) {
+                      if (v == null || (_isLogin && v.length < 6)) {
                         return '密码至少6个字符';
+                      }
+                      if (!_isLogin && (v.length < 6 || v.length > 128)) {
+                        return '密码必须为6-128个字符';
+                      }
+                      if (!_isLogin &&
+                          (!RegExp(r'[A-Z]').hasMatch(v) ||
+                              !RegExp(r'[a-z]').hasMatch(v) ||
+                              !RegExp(r'[0-9]').hasMatch(v) ||
+                              !RegExp(r'[^A-Za-z0-9]').hasMatch(v) ||
+                              RegExp(r'\s').hasMatch(v))) {
+                        return '密码需包含大小写字母、数字和特殊字符，且不能有空格';
                       }
                       return null;
                     },
                   ),
                   const SizedBox(height: 16),
 
-                  // Remember password checkbox (login only)
+                  // Remember email checkbox (login only)
                   if (_isLogin)
                     Row(
                       children: [
@@ -437,10 +439,11 @@ class _LoginPageState extends ConsumerState<LoginPage>
                           width: 24,
                           height: 24,
                           child: Checkbox(
-                            value: _rememberPassword,
+                            value: _rememberEmail,
                             onChanged: (value) {
                               setState(
-                                  () => _rememberPassword = value ?? false);
+                                () => _rememberEmail = value ?? false,
+                              );
                             },
                             side: const BorderSide(
                               color: LoginColors.textSecondary,
@@ -454,10 +457,11 @@ class _LoginPageState extends ConsumerState<LoginPage>
                         GestureDetector(
                           onTap: () {
                             setState(
-                                () => _rememberPassword = !_rememberPassword);
+                              () => _rememberEmail = !_rememberEmail,
+                            );
                           },
                           child: Text(
-                            l10n.get('rememberPassword'),
+                            l10n.get('rememberEmail'),
                             style: const TextStyle(
                               color: LoginColors.textSecondary,
                               fontSize: 14,
@@ -494,10 +498,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
                   // Footer
                   const Text(
                     '© 2026 Follow Music. All rights reserved.',
-                    style: TextStyle(
-                      color: LoginColors.textHint,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: LoginColors.textHint, fontSize: 12),
                   ),
                 ],
               ),
@@ -521,10 +522,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  LoginColors.accentPurple,
-                  LoginColors.accentPink,
-                ],
+                colors: [LoginColors.accentPurple, LoginColors.accentPink],
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
@@ -560,10 +558,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
       animation: _shakeAnimation,
       builder: (context, child) {
         final shake = math.sin(_shakeAnimation.value * math.pi * 4) * 8;
-        return Transform.translate(
-          offset: Offset(shake, 0),
-          child: child,
-        );
+        return Transform.translate(offset: Offset(shake, 0), child: child);
       },
       child: _buildTextField(
         controller: controller,
@@ -590,10 +585,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
       controller: controller,
       keyboardType: keyboardType,
       obscureText: obscureText,
-      style: const TextStyle(
-        color: LoginColors.textPrimary,
-        fontSize: 15,
-      ),
+      style: const TextStyle(color: LoginColors.textPrimary, fontSize: 15),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: LoginColors.textHint),
@@ -647,10 +639,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              LoginColors.accentPurple,
-              LoginColors.accentPink,
-            ],
+            colors: [LoginColors.accentPurple, LoginColors.accentPink],
           ),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
@@ -700,13 +689,14 @@ class _LoginPageState extends ConsumerState<LoginPage>
     }
 
     if (_isLogin) {
-      await _saveCredentials();
-      ref.read(authProvider.notifier).login(
-            _emailController.text.trim(),
-            _passwordController.text,
-          );
+      await _saveRememberedEmail();
+      await ref
+          .read(authProvider.notifier)
+          .login(_emailController.text.trim(), _passwordController.text);
     } else {
-      ref.read(authProvider.notifier).register(
+      await ref
+          .read(authProvider.notifier)
+          .register(
             _usernameController.text.trim(),
             _emailController.text.trim(),
             _passwordController.text,

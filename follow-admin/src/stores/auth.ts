@@ -1,71 +1,136 @@
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
 import api from '@/api'
 
 interface User {
-    id: string
-    username: string
-    email: string
-    role: string
-    avatarUrl?: string
+  id: string
+  username: string
+  email: string
+  role: string
+  avatarUrl?: string
+}
+
+interface AuthPayload {
+  user: User
+}
+
+interface ApiEnvelope<T> {
+  code: number
+  message?: string
+  data: T
+}
+
+type AuthStatus = 'unknown' | 'authenticated' | 'anonymous'
+
+function readAuthPayload(response: { data: ApiEnvelope<AuthPayload> }): AuthPayload {
+  if (response.data.code !== 0 || !response.data.data?.user) {
+    throw new Error(response.data.message || '认证失败')
+  }
+  return response.data.data
+}
+
+function readUser(response: { data: ApiEnvelope<User> }): User {
+  if (response.data.code !== 0 || !response.data.data) {
+    throw new Error(response.data.message || '会话恢复失败')
+  }
+  return response.data.data
 }
 
 export const useAuthStore = defineStore('auth', () => {
-    const token = ref<string | null>(localStorage.getItem('token'))
-    const refreshToken = ref<string | null>(localStorage.getItem('refreshToken'))
-    const user = ref<User | null>(null)
+  const status = ref<AuthStatus>('unknown')
+  const user = ref<User | null>(null)
+  let restorePromise: Promise<boolean> | null = null
 
-    const isAuthenticated = computed(() => !!token.value)
-    const isAdmin = computed(() => user.value?.role === 'Admin')
+  const isRestored = computed(() => status.value !== 'unknown')
+  const isAuthenticated = computed(
+    () => status.value === 'authenticated' && user.value?.role === 'Admin'
+  )
+  const isAdmin = computed(() => user.value?.role === 'Admin')
 
-    async function login(email: string, password: string) {
-        const response = await api.post('/api/auth/login', { email, password })
-        const res = response.data
+  function clearLegacyAuthStorage(): void {
+    localStorage.removeItem('token')
+    localStorage.removeItem('refreshToken')
+  }
 
-        if (res.code !== 0) {
-            throw new Error(res.message || 'Login failed')
+  function clearSession(): void {
+    user.value = null
+    status.value = 'anonymous'
+  }
+
+  async function revokeNonAdminSession(): Promise<void> {
+    try {
+      await api.post('/api/auth/logout')
+    } catch {
+      // Server-side role policy still prevents this cookie session from using the admin API.
+    } finally {
+      clearSession()
+    }
+  }
+
+  async function login(email: string, password: string): Promise<void> {
+    const response = await api.post<ApiEnvelope<AuthPayload>>('/api/auth/login', {
+      email,
+      password,
+      tokenTransport: 'cookie'
+    })
+    const payload = readAuthPayload(response)
+
+    if (payload.user.role !== 'Admin') {
+      await revokeNonAdminSession()
+      throw new Error('仅管理员可访问')
+    }
+
+    user.value = payload.user
+    status.value = 'authenticated'
+  }
+
+  async function restoreSession(): Promise<boolean> {
+    if (isRestored.value) return isAuthenticated.value
+    if (restorePromise) return restorePromise
+
+    restorePromise = (async () => {
+      try {
+        const response = await api.get<ApiEnvelope<User>>('/api/auth/me')
+        const restoredUser = readUser(response)
+
+        if (restoredUser.role !== 'Admin') {
+          await revokeNonAdminSession()
+          return false
         }
 
-        const data = res.data
-        token.value = data.accessToken
-        refreshToken.value = data.refreshToken
-        user.value = data.user
+        user.value = restoredUser
+        status.value = 'authenticated'
+        return true
+      } catch {
+        clearSession()
+        return false
+      }
+    })().finally(() => {
+      restorePromise = null
+    })
 
-        localStorage.setItem('token', token.value!)
-        localStorage.setItem('refreshToken', refreshToken.value!)
-    }
+    return restorePromise
+  }
 
-    async function fetchUser() {
-        if (!token.value) return
-        try {
-            const response = await api.get('/api/auth/me')
-            const res = response.data
-            if (res.code === 0) {
-                user.value = res.data
-            } else {
-                throw new Error(res.message)
-            }
-        } catch {
-            logout()
-        }
-    }
+  async function logout(): Promise<void> {
+    await api.post('/api/auth/logout')
+    clearSession()
+  }
 
-    function logout() {
-        token.value = null
-        refreshToken.value = null
-        user.value = null
-        localStorage.removeItem('token')
-        localStorage.removeItem('refreshToken')
-    }
+  function expireSession(): void {
+    clearSession()
+  }
 
-    return {
-        token,
-        refreshToken,
-        user,
-        isAuthenticated,
-        isAdmin,
-        login,
-        fetchUser,
-        logout
-    }
+  return {
+    status,
+    user,
+    isRestored,
+    isAuthenticated,
+    isAdmin,
+    clearLegacyAuthStorage,
+    login,
+    restoreSession,
+    logout,
+    expireSession
+  }
 })

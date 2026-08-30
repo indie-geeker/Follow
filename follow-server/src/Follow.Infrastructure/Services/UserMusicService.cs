@@ -1,5 +1,6 @@
 using Follow.Core.Entities;
 using Follow.Core.Interfaces;
+using Follow.Core.Services;
 using Follow.Infrastructure.Data;
 using Follow.Shared.DTOs;
 using Microsoft.EntityFrameworkCore;
@@ -21,12 +22,14 @@ public class UserMusicService : IUserMusicService
     public async Task<List<TrackDto>> GetFavoritesAsync(Guid userId)
     {
         var favorites = await _context.Favorites
+            .AsNoTracking()
             .Where(f => f.UserId == userId)
             .Include(f => f.Track)
                 .ThenInclude(t => t.Artist)
             .Include(f => f.Track)
                 .ThenInclude(t => t.Album)
             .OrderByDescending(f => f.CreatedAt)
+            .ThenBy(f => f.Id)
             .ToListAsync();
 
         return favorites.Select(f => new TrackDto(
@@ -88,13 +91,16 @@ public class UserMusicService : IUserMusicService
 
     public async Task<List<PlayHistoryItemDto>> GetPlayHistoryAsync(Guid userId, int limit = 50)
     {
+        PaginationPolicy.ValidateLimit(limit);
         var history = await _context.PlayHistories
+            .AsNoTracking()
             .Where(h => h.UserId == userId)
             .Include(h => h.Track)
                 .ThenInclude(t => t.Artist)
             .Include(h => h.Track)
                 .ThenInclude(t => t.Album)
             .OrderByDescending(h => h.PlayedAt)
+            .ThenBy(h => h.Id)
             .Take(limit)
             .ToListAsync();
 
@@ -163,6 +169,7 @@ public class UserMusicService : IUserMusicService
             var recordsToDelete = await _context.PlayHistories
                 .Where(h => h.UserId == userId)
                 .OrderByDescending(h => h.PlayedAt)
+                .ThenBy(h => h.Id)
                 .Skip(300)
                 .ToListAsync();
 

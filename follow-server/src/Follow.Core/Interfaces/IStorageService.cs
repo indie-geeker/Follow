@@ -1,32 +1,35 @@
 namespace Follow.Core.Interfaces;
 
-/// <summary>
-/// Interface for file storage (MinIO)
-/// </summary>
 public interface IStorageService
 {
-    /// <summary>
-    /// Upload a file to storage
-    /// </summary>
-    Task<string> UploadFileAsync(Stream fileStream, string fileName, string contentType, string? folder = null);
+    Task WriteObjectAsync(
+        string objectPath,
+        Stream source,
+        long length,
+        string contentType,
+        CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Get a file stream from storage
-    /// </summary>
-    Task<Stream?> GetFileAsync(string filePath);
+    Task<string> UploadFileAsync(
+        Stream fileStream,
+        string fileName,
+        string contentType,
+        string? folder = null);
 
-    /// <summary>
-    /// Delete a file from storage
-    /// </summary>
+    Task<StorageObjectMetadata?> GetObjectMetadataAsync(
+        string filePath,
+        CancellationToken cancellationToken = default);
+
+    Task CopyRangeToAsync(
+        string filePath,
+        long offset,
+        long length,
+        Stream destination,
+        CancellationToken cancellationToken = default);
+
     Task<bool> DeleteFileAsync(string filePath);
-
-    /// <summary>
-    /// Get a presigned URL for direct access
-    /// </summary>
-    Task<string> GetPresignedUrlAsync(string filePath, int expirySeconds = 3600);
-
-    /// <summary>
-    /// Check if a file exists
-    /// </summary>
-    Task<bool> FileExistsAsync(string filePath);
 }
+
+public sealed record StorageObjectMetadata(
+    long Length,
+    string? ContentType,
+    string? ETag);

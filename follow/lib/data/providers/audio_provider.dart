@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:follow/core/network/media_url.dart';
+import 'package:follow/core/platform/platform_capabilities.dart';
 import 'package:follow/data/models/track.dart';
+import 'package:follow/data/services/api/api_client.dart';
 import 'package:follow/data/services/api/api_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/providers/history_provider.dart';
 
@@ -77,13 +79,34 @@ class ShuffledIndices extends _$ShuffledIndices {
   }
 }
 
+String playbackFailureMessage(Object _) {
+  return '无法播放此歌曲，请检查网络后重试';
+}
+
+@Riverpod(keepAlive: true)
+class PlaybackFailure extends _$PlaybackFailure {
+  @override
+  String? build() => null;
+
+  void report(Object error) {
+    state = playbackFailureMessage(error);
+  }
+
+  void clear() {
+    state = null;
+  }
+}
 
 /// Audio Player Service
 class AudioPlayerService {
-  final AudioPlayer _player = AudioPlayer();
+  final AudioPlayer _player = AudioPlayer(
+    useProxyForRequestHeaders: shouldUseAudioProxyForRequestHeaders(
+      defaultTargetPlatform,
+    ),
+  );
   final ApiService _apiService = ApiService();
   final Ref _ref;
-  
+
   AudioPlayerService(this._ref) {
     _player.playerStateStream.listen((state) {
       if (state.processingState == ProcessingState.completed) {
@@ -91,63 +114,68 @@ class AudioPlayerService {
       }
     });
   }
-  
+
   AudioPlayer get player => _player;
-  
+
   Stream<Duration?> get positionStream => _player.positionStream;
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
   Stream<bool> get playingStream => _player.playingStream;
   Stream<double> get volumeStream => _player.volumeStream;
-  
+
   bool get isPlaying => _player.playing;
   Duration get position => _player.position;
   Duration? get duration => _player.duration;
 
   Future<void> playTrack(Track track) async {
-    _ref.read(currentTrackProvider.notifier).setTrack(track);
+    _ref.read(playbackFailureProvider.notifier).clear();
 
-    // Fire-and-forget: record history without blocking playback
-    _apiService.addToHistory(track.id).then((_) {
-      _ref.invalidate(historyProvider);
-    }).catchError((e) {
-      debugPrint('Failed to record history: $e');
-    });
+    try {
+      final tokens = await ApiClient.tokenStore.readTokens();
 
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('accessToken');
-
-    // Build MediaItem for notification display
-    final mediaItem = MediaItem(
-      id: track.id,
-      title: track.title,
-      artist: track.artist?.name,
-      album: track.album?.title,
-      artUri: track.coverUrl != null ? Uri.parse(track.coverUrl!) : null,
-      duration: track.durationSeconds > 0
-          ? Duration(seconds: track.durationSeconds)
-          : null,
-    );
-
-    // Check if track is downloaded locally
-    if (track.isDownloaded && track.localPath != null) {
-      final source = AudioSource.file(
-        track.localPath!,
-        tag: mediaItem,
+      final mediaItem = MediaItem(
+        id: track.id,
+        title: track.title,
+        artist: track.artist?.name,
+        album: track.album?.title,
+        artUri: resolveCoverUri(track.coverUrl),
+        duration: track.durationSeconds > 0
+            ? Duration(seconds: track.durationSeconds)
+            : null,
       );
-      await _player.setAudioSource(source);
-    } else {
-      // Stream from server
-      final url = _apiService.getStreamUrl(track.id);
-      final source = AudioSource.uri(
-        Uri.parse(url),
-        headers: token != null ? {'Authorization': 'Bearer $token'} : null,
-        tag: mediaItem,
-      );
-      await _player.setAudioSource(source);
+
+      if (track.isDownloaded && track.localPath != null) {
+        await _player.setAudioSource(
+          AudioSource.file(track.localPath!, tag: mediaItem),
+        );
+      } else {
+        final url = _apiService.getStreamUrl(track.id);
+        await _player.setAudioSource(
+          AudioSource.uri(
+            Uri.parse(url),
+            headers: tokens != null
+                ? {'Authorization': 'Bearer ${tokens.accessToken}'}
+                : null,
+            tag: mediaItem,
+          ),
+        );
+      }
+
+      _ref.read(currentTrackProvider.notifier).setTrack(track);
+      await _player.play();
+
+      // Recording history must never block or fail playback.
+      _apiService
+          .addToHistory(track.id)
+          .then((_) => _ref.invalidate(historyProvider))
+          .catchError((Object error) {
+            debugPrint('Failed to record history: $error');
+          });
+    } catch (error, stackTrace) {
+      _ref.read(currentTrackProvider.notifier).setTrack(null);
+      _ref.read(playbackFailureProvider.notifier).report(error);
+      debugPrint('Playback failed: $error\n$stackTrace');
     }
-
-    await _player.play();
   }
 
   /// Play all tracks in a list starting from the first track
@@ -191,7 +219,7 @@ class AudioPlayerService {
     final mode = _ref.read(playerModeProvider);
     final queue = _ref.read(playQueueProvider);
     final currentIndex = _ref.read(currentIndexProvider);
-    
+
     if (queue.isEmpty) return;
 
     if (mode == PlayMode.single) {
@@ -204,22 +232,25 @@ class AudioPlayerService {
     int nextIndex = 0;
     if (mode == PlayMode.shuffle) {
       final shuffledIndices = _ref.read(shuffledIndicesProvider);
-      if (shuffledIndices.isEmpty) return; // Should not happen if queue not empty
-      
+      if (shuffledIndices.isEmpty) {
+        return;
+      }
+
       // Find current index in shuffled list
       // We need to map the actual current index to the position in shuffled list
       // The current index in queue corresponds to some value in shuffledIndices
-      
+
       // Wait, current index points to the PLAYING track in the original queue.
       // So we need to find where this index is in the shuffled list.
       final currentShuffledPos = shuffledIndices.indexOf(currentIndex);
-      
+
       if (currentShuffledPos != -1) {
-        final nextShuffledPos = (currentShuffledPos + 1) % shuffledIndices.length;
+        final nextShuffledPos =
+            (currentShuffledPos + 1) % shuffledIndices.length;
         nextIndex = shuffledIndices[nextShuffledPos];
       } else {
         // Fallback
-         nextIndex = shuffledIndices[0];
+        nextIndex = shuffledIndices[0];
       }
     } else {
       // Sequence
@@ -231,10 +262,10 @@ class AudioPlayerService {
   }
 
   Future<void> playPrevious() async {
-     final mode = _ref.read(playerModeProvider);
+    final mode = _ref.read(playerModeProvider);
     final queue = _ref.read(playQueueProvider);
     final currentIndex = _ref.read(currentIndexProvider);
-    
+
     if (queue.isEmpty) return;
 
     if (mode == PlayMode.single) {
@@ -247,15 +278,17 @@ class AudioPlayerService {
     if (mode == PlayMode.shuffle) {
       final shuffledIndices = _ref.read(shuffledIndicesProvider);
       if (shuffledIndices.isEmpty) return;
-      
+
       final currentShuffledPos = shuffledIndices.indexOf(currentIndex);
-      
+
       if (currentShuffledPos != -1) {
         // Provide negative wrap-around
-        final prevShuffledPos = (currentShuffledPos - 1 + shuffledIndices.length) % shuffledIndices.length;
+        final prevShuffledPos =
+            (currentShuffledPos - 1 + shuffledIndices.length) %
+            shuffledIndices.length;
         prevIndex = shuffledIndices[prevShuffledPos];
       } else {
-         prevIndex = shuffledIndices[0];
+        prevIndex = shuffledIndices[0];
       }
     } else {
       // Sequence
@@ -288,10 +321,10 @@ class AudioPlayerService {
       // Since queue is already shortened (the item at 'index' is now the NEXT item),
       // we can essentially just "play" the item at the CURRENT index again (which is the new track).
       // But we need to handle if we removed the LAST item.
-      
+
       // New queue length
       final newQueueLength = queue.length - 1;
-      
+
       if (newQueueLength == 0) {
         // Queue empty
         await stop();
@@ -302,12 +335,12 @@ class AudioPlayerService {
         // Let's say we play the previous one or stop?
         // Or if in shuffle, play another.
         // Simple logic: if index == newQueueLength (was last), play 0 (loop) or index-1.
-        
+
         int newIndex = index;
         if (newIndex >= newQueueLength) {
-           newIndex = 0; // Wrap to start or handle end
+          newIndex = 0; // Wrap to start or handle end
         }
-        
+
         _ref.read(currentIndexProvider.notifier).setIndex(newIndex);
         // Play the track at newIndex (which shifted into place)
         // Wait, playQueueProvider was updated. So we need the NEW list.
@@ -370,11 +403,7 @@ Stream<double> playerVolume(ref) {
   return service.volumeStream;
 }
 
-enum PlayMode {
-  sequence,
-  shuffle,
-  single,
-}
+enum PlayMode { sequence, shuffle, single }
 
 @Riverpod(keepAlive: true)
 class PlayerMode extends _$PlayerMode {
@@ -384,7 +413,7 @@ class PlayerMode extends _$PlayerMode {
   Future<void> setMode(PlayMode mode) async {
     state = mode;
     final service = ref.read(audioPlayerServiceProvider);
-    
+
     switch (mode) {
       case PlayMode.sequence:
         // Shuffle off, Loop off (we handle loop manually)
@@ -394,7 +423,7 @@ class PlayerMode extends _$PlayerMode {
       case PlayMode.shuffle:
         // Shuffle off (we handle shuffle manually), Loop off
         // Note: JustAudio's shuffle is different from our manual shuffle logic implementation detail
-        // But to rely on our manual plays, we turn native shuffle off to avoid confusion, 
+        // But to rely on our manual plays, we turn native shuffle off to avoid confusion,
         // or we keep it off and just use our index logic.
         // Actually, if we use setShuffleModeEnabled(true), JustAudio might change indices internally?
         // No, JustAudio's shuffle just changes the order if we use a ConcatenatingAudioSource.
@@ -403,7 +432,7 @@ class PlayerMode extends _$PlayerMode {
         // So we MUST use LoopMode.off and handle "next" manually.
         await service.player.setShuffleModeEnabled(false);
         await service.player.setLoopMode(LoopMode.off);
-        
+
         // Generate new shuffle order
         final queue = ref.read(playQueueProvider);
         ref.read(shuffledIndicesProvider.notifier).reshuffle(queue.length);
@@ -443,13 +472,13 @@ class IsFavorite extends _$IsFavorite {
   Future<void> toggle() async {
     final trackId = this.trackId;
     if (trackId == null) return;
-    
+
     final service = ApiService();
     final current = state.value ?? false;
-    
+
     // Optimistic update
     state = AsyncData(!current);
-    
+
     try {
       if (current) {
         await service.removeFromFavorites(trackId);

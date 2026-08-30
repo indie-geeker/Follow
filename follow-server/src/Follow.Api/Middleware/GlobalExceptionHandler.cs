@@ -1,6 +1,4 @@
-using System.Net;
 using Follow.Shared.DTOs;
-using Microsoft.AspNetCore.Mvc;
 
 namespace Follow.Api.Middleware;
 
@@ -19,9 +17,25 @@ public class GlobalExceptionHandler : IMiddleware
         {
             await next(context);
         }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            _logger.LogDebug("Request was cancelled by the client.");
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "An unhandled exception occurred.");
+            if (context.Response.HasStarted)
+            {
+                _logger.LogError(
+                    ex,
+                    "An unhandled exception occurred after the response started.");
+                throw;
+            }
+
+            if (ex is ArgumentException or UnauthorizedAccessException or InvalidOperationException)
+                _logger.LogWarning("Request rejected: {Message}", ex.Message);
+            else
+                _logger.LogError(ex, "An unhandled exception occurred.");
+            context.Response.Clear();
             await HandleExceptionAsync(context, ex);
         }
     }
@@ -32,14 +46,11 @@ public class GlobalExceptionHandler : IMiddleware
 
         var (statusCode, errorCode, message) = exception switch
         {
-            UnauthorizedAccessException => (StatusCodes.Status200OK, 1, exception.Message), // Keeping 200 OK for consistency with login endpoint, but returning error code 1
-            InvalidOperationException => (StatusCodes.Status200OK, 1, exception.Message),
-            ArgumentException => (StatusCodes.Status200OK, 1, exception.Message),
+            UnauthorizedAccessException => (StatusCodes.Status401Unauthorized, 401, exception.Message),
+            InvalidOperationException => (StatusCodes.Status409Conflict, 409, exception.Message),
+            ArgumentException => (StatusCodes.Status400BadRequest, 400, exception.Message),
             _ => (StatusCodes.Status500InternalServerError, 500, "An unexpected error occurred.")
         };
-
-        // If it's a 500 error, we might want to hide the details in production
-        // For now, using a generic message for 500s.
 
         context.Response.StatusCode = statusCode;
 

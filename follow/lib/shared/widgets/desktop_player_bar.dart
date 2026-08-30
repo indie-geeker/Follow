@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
-import 'package:follow/features/player/lyrics_overlay.dart';
 import 'package:follow/shared/widgets/player_controls.dart';
 import 'package:follow/core/extensions/async_value_ext.dart';
 import 'package:follow/core/utils/duration_utils.dart';
@@ -138,7 +137,7 @@ class DesktopPlayerBar extends ConsumerWidget {
                         // Placeholder to balance layout if needed, or remove
                         // Original had repeat button here. Now PlayModeButton is on left.
                         // Let's keep it balanced or just empty.
-                        const SizedBox(width: 20), 
+                        const SizedBox(width: 20),
                       ],
                     ),
                   ),
@@ -214,7 +213,7 @@ class DesktopPlayerBar extends ConsumerWidget {
                       minHeight: 32,
                     ),
                     onPressed: () {
-                       ref.read(lyricsOverlayVisibleProvider.notifier).show();
+                      ref.read(lyricsOverlayVisibleProvider.notifier).show();
                     },
                   ),
                   const SizedBox(width: 8),

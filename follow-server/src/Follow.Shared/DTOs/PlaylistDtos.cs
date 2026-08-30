@@ -7,7 +7,11 @@ public record PlaylistDto(
     string? CoverUrl,
     bool IsPublic,
     int TrackCount,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    Guid OwnerId,
+    string OwnerName,
+    bool IsOwnedByCurrentUser,
+    bool CanEdit
 );
 
 public record PlaylistDetailDto(
@@ -17,7 +21,11 @@ public record PlaylistDetailDto(
     string? CoverUrl,
     bool IsPublic,
     List<TrackDto> Tracks,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    Guid OwnerId,
+    string OwnerName,
+    bool IsOwnedByCurrentUser,
+    bool CanEdit
 );
 
 public record CreatePlaylistRequest(string Name, string? Description, bool IsPublic = false);

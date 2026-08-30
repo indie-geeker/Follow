@@ -5,6 +5,7 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/theme/theme_provider.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/router/app_router.dart';
+import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/auth_provider.dart';
 import 'package:follow/data/services/api/api_client.dart';
 
@@ -17,6 +18,7 @@ class FollowApp extends ConsumerStatefulWidget {
 
 class _FollowAppState extends ConsumerState<FollowApp> {
   late final AppRouter _appRouter;
+  final _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   void initState() {
@@ -25,7 +27,7 @@ class _FollowAppState extends ConsumerState<FollowApp> {
 
     // Setup callback for handling unauthorized (401) errors
     ApiClient.onUnauthorized = () {
-      ref.read(authProvider.notifier).logout();
+      ref.read(authProvider.notifier).sessionExpired();
     };
   }
 
@@ -33,6 +35,18 @@ class _FollowAppState extends ConsumerState<FollowApp> {
   Widget build(BuildContext context) {
     final themeMode = ref.watch(appThemeModeProvider);
     final locale = ref.watch(appLocaleProvider);
+
+    ref.listen<String?>(playbackFailureProvider, (previous, next) {
+      if (next == null || next == previous) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final messenger = _scaffoldMessengerKey.currentState;
+        if (messenger == null) return;
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(next)));
+        ref.read(playbackFailureProvider.notifier).clear();
+      });
+    });
 
     // Listen to auth state changes
     ref.listen<AuthState>(authProvider, (previous, next) {
@@ -47,6 +61,7 @@ class _FollowAppState extends ConsumerState<FollowApp> {
     return MaterialApp.router(
       title: 'Follow Music',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _scaffoldMessengerKey,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: themeMode,

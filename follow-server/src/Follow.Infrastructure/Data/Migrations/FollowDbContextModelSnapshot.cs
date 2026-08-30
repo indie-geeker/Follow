@@ -109,6 +109,198 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.ToTable("Favorites");
                 });
 
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("AutoStart")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("CancelRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClientRequestId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DiscoveredFileCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("IgnoredFileCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("RelativeDirectory")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ScanCompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ScanStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<long>("TotalBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestedByUserId", "ClientRequestId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_MusicImportBatches_RequestedByUser_ClientRequestId");
+
+                    b.HasIndex("Status", "LeaseExpiresAt");
+
+                    b.ToTable("MusicImportBatches");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("ContentSha256")
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("Extension")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ObjectPath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("RelativePath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<bool>("Retryable")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("SourceModifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Stage")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("TrackId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrackId");
+
+                    b.HasIndex("BatchId", "RelativePath")
+                        .IsUnique();
+
+                    b.HasIndex("BatchId", "Status");
+
+                    b.HasIndex("Status", "NextAttemptAt", "LeaseExpiresAt");
+
+                    b.ToTable("MusicImportItems");
+                });
+
             modelBuilder.Entity("Follow.Core.Entities.PlayHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -208,84 +400,41 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.ToTable("PlaylistTracks");
                 });
 
-            modelBuilder.Entity("Follow.Core.Entities.RssEpisode", b =>
+            modelBuilder.Entity("Follow.Core.Entities.StorageDeletionJob", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("AudioUrl")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
-
-                    b.Property<int>("DurationSeconds")
+                    b.Property<int>("AttemptCount")
                         .HasColumnType("integer");
 
-                    b.Property<bool>("IsPlayed")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("PublishedAt")
+                    b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("SubscriptionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SubscriptionId");
-
-                    b.ToTable("RssEpisodes");
-                });
-
-            modelBuilder.Entity("Follow.Core.Entities.RssSubscription", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("CoverUrl")
-                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Description")
-                        .HasColumnType("text");
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
 
-                    b.Property<string>("FeedUrl")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("LastFetchedAt")
+                    b.Property<DateTime>("NextAttemptAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Title")
-                        .HasColumnType("text");
+                    b.Property<string>("ObjectPath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("CompletedAt", "NextAttemptAt");
 
-                    b.ToTable("RssSubscriptions");
+                    b.ToTable("StorageDeletionJobs");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.Tag", b =>
@@ -333,6 +482,10 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<int>("BitRate")
                         .HasColumnType("integer");
 
+                    b.Property<byte[]>("ContentSha256")
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
                     b.Property<string>("CoverUrl")
                         .HasColumnType("text");
 
@@ -346,11 +499,18 @@ namespace Follow.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<long?>("FileSizeBytes")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Format")
                         .HasColumnType("text");
 
                     b.Property<string>("LyricsUrl")
                         .HasColumnType("text");
+
+                    b.Property<string>("OriginalFileName")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -364,6 +524,11 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.HasIndex("AlbumId");
 
                     b.HasIndex("ArtistId");
+
+                    b.HasIndex("ContentSha256")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Tracks_ContentSha256")
+                        .HasFilter("\"ContentSha256\" IS NOT NULL");
 
                     b.ToTable("Tracks");
                 });
@@ -416,12 +581,6 @@ namespace Follow.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("RefreshToken")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("RefreshTokenExpiryTime")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("Role")
                         .IsRequired()
                         .HasColumnType("text");
@@ -442,6 +601,74 @@ namespace Follow.Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.UserSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClientType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<byte[]>("PreviousRefreshTokenHash")
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<byte[]>("RefreshTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RevokedReason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("RotatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("RefreshTokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "RevokedAt");
+
+                    b.ToTable("UserSessions");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.Album", b =>
@@ -471,6 +698,35 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Navigation("Track");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportBatch", b =>
+                {
+                    b.HasOne("Follow.Core.Entities.User", "RequestedByUser")
+                        .WithMany()
+                        .HasForeignKey("RequestedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("RequestedByUser");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportItem", b =>
+                {
+                    b.HasOne("Follow.Core.Entities.MusicImportBatch", "Batch")
+                        .WithMany("Items")
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Follow.Core.Entities.Track", "Track")
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Batch");
+
+                    b.Navigation("Track");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.PlayHistory", b =>
@@ -522,28 +778,6 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Navigation("Track");
                 });
 
-            modelBuilder.Entity("Follow.Core.Entities.RssEpisode", b =>
-                {
-                    b.HasOne("Follow.Core.Entities.RssSubscription", "Subscription")
-                        .WithMany("Episodes")
-                        .HasForeignKey("SubscriptionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Subscription");
-                });
-
-            modelBuilder.Entity("Follow.Core.Entities.RssSubscription", b =>
-                {
-                    b.HasOne("Follow.Core.Entities.User", "User")
-                        .WithMany("RssSubscriptions")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Follow.Core.Entities.Track", b =>
                 {
                     b.HasOne("Follow.Core.Entities.Album", "Album")
@@ -580,6 +814,17 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Navigation("Track");
                 });
 
+            modelBuilder.Entity("Follow.Core.Entities.UserSession", b =>
+                {
+                    b.HasOne("Follow.Core.Entities.User", "User")
+                        .WithMany("Sessions")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Follow.Core.Entities.Album", b =>
                 {
                     b.Navigation("Tracks");
@@ -592,14 +837,14 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Navigation("Tracks");
                 });
 
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportBatch", b =>
+                {
+                    b.Navigation("Items");
+                });
+
             modelBuilder.Entity("Follow.Core.Entities.Playlist", b =>
                 {
                     b.Navigation("PlaylistTracks");
-                });
-
-            modelBuilder.Entity("Follow.Core.Entities.RssSubscription", b =>
-                {
-                    b.Navigation("Episodes");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.Tag", b =>
@@ -626,7 +871,7 @@ namespace Follow.Infrastructure.Data.Migrations
 
                     b.Navigation("Playlists");
 
-                    b.Navigation("RssSubscriptions");
+                    b.Navigation("Sessions");
                 });
 #pragma warning restore 612, 618
         }

@@ -1,13 +1,16 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:follow/core/config/app_config.dart';
 import 'package:follow/core/l10n/l10n.dart';
+import 'package:follow/core/network/media_url.dart';
+import 'package:follow/core/platform/platform_capabilities.dart';
 import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/data/models/track.dart';
+import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/download_provider.dart';
-import 'package:follow/shared/widgets/track_tile.dart';
 import 'package:follow/shared/widgets/empty_state.dart';
 import 'package:follow/shared/widgets/default_cover.dart';
 import 'package:follow/shared/widgets/download_action_button.dart';
@@ -23,6 +26,8 @@ class DownloadsPage extends ConsumerWidget {
     final isDark = theme.brightness == Brightness.dark;
     final downloadTasks = ref.watch(downloadManagerProvider);
     final downloadedTracksAsync = ref.watch(downloadedTracksProvider);
+    final canBrowseDownloadFolder =
+        !kIsWeb && supportsNativeFolderBrowsing(defaultTargetPlatform);
 
     return DefaultTabController(
       length: 2,
@@ -61,31 +66,53 @@ class DownloadsPage extends ConsumerWidget {
                           style: TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                            color: isDark
+                                ? Colors.white
+                                : theme.colorScheme.onSurface,
                           ),
                         ),
                         const Spacer(),
-                        // Open folder button
-                        GestureDetector(
-                          onTap: () {
-                            ref.read(downloadPathProvider.notifier).openDownloadFolder();
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: isDark
+                        if (canBrowseDownloadFolder)
+                          IconButton(
+                            tooltip: '打开下载文件夹',
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(48, 48),
+                              backgroundColor: isDark
                                   ? LoginColors.cardBackground
                                   : theme.colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
-                              border: isDark ? Border.all(color: LoginColors.cardBorder) : null,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: isDark
+                                    ? const BorderSide(
+                                        color: LoginColors.cardBorder,
+                                      )
+                                    : BorderSide.none,
+                              ),
                             ),
-                            child: Icon(
+                            onPressed: () async {
+                              try {
+                                final opened = await ref
+                                    .read(downloadPathProvider.notifier)
+                                    .openDownloadFolder();
+                                if (opened || !context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('无法打开下载文件夹')),
+                                );
+                              } catch (_) {
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('无法打开下载文件夹')),
+                                );
+                              }
+                            },
+                            icon: Icon(
                               Icons.folder_open_rounded,
                               size: 22,
-                              color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+                              color: isDark
+                                  ? LoginColors.accentPurple
+                                  : theme.colorScheme.primary,
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -108,7 +135,10 @@ class DownloadsPage extends ConsumerWidget {
                       dividerColor: Colors.transparent,
                       indicator: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [LoginColors.accentPurple, LoginColors.accentPink],
+                          colors: [
+                            LoginColors.accentPurple,
+                            LoginColors.accentPink,
+                          ],
                         ),
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -134,7 +164,11 @@ class DownloadsPage extends ConsumerWidget {
                     child: TabBarView(
                       children: [
                         _DownloadingTab(tasks: downloadTasks, isDark: isDark),
-                        _DownloadedTab(tracksAsync: downloadedTracksAsync, isDark: isDark),
+                        _DownloadedTab(
+                          tracksAsync: downloadedTracksAsync,
+                          isDark: isDark,
+                          showRevealActions: canBrowseDownloadFolder,
+                        ),
                       ],
                     ),
                   ),
@@ -156,10 +190,13 @@ class _DownloadingTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final activeTasks = tasks.values.where(
-      (t) => t.status != TaskStatus.complete, // Show failed tasks too for debugging
-    ).toList();
+    final activeTasks = tasks.values
+        .where(
+          (t) =>
+              t.status !=
+              TaskStatus.complete, // Show failed tasks too for debugging
+        )
+        .toList();
 
     if (activeTasks.isEmpty) {
       return const EmptyState(
@@ -270,21 +307,27 @@ class _DownloadingItem extends ConsumerWidget {
                 DownloadActionButton(
                   icon: Icons.pause_rounded,
                   onPressed: () {
-                    ref.read(downloadManagerProvider.notifier).pauseDownload(task.trackId);
+                    ref
+                        .read(downloadManagerProvider.notifier)
+                        .pauseDownload(task.trackId);
                   },
                 ),
               if (task.status == TaskStatus.paused)
                 DownloadActionButton(
                   icon: Icons.play_arrow_rounded,
                   onPressed: () {
-                    ref.read(downloadManagerProvider.notifier).resumeDownload(task.trackId);
+                    ref
+                        .read(downloadManagerProvider.notifier)
+                        .resumeDownload(task.trackId);
                   },
                 ),
               const SizedBox(width: 8),
               DownloadActionButton(
                 icon: Icons.close_rounded,
                 onPressed: () {
-                  ref.read(downloadManagerProvider.notifier).cancelDownload(task.trackId);
+                  ref
+                      .read(downloadManagerProvider.notifier)
+                      .cancelDownload(task.trackId);
                 },
                 isDestructive: true,
               ),
@@ -314,10 +357,15 @@ String _getStatusText(TaskStatus status) {
 }
 
 class _DownloadedTab extends ConsumerWidget {
-  final AsyncValue<List<dynamic>> tracksAsync;
+  final AsyncValue<List<Track>> tracksAsync;
   final bool isDark;
+  final bool showRevealActions;
 
-  const _DownloadedTab({required this.tracksAsync, required this.isDark});
+  const _DownloadedTab({
+    required this.tracksAsync,
+    required this.isDark,
+    required this.showRevealActions,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -337,75 +385,40 @@ class _DownloadedTab extends ConsumerWidget {
           itemCount: tracks.length,
           itemBuilder: (context, index) {
             final track = tracks[index];
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? LoginColors.cardBackground
-                      : theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                  border: isDark ? Border.all(color: LoginColors.cardBorder) : null,
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  leading: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: track.coverUrl != null && track.coverUrl!.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: track.coverUrl!.startsWith('http')
-                                ? track.coverUrl!
-                                : '${AppConfig.apiBaseUrl}/api/tracks/cover/${Uri.encodeComponent(track.coverUrl!)}',
-                            width: 48,
-                            height: 48,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) => const DefaultCover(),
-                            errorWidget: (_, __, ___) => const DefaultCover(),
-                          )
-                        : const DefaultCover(),
-                  ),
-                  title: Text(
-                    track.title,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      color: isDark ? Colors.white : theme.colorScheme.onSurface,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    track.artist?.name ?? 'Unknown Artist',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? LoginColors.textSecondary : theme.colorScheme.onSurfaceVariant,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: GestureDetector(
-                    onTap: () {
-                      ref.read(downloadPathProvider.notifier).revealFileInFinder(track.id);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? LoginColors.accentPurple.withValues(alpha: 0.2)
-                            : theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.folder_open_rounded,
-                        size: 20,
-                        color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
-                      ),
-                    ),
-                  ),
-                  onTap: () {
-                    // TODO: Play downloaded track
-                  },
-                ),
-              ),
+            return DownloadedTrackTile(
+              track: track,
+              isDark: isDark,
+              showRevealAction: showRevealActions,
+              onPlay: () async {
+                try {
+                  await ref
+                      .read(audioPlayerServiceProvider)
+                      .playAll(tracks, startIndex: index);
+                } catch (_) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('无法播放已下载歌曲')));
+                }
+              },
+              onReveal: showRevealActions
+                  ? () async {
+                      try {
+                        final revealed = await ref
+                            .read(downloadPathProvider.notifier)
+                            .revealFileInFinder(track.id);
+                        if (revealed || !context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('无法在文件夹中显示歌曲')),
+                        );
+                      } catch (_) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('无法在文件夹中显示歌曲')),
+                        );
+                      }
+                    }
+                  : null,
             );
           },
         );
@@ -415,17 +428,111 @@ class _DownloadedTab extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
             const SizedBox(height: 16),
-            Text(
-              '加载失败',
-              style: TextStyle(color: theme.colorScheme.error),
-            ),
+            Text('加载失败', style: TextStyle(color: theme.colorScheme.error)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class DownloadedTrackTile extends StatelessWidget {
+  final Track track;
+  final bool isDark;
+  final bool showRevealAction;
+  final AsyncCallback onPlay;
+  final AsyncCallback? onReveal;
+
+  const DownloadedTrackTile({
+    super.key,
+    required this.track,
+    required this.isDark,
+    required this.showRevealAction,
+    required this.onPlay,
+    this.onReveal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final coverUri = resolveCoverUri(track.coverUrl);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark
+              ? LoginColors.cardBackground
+              : theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(12),
+          border: isDark ? Border.all(color: LoginColors.cardBorder) : null,
+        ),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 4,
+          ),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: coverUri != null
+                ? CachedNetworkImage(
+                    imageUrl: coverUri.toString(),
+                    width: 48,
+                    height: 48,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => const DefaultCover(),
+                    errorWidget: (_, __, ___) => const DefaultCover(),
+                  )
+                : const DefaultCover(),
+          ),
+          title: Text(
+            track.title,
+            style: TextStyle(
+              fontWeight: FontWeight.w500,
+              color: isDark ? Colors.white : theme.colorScheme.onSurface,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            track.artist?.name ?? 'Unknown Artist',
+            style: TextStyle(
+              fontSize: 13,
+              color: isDark
+                  ? LoginColors.textSecondary
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: showRevealAction && onReveal != null
+              ? IconButton(
+                  tooltip: '在文件夹中显示',
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
+                  onPressed: () async => onReveal!(),
+                  icon: Icon(
+                    Icons.folder_open_rounded,
+                    size: 20,
+                    color: isDark
+                        ? LoginColors.accentPurple
+                        : theme.colorScheme.primary,
+                  ),
+                )
+              : Tooltip(
+                  message: '已保存在应用内',
+                  child: Icon(
+                    Icons.offline_pin_rounded,
+                    color: isDark
+                        ? LoginColors.accentPurple
+                        : theme.colorScheme.primary,
+                  ),
+                ),
+          onTap: () async => onPlay(),
         ),
       ),
     );

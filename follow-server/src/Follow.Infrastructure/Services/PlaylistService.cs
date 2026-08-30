@@ -21,25 +21,22 @@ public class PlaylistService : IPlaylistService
     public async Task<List<PlaylistDto>> GetUserPlaylistsAsync(Guid userId)
     {
         var playlists = await _context.Playlists
+            .AsNoTracking()
             .Where(p => p.UserId == userId || p.IsPublic)
+            .Include(p => p.User)
             .Include(p => p.PlaylistTracks)
             .OrderByDescending(p => p.CreatedAt)
+            .ThenBy(p => p.Id)
             .ToListAsync();
 
-        return playlists.Select(p => new PlaylistDto(
-            p.Id,
-            p.Name,
-            p.Description,
-            p.CoverUrl,
-            p.IsPublic,
-            p.PlaylistTracks.Count,
-            p.CreatedAt
-        )).ToList();
+        return playlists.Select(p => ToDto(p, userId)).ToList();
     }
 
     public async Task<PlaylistDetailDto?> GetPlaylistByIdAsync(Guid id, Guid userId)
     {
         var playlist = await _context.Playlists
+            .AsNoTracking()
+            .Include(p => p.User)
             .Include(p => p.PlaylistTracks)
                 .ThenInclude(pt => pt.Track)
                     .ThenInclude(t => t.Artist)
@@ -76,7 +73,11 @@ public class PlaylistService : IPlaylistService
             playlist.CoverUrl,
             playlist.IsPublic,
             tracks,
-            playlist.CreatedAt
+            playlist.CreatedAt,
+            playlist.UserId,
+            playlist.User.Username,
+            playlist.UserId == userId,
+            playlist.UserId == userId
         );
     }
 
@@ -93,20 +94,18 @@ public class PlaylistService : IPlaylistService
         _context.Playlists.Add(playlist);
         await _context.SaveChangesAsync();
 
-        return new PlaylistDto(
-            playlist.Id,
-            playlist.Name,
-            playlist.Description,
-            playlist.CoverUrl,
-            playlist.IsPublic,
-            0,
-            playlist.CreatedAt
-        );
+        var ownerName = await _context.Users
+            .AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => user.Username)
+            .SingleAsync();
+        return ToDto(playlist, userId, ownerName);
     }
 
     public async Task<PlaylistDto?> UpdatePlaylistAsync(Guid id, Guid userId, UpdatePlaylistRequest request)
     {
         var playlist = await _context.Playlists
+            .Include(p => p.User)
             .Include(p => p.PlaylistTracks)
             .FirstOrDefaultAsync(p => p.Id == id && p.UserId == userId);
 
@@ -118,15 +117,7 @@ public class PlaylistService : IPlaylistService
 
         await _context.SaveChangesAsync();
 
-        return new PlaylistDto(
-            playlist.Id,
-            playlist.Name,
-            playlist.Description,
-            playlist.CoverUrl,
-            playlist.IsPublic,
-            playlist.PlaylistTracks.Count,
-            playlist.CreatedAt
-        );
+        return ToDto(playlist, userId);
     }
 
     public async Task<bool> DeletePlaylistAsync(Guid id, Guid userId)
@@ -194,22 +185,50 @@ public class PlaylistService : IPlaylistService
 
     public async Task<bool> ReorderTracksAsync(Guid playlistId, Guid userId, List<Guid> trackIds)
     {
+        ArgumentNullException.ThrowIfNull(trackIds);
         var playlist = await _context.Playlists
             .Include(p => p.PlaylistTracks)
             .FirstOrDefaultAsync(p => p.Id == playlistId && p.UserId == userId);
 
         if (playlist == null) return false;
 
+        var currentTrackIds = playlist.PlaylistTracks
+            .Select(item => item.TrackId)
+            .ToHashSet();
+        if (trackIds.Count != playlist.PlaylistTracks.Count ||
+            trackIds.Distinct().Count() != trackIds.Count ||
+            !currentTrackIds.SetEquals(trackIds))
+        {
+            throw new ArgumentException("trackIds 必须是歌单全部曲目的唯一完整排列");
+        }
+
         for (int i = 0; i < trackIds.Count; i++)
         {
-            var playlistTrack = playlist.PlaylistTracks.FirstOrDefault(pt => pt.TrackId == trackIds[i]);
-            if (playlistTrack != null)
-            {
-                playlistTrack.Position = i;
-            }
+            var playlistTrack = playlist.PlaylistTracks.Single(pt => pt.TrackId == trackIds[i]);
+            playlistTrack.Position = i;
         }
 
         await _context.SaveChangesAsync();
         return true;
+    }
+
+    private static PlaylistDto ToDto(
+        Playlist playlist,
+        Guid currentUserId,
+        string? ownerName = null)
+    {
+        var isOwner = playlist.UserId == currentUserId;
+        return new PlaylistDto(
+            playlist.Id,
+            playlist.Name,
+            playlist.Description,
+            playlist.CoverUrl,
+            playlist.IsPublic,
+            playlist.PlaylistTracks.Count,
+            playlist.CreatedAt,
+            playlist.UserId,
+            ownerName ?? playlist.User.Username,
+            isOwner,
+            isOwner);
     }
 }

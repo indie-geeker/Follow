@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Kill any running instance on port 5000
-lsof -ti:5000 | xargs kill -9 2>/dev/null || true
+# Kill any running instance on port 5050
+lsof -ti:5050 | xargs kill -9 2>/dev/null || true
 
 # Start the server in background
 echo "Starting server..."
@@ -10,9 +10,9 @@ dotnet run > server.log 2>&1 &
 SERVER_PID=$!
 
 echo "Waiting for server to start..."
-# Loop to check if port 5000 is open
+# Loop to check if port 5050 is open
 for i in {1..30}; do
-    if lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null ; then
+    if lsof -Pi :5050 -sTCP:LISTEN -t >/dev/null ; then
         echo "Server is up!"
         break
     fi
@@ -21,7 +21,7 @@ done
 
 # Request a protected endpoint without token
 echo "Sending request to protected endpoint..."
-RESPONSE=$(curl -s -v http://localhost:5000/api/user/favorites 2>&1)
+RESPONSE=$(curl -s -v http://localhost:5050/api/user/favorites 2>&1)
 
 echo "Response Output:"
 echo "$RESPONSE"

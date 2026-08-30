@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 
@@ -14,7 +13,9 @@ class PlayQueueSheet extends ConsumerWidget {
     final theme = Theme.of(context);
 
     // If queue is empty but we have a current track, show just that one (or empty state)
-    final tracks = queue.isEmpty && currentTrack != null ? [currentTrack] : queue;
+    final tracks = queue.isEmpty && currentTrack != null
+        ? [currentTrack]
+        : queue;
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.6,
@@ -79,7 +80,7 @@ class PlayQueueSheet extends ConsumerWidget {
               itemBuilder: (context, index) {
                 final track = tracks[index];
                 final isCurrent = track.id == currentTrack?.id;
-                
+
                 return ListTile(
                   leading: TrackCoverImage(
                     track: track,
@@ -101,8 +102,8 @@ class PlayQueueSheet extends ConsumerWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      color: isCurrent 
-                          ? theme.colorScheme.primary.withOpacity(0.8) 
+                      color: isCurrent
+                          ? theme.colorScheme.primary.withValues(alpha: 0.8)
                           : theme.textTheme.bodySmall?.color,
                     ),
                   ),
@@ -112,27 +113,25 @@ class PlayQueueSheet extends ConsumerWidget {
                       if (isCurrent)
                         Padding(
                           padding: const EdgeInsets.only(right: 8.0),
-                          child: Icon(Icons.graphic_eq_rounded, color: theme.colorScheme.primary),
+                          child: Icon(
+                            Icons.graphic_eq_rounded,
+                            color: theme.colorScheme.primary,
+                          ),
                         ),
-                       IconButton(
+                      IconButton(
                         icon: const Icon(Icons.close_rounded, size: 20),
                         onPressed: () {
-                          ref.read(audioPlayerServiceProvider).removeQueueItemAt(index);
+                          ref
+                              .read(audioPlayerServiceProvider)
+                              .removeQueueItemAt(index);
                         },
                       ),
                     ],
                   ),
                   onTap: () {
-                    // Play this track
-                    ref.read(audioPlayerServiceProvider).playTrack(track);
-                    // Also update queue index if needed?
-                    // AudioPlayerService.playTrack logic handles simple playback.
-                    // If we want full queue management, we might need a controller.
-                    // For now, assume playTrack is enough to switch song.
-                    
-                    // If queue management is strictly by index, we should set index.
-                    // But playTrack(track) seems to just play a track.
-                    // Let's assume standard behavior.
+                    ref
+                        .read(audioPlayerServiceProvider)
+                        .playAll(tracks, startIndex: index);
                   },
                 );
               },

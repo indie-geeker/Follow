@@ -2,6 +2,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:follow/router/app_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:follow/core/network/media_url.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/album_provider.dart';
@@ -25,7 +26,9 @@ class AlbumsTab extends ConsumerWidget {
                 Icon(
                   Icons.album_outlined,
                   size: 64,
-                  color: isDark ? LoginColors.textSecondary : theme.colorScheme.outline,
+                  color: isDark
+                      ? LoginColors.textSecondary
+                      : theme.colorScheme.outline,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -89,9 +92,8 @@ class _AlbumCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
-    // Use music note icon as placeholder for albums
-    final hasCover = album.coverUrl != null && album.coverUrl!.isNotEmpty;
+
+    final coverUri = resolveCoverUri(album.coverUrl);
 
     return GestureDetector(
       onTap: () {
@@ -104,12 +106,12 @@ class _AlbumCard extends StatelessWidget {
               : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
           border: isDark
-              ? Border.all(color: LoginColors.cardBorder.withOpacity(0.5))
+              ? Border.all(color: LoginColors.cardBorder.withValues(alpha: 0.5))
               : null,
           boxShadow: [
-             if (isDark)
+            if (isDark)
               BoxShadow(
-                color: Colors.black.withOpacity(0.2),
+                color: Colors.black.withValues(alpha: 0.2),
                 blurRadius: 8,
                 offset: const Offset(0, 4),
               ),
@@ -124,10 +126,12 @@ class _AlbumCard extends StatelessWidget {
                   borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                 ),
                 child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  child: hasCover
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
+                  ),
+                  child: coverUri != null
                       ? Image.network(
-                          album.coverUrl!,
+                          coverUri.toString(),
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => _buildPlaceholder(),
                         )
@@ -144,7 +148,9 @@ class _AlbumCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                      color: isDark
+                          ? Colors.white
+                          : theme.colorScheme.onSurface,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -191,18 +197,11 @@ class _AlbumCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF43E97B),
-            Color(0xFF38F9D7),
-          ],
+          colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
         ),
       ),
       child: const Center(
-        child: Icon(
-          Icons.album,
-          size: 48,
-          color: Colors.white,
-        ),
+        child: Icon(Icons.album, size: 48, color: Colors.white),
       ),
     );
   }

@@ -10,12 +10,18 @@
     </div>
 
     <el-card class="content-card">
-      <el-table :data="tags" v-loading="loading" style="width: 100%" class="custom-table">
+      <el-table
+        :data="tags"
+        v-loading="loading"
+        empty-text="暂无标签"
+        style="width: 100%"
+        class="custom-table"
+      >
         <el-table-column label="封面" width="80">
           <template #default="{ row }">
             <el-image
-              v-if="row.coverUrl"
-              :src="getCoverUrl(row.coverUrl)"
+              v-if="toCoverProxyUrl(row.coverUrl)"
+              :src="toCoverProxyUrl(row.coverUrl)"
               fit="cover"
               class="tag-cover"
             />
@@ -80,9 +86,6 @@
             <el-option label="年代" value="年代" />
           </el-select>
         </el-form-item>
-        <el-form-item label="封面URL">
-          <el-input v-model="tagForm.coverUrl" placeholder="可选，输入封面图片URL" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -93,10 +96,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, PriceTag } from '@element-plus/icons-vue'
 import api from '@/api'
+import { toCoverProxyUrl } from '@/utils/coverUrl'
 
 interface Tag {
   id: string
@@ -116,16 +120,8 @@ const editingId = ref<string | null>(null)
 
 const tagForm = reactive({
   name: '',
-  category: '',
-  coverUrl: ''
+  category: ''
 })
-
-const baseUrl = computed(() => import.meta.env.VITE_API_URL || 'http://localhost:5000')
-
-function getCoverUrl(coverPath: string): string {
-  if (coverPath.startsWith('http')) return coverPath
-  return `${baseUrl.value}/api/tracks/cover/${encodeURIComponent(coverPath)}`
-}
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString('zh-CN', {
@@ -154,7 +150,6 @@ function showCreateDialog() {
   editingId.value = null
   tagForm.name = ''
   tagForm.category = ''
-  tagForm.coverUrl = ''
   dialogVisible.value = true
 }
 
@@ -163,7 +158,6 @@ function editTag(tag: Tag) {
   editingId.value = tag.id
   tagForm.name = tag.name
   tagForm.category = tag.category || ''
-  tagForm.coverUrl = tag.coverUrl || ''
   dialogVisible.value = true
 }
 
@@ -177,8 +171,7 @@ async function saveTag() {
   try {
     const payload = {
       name: tagForm.name.trim(),
-      category: tagForm.category || null,
-      coverUrl: tagForm.coverUrl || null
+      category: tagForm.category || null
     }
 
     if (isEditing.value && editingId.value) {

@@ -3,11 +3,10 @@
     <!-- Animated background circles -->
     <div class="bg-circles">
       <div
-        v-for="(circle, index) in circles"
+        v-for="index in 4"
         :key="index"
         class="circle"
-        :class="`circle-${index + 1}`"
-        :style="circle.style"
+        :class="`circle-${index}`"
       ></div>
     </div>
 
@@ -61,7 +60,7 @@
         </el-form-item>
         
         <el-form-item class="remember-item">
-          <el-checkbox v-model="form.rememberMe">记住账号密码</el-checkbox>
+          <el-checkbox v-model="form.rememberMe">记住账号</el-checkbox>
         </el-form-item>
         
         <el-form-item class="submit-item">
@@ -86,13 +85,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance } from 'element-plus'
 import { Message, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { getApiErrorMessage } from '@/utils/apiError'
+import { loadRememberedEmail, persistRememberedEmail } from '@/utils/rememberedAccount'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
@@ -101,104 +103,18 @@ const loading = ref(false)
 const emailShake = ref(false)
 const passwordShake = ref(false)
 
+const rememberedEmail = loadRememberedEmail(localStorage)
+
 const form = reactive({
-  email: '',
+  email: rememberedEmail,
   password: '',
-  rememberMe: false
+  rememberMe: Boolean(rememberedEmail)
 })
 
-// Load saved credentials on mount
-const savedCredentials = localStorage.getItem('savedCredentials')
-if (savedCredentials) {
-  try {
-    const { email, password } = JSON.parse(savedCredentials)
-    form.email = email || ''
-    form.password = password || ''
-    form.rememberMe = true
-  } catch (e) {
-    // ignore parse errors
-  }
-}
-
-// Watch rememberMe changes - clear credentials when unchecked
 watch(() => form.rememberMe, (newValue) => {
   if (!newValue) {
-    // User unchecked "remember me", clear saved credentials immediately
-    localStorage.removeItem('savedCredentials')
+    persistRememberedEmail(localStorage, form.email, false)
   }
-})
-
-// Generate random flowing animation for circles
-interface Circle {
-  style: string
-}
-
-const circles = ref<Circle[]>([])
-
-function generateRandomPath(_duration: number, points: number = 6) {
-  const keyframes: string[] = []
-
-  // Generate random waypoints
-  const waypoints: Array<{x: number, y: number, rotate: number, scale: number}> = []
-
-  for (let i = 0; i < points; i++) {
-    waypoints.push({
-      x: Math.random() * 100 - 50, // -50vw to 50vw (covers screen width)
-      y: Math.random() * 100 - 50, // -50vh to 50vh (covers screen height)
-      rotate: Math.random() * 720, // 0 to 720deg (allows multiple rotations)
-      scale: 0.8 + Math.random() * 0.5 // 0.8 to 1.3
-    })
-  }
-
-  // Add first waypoint again at the end to create smooth loop
-  waypoints.push(waypoints[0]!)
-
-  waypoints.forEach((point, i) => {
-    const percent = (i / points) * 100
-    keyframes.push(`
-      ${percent.toFixed(1)}% {
-        transform: translate(${point.x}vw, ${point.y}vh)
-                   rotate(${point.rotate}deg)
-                   scale(${point.scale});
-      }
-    `)
-  })
-
-  return keyframes.join('\n')
-}
-
-function initCircles() {
-  const circleConfigs = [
-    { duration: 25 + Math.random() * 10, delay: 0 },
-    { duration: 25 + Math.random() * 10, delay: Math.random() * -10 },
-    { duration: 25 + Math.random() * 10, delay: Math.random() * -20 },
-    { duration: 25 + Math.random() * 10, delay: Math.random() * -30 }
-  ]
-
-  circleConfigs.forEach((config, index) => {
-    const animationName = `flow-${index}-${Date.now()}`
-    const keyframes = generateRandomPath(config.duration, 5)
-
-    // Inject keyframes into document
-    const styleSheet = document.createElement('style')
-    styleSheet.textContent = `
-      @keyframes ${animationName} {
-        ${keyframes}
-      }
-    `
-    document.head.appendChild(styleSheet)
-
-    circles.value.push({
-      style: `
-        animation: ${animationName} ${config.duration}s ease-in-out infinite;
-        animation-delay: ${config.delay}s;
-      `
-    })
-  })
-}
-
-onMounted(() => {
-  initCircles()
 })
 
 const rules = {
@@ -243,61 +159,19 @@ const handleLogin = async () => {
 
     await authStore.login(form.email, form.password)
 
-    if (authStore.user?.role !== 'Admin') {
-      ElMessage.error('仅管理员可访问')
-      authStore.logout()
-      triggerShake('email')
-      triggerShake('password')
-      loading.value = false
-      return
-    }
-
-    // Save or clear credentials based on rememberMe
-    if (form.rememberMe) {
-      localStorage.setItem('savedCredentials', JSON.stringify({
-        email: form.email,
-        password: form.password
-      }))
-    } else {
-      localStorage.removeItem('savedCredentials')
-    }
+    persistRememberedEmail(localStorage, form.email, form.rememberMe)
 
     ElMessage.success('登录成功')
-    await router.push('/')
-  } catch (error: any) {
-    // 1. Handle standard Error objects (e.g. from authStore)
-    if (error instanceof Error) {
-      ElMessage.error(error.message)
-      triggerShake('email')
-      triggerShake('password')
-      return
-    }
-
-    // 2. Handle Axios errors (with response)
-    if (error.response) {
-      const errorMsg = error.response.data?.error || '登录失败'
-      ElMessage.error(errorMsg)
-      triggerShake('email')
-      triggerShake('password')
-      return
-    }
-
-    // 3. Handle legacy validation errors or unknown objects
-    if (error && typeof error === 'object') {
-      let handled = false
-      if (error.email) {
-        triggerShake('email')
-        handled = true
-      }
-      if (error.password) {
-        triggerShake('password')
-        handled = true
-      }
-      if (handled) return
-    }
-
-    // Fallback
-    ElMessage.error('登录失败')
+    const redirect = typeof route.query.redirect === 'string'
+      && route.query.redirect.startsWith('/')
+      && !route.query.redirect.startsWith('//')
+      ? route.query.redirect
+      : '/'
+    await router.push(redirect)
+  } catch (error: unknown) {
+    ElMessage.error(getApiErrorMessage(error, '登录失败'))
+    triggerShake('email')
+    triggerShake('password')
   } finally {
     loading.value = false
   }
@@ -341,6 +215,13 @@ const handleLogin = async () => {
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
   filter: blur(40px);
   will-change: transform;
+  animation: circleDrift 30s ease-in-out infinite;
+}
+
+@keyframes circleDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+  33% { transform: translate3d(18vw, -12vh, 0) rotate(120deg) scale(1.08); }
+  66% { transform: translate3d(-12vw, 16vh, 0) rotate(240deg) scale(0.92); }
 }
 
 .circle-1 {
@@ -356,6 +237,8 @@ const handleLogin = async () => {
   top: 50%;
   right: -50px;
   background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(239, 68, 68, 0.25));
+  animation-duration: 34s;
+  animation-delay: -8s;
 }
 
 .circle-3 {
@@ -364,6 +247,8 @@ const handleLogin = async () => {
   bottom: -50px;
   left: 30%;
   background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(59, 130, 246, 0.25));
+  animation-duration: 28s;
+  animation-delay: -16s;
 }
 
 .circle-4 {
@@ -372,6 +257,8 @@ const handleLogin = async () => {
   top: 40%;
   left: 10%;
   background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.2));
+  animation-duration: 38s;
+  animation-delay: -24s;
 }
 
 /* Glassmorphism login card */

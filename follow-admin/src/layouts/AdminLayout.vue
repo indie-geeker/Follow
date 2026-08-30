@@ -3,15 +3,28 @@
     <!-- Animated background circles -->
     <div class="bg-circles">
       <div
-        v-for="(circle, index) in circles"
+        v-for="index in 4"
         :key="index"
         class="circle"
-        :class="`circle-${index + 1}`"
-        :style="circle.style"
+        :class="`circle-${index}`"
       ></div>
     </div>
 
-    <el-aside width="240px" class="sidebar">
+    <button
+      v-if="mobileNavOpen"
+      type="button"
+      class="sidebar-backdrop"
+      aria-label="关闭导航菜单"
+      @click="closeMobileNav"
+    ></button>
+
+    <el-aside
+      id="admin-sidebar"
+      width="240px"
+      class="sidebar"
+      :class="{ 'is-mobile-open': mobileNavOpen }"
+      aria-label="管理后台主导航"
+    >
       <div class="logo">
         <div class="logo-icon">
           <el-icon><Headset /></el-icon>
@@ -19,9 +32,10 @@
         <span class="logo-text">Follow Admin</span>
       </div>
       <el-menu
-        :default-active="route.path"
+        :default-active="activeMenu"
         router
         class="sidebar-menu"
+        @select="closeMobileNav"
       >
         <el-menu-item index="/">
           <el-icon><DataAnalysis /></el-icon>
@@ -57,6 +71,16 @@
     <el-container class="main-container">
       <el-header class="header">
         <div class="header-left">
+          <el-button
+            text
+            class="mobile-menu-button"
+            aria-label="打开导航菜单"
+            aria-controls="admin-sidebar"
+            :aria-expanded="mobileNavOpen"
+            @click="mobileNavOpen = true"
+          >
+            <el-icon><Expand /></el-icon>
+          </el-button>
           <h3 class="page-title">{{ pageTitle }}</h3>
         </div>
         <div class="header-right">
@@ -91,8 +115,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { 
   DataAnalysis, 
@@ -102,14 +127,22 @@ import {
   UserFilled,
   ArrowDown,
   SwitchButton,
-  PriceTag
+  PriceTag,
+  Expand
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const mobileNavOpen = ref(false)
+
+const activeMenu = computed(() => (
+  typeof route.meta.activeMenu === 'string' ? route.meta.activeMenu : route.path
+))
 
 const pageTitle = computed(() => {
+  if (typeof route.meta.title === 'string') return route.meta.title
+
   const titles: Record<string, string> = {
     '/': '仪表盘',
     '/tracks': '曲目管理',
@@ -121,86 +154,35 @@ const pageTitle = computed(() => {
   return titles[route.path] || '管理后台'
 })
 
-function handleCommand(command: string) {
+async function handleCommand(command: string) {
   if (command === 'logout') {
-    authStore.logout()
-    router.push('/login')
+    try {
+      await authStore.logout()
+      await router.push('/login')
+    } catch {
+      ElMessage.error('退出失败，请检查网络后重试')
+    }
   }
 }
 
-// Generate random flowing animation for circles
-interface Circle {
-  style: string
+function closeMobileNav() {
+  mobileNavOpen.value = false
 }
 
-const circles = ref<Circle[]>([])
-
-function generateRandomPath(points: number = 6) {
-  const keyframes: string[] = []
-
-  // Generate random waypoints
-  const waypoints: Array<{x: number, y: number, rotate: number, scale: number}> = []
-
-  for (let i = 0; i < points; i++) {
-    waypoints.push({
-      x: Math.random() * 100 - 50, // -50vw to 50vw (covers screen width)
-      y: Math.random() * 100 - 50, // -50vh to 50vh (covers screen height)
-      rotate: Math.random() * 720, // 0 to 720deg (allows multiple rotations)
-      scale: 0.8 + Math.random() * 0.5 // 0.8 to 1.3
-    })
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    closeMobileNav()
   }
-
-  // Add first waypoint again at the end to create smooth loop
-  if (waypoints.length > 0) {
-    waypoints.push(waypoints[0]!)
-  }
-
-  waypoints.forEach((point, i) => {
-    const percent = (i / points) * 100
-    keyframes.push(`
-      ${percent.toFixed(1)}% {
-        transform: translate(${point.x}vw, ${point.y}vh)
-                   rotate(${point.rotate}deg)
-                   scale(${point.scale});
-      }
-    `)
-  })
-
-  return keyframes.join('\n')
 }
 
-function initCircles() {
-  const circleConfigs = [
-    { duration: 25 + Math.random() * 10, delay: 0 },
-    { duration: 25 + Math.random() * 10, delay: Math.random() * -10 },
-    { duration: 25 + Math.random() * 10, delay: Math.random() * -20 },
-    { duration: 25 + Math.random() * 10, delay: Math.random() * -30 }
-  ]
-
-  circleConfigs.forEach((config, index) => {
-    const animationName = `flow-admin-${index}-${Date.now()}`
-    const keyframes = generateRandomPath(5)
-
-    // Inject keyframes into document
-    const styleSheet = document.createElement('style')
-    styleSheet.textContent = `
-      @keyframes ${animationName} {
-        ${keyframes}
-      }
-    `
-    document.head.appendChild(styleSheet)
-
-    circles.value.push({
-      style: `
-        animation: ${animationName} ${config.duration}s ease-in-out infinite;
-        animation-delay: ${config.delay}s;
-      `
-    })
-  })
-}
+watch(() => route.path, closeMobileNav)
 
 onMounted(() => {
-  initCircles()
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
 
@@ -238,6 +220,13 @@ onMounted(() => {
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
   filter: blur(40px);
   will-change: transform;
+  animation: adminCircleDrift 30s ease-in-out infinite;
+}
+
+@keyframes adminCircleDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+  33% { transform: translate3d(16vw, -10vh, 0) rotate(120deg) scale(1.08); }
+  66% { transform: translate3d(-10vw, 14vh, 0) rotate(240deg) scale(0.94); }
 }
 
 .circle-1 {
@@ -253,6 +242,8 @@ onMounted(() => {
   top: 50%;
   right: -50px;
   background: linear-gradient(135deg, rgba(236, 72, 153, 0.25), rgba(239, 68, 68, 0.25));
+  animation-duration: 34s;
+  animation-delay: -8s;
 }
 
 .circle-3 {
@@ -261,6 +252,8 @@ onMounted(() => {
   bottom: -50px;
   left: 30%;
   background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(59, 130, 246, 0.25));
+  animation-duration: 28s;
+  animation-delay: -16s;
 }
 
 .circle-4 {
@@ -269,6 +262,12 @@ onMounted(() => {
   top: 40%;
   left: 10%;
   background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(236, 72, 153, 0.2));
+  animation-duration: 38s;
+  animation-delay: -24s;
+}
+
+.sidebar-backdrop {
+  display: none;
 }
 
 /* Sidebar */
@@ -336,11 +335,15 @@ onMounted(() => {
   height: 48px;
   line-height: 48px;
   margin-bottom: 6px;
+  border: 1px solid transparent;
   border-radius: 12px;
   color: rgba(255, 255, 255, 0.7);
-  transition: all 0.3s ease;
-  border: 1px solid transparent;
   background: transparent;
+  transition:
+    color 0.3s ease,
+    background-color 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s ease;
 }
 
 .sidebar-menu :deep(.el-menu-item:hover) {
@@ -352,10 +355,15 @@ onMounted(() => {
 
 .sidebar-menu :deep(.el-menu-item.is-active) {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
+  border-color: transparent;
   color: #fff;
   box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
   transform: translateX(4px);
+}
+
+.sidebar-menu :deep(.el-menu-item:focus-visible) {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: -2px;
 }
 
 .sidebar-menu :deep(.el-menu-item .el-icon) {
@@ -402,6 +410,15 @@ onMounted(() => {
 .header-left {
   display: flex;
   align-items: center;
+}
+
+.mobile-menu-button {
+  display: none;
+  width: 44px;
+  height: 44px;
+  margin-right: 8px;
+  color: #fff;
+  font-size: 22px;
 }
 
 .page-title {
@@ -472,5 +489,131 @@ onMounted(() => {
   background: transparent;
   position: relative;
   z-index: 1;
+}
+
+@media (max-width: 1023px) {
+  .sidebar {
+    width: 72px !important;
+    transition: width var(--transition-normal), transform var(--transition-normal);
+  }
+
+  .logo {
+    gap: 0;
+  }
+
+  .logo-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .logo-text,
+  .sidebar-menu :deep(.el-menu-item span),
+  .sidebar-footer {
+    display: none;
+  }
+
+  .sidebar-menu {
+    padding: 16px 8px;
+  }
+
+  .sidebar-menu :deep(.el-menu-item) {
+    justify-content: center;
+    padding: 0 !important;
+  }
+
+  .sidebar-menu :deep(.el-menu-item:hover),
+  .sidebar-menu :deep(.el-menu-item.is-active) {
+    transform: none;
+  }
+
+  .sidebar-menu :deep(.el-menu-item .el-icon) {
+    margin-right: 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 4;
+    width: min(280px, 86vw) !important;
+    transform: translateX(-105%);
+  }
+
+  .sidebar.is-mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: rgba(4, 8, 24, 0.58);
+    cursor: default;
+  }
+
+  .logo {
+    gap: 12px;
+  }
+
+  .logo-text,
+  .sidebar-menu :deep(.el-menu-item span),
+  .sidebar-footer {
+    display: initial;
+  }
+
+  .sidebar-footer {
+    display: block;
+  }
+
+  .sidebar-menu {
+    padding: 16px 12px;
+  }
+
+  .sidebar-menu :deep(.el-menu-item) {
+    justify-content: flex-start;
+    padding: 0 20px !important;
+  }
+
+  .sidebar-menu :deep(.el-menu-item .el-icon) {
+    margin-right: 10px;
+  }
+
+  .mobile-menu-button {
+    display: inline-flex;
+  }
+
+  .header {
+    padding: 0 12px;
+  }
+
+  .main-content {
+    padding: 16px;
+  }
+
+  .page-title {
+    font-size: 18px;
+  }
+
+  .user-info {
+    gap: 8px;
+    padding: 6px 8px;
+  }
+
+  .user-role {
+    display: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .user-details,
+  .dropdown-icon {
+    display: none;
+  }
 }
 </style>

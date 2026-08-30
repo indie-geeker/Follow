@@ -1,41 +1,119 @@
 services:
-  # Backend API
   api:
     build:
       context: ./follow-server
       dockerfile: Dockerfile
-    container_name: follow-api
-    ports:
-      - "5000:5000"
-    volumes:
-      - follow-data:/app/data
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/follow.db
-      - Jwt__Secret=${JWT_SECRET:-your-super-secret-key-change-in-production-at-least-32-chars}
-      - Jwt__Issuer=Follow
-      - Jwt__Audience=Follow
-      - Admin__Email=${ADMIN_EMAIL:-admin@example.com}
-      - Admin__Password=${ADMIN_PASSWORD:-Admin@123}
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?Set POSTGRES_DB in .env};Username=${POSTGRES_USER:?Set POSTGRES_USER in .env};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      JwtSettings__SecretKey: "${JWT_SECRET:?Set JWT_SECRET in .env}"
+      JwtSettings__Issuer: FollowMusicApi
+      JwtSettings__Audience: FollowMusicClient
+      JwtSettings__AccessTokenExpirationMinutes: "60"
+      JwtSettings__RefreshTokenExpirationDays: "7"
+      AdminAccount__Username: "${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}"
+      AdminAccount__Email: "${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}"
+      AdminAccount__Password: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}"
+      MinioSettings__Endpoint: minio:9000
+      MinioSettings__AccessKey: "${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}"
+      MinioSettings__SecretKey: "${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}"
+      MinioSettings__BucketName: follow-music
+      MinioSettings__UseSSL: "false"
+      RedisSettings__ConnectionString: redis:6379
+    ports:
+      - "127.0.0.1:5050:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - local
+      - web
+      - data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
-  # Admin Dashboard
   admin:
     build:
       context: ./follow-admin
       dockerfile: Dockerfile
-    container_name: follow-admin
-    ports:
-      - "3000:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:80"
     restart: unless-stopped
+    networks:
+      - local
+      - web
+
+  postgres:
+    image: postgres:18@sha256:5773fe724c49c42a7a9ca70202e11e1dff21fb7235b335a73f39297d200b73a2
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?Set POSTGRES_USER in .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      POSTGRES_DB: "${POSTGRES_DB:?Set POSTGRES_DB in .env}"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    restart: unless-stopped
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:8-alpine@sha256:6cbef353e480a8a6e7f10ec545f13d7d3fa85a212cdcc5ffaf5a1c818b9d3798
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
 volumes:
-  follow-data:
-    driver: local
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  local:
+  web:
+    internal: true
+  data:
+    internal: true

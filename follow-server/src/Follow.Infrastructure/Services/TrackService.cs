@@ -1,5 +1,6 @@
 using Follow.Core.Entities;
 using Follow.Core.Interfaces;
+using Follow.Core.Services;
 using Follow.Infrastructure.Data;
 using Follow.Shared.DTOs;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,7 @@ public class TrackService : ITrackService
     private readonly IStorageService _storageService;
     private readonly IArtistService _artistService;
     private readonly IAlbumService _albumService;
+    private readonly StorageDeletionQueue _deletionQueue;
     private readonly ILogger<TrackService> _logger;
 
     public TrackService(
@@ -24,12 +26,14 @@ public class TrackService : ITrackService
         IStorageService storageService,
         IArtistService artistService,
         IAlbumService albumService,
+        StorageDeletionQueue deletionQueue,
         ILogger<TrackService> logger)
     {
         _context = context;
         _storageService = storageService;
         _artistService = artistService;
         _albumService = albumService;
+        _deletionQueue = deletionQueue;
         _logger = logger;
     }
 
@@ -40,6 +44,8 @@ public class TrackService : ITrackService
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
         var tempFile = Path.ChangeExtension(tempPath, extension);
         
+        string? uploadedFilePath = null;
+        var trackSaved = false;
         try
         {
             // Copy stream to temp file
@@ -104,35 +110,63 @@ public class TrackService : ITrackService
             // Upload to MinIO
             await using var uploadStream = System.IO.File.OpenRead(tempFile);
             var filePath = await _storageService.UploadFileAsync(uploadStream, fileName, contentType, "tracks");
+            uploadedFilePath = filePath;
 
-            // Get or create artist
             Artist? artist = null;
-            if (!string.IsNullOrWhiteSpace(artistName))
-            {
-                artist = await _artistService.GetOrCreateArtistByNameAsync(artistName);
-            }
-
-            // Get or create album
             Album? album = null;
-            if (!string.IsNullOrWhiteSpace(albumName))
+            Track track;
+            await using var transaction = _context.Database.IsRelational()
+                ? await _context.Database.BeginTransactionAsync()
+                : null;
+            try
             {
-                album = await _albumService.GetOrCreateAlbumAsync(albumName, artist?.Id);
+                // Artist, album, and track are one database graph. The helpers
+                // only stage new entities; this is the single commit point.
+                if (!string.IsNullOrWhiteSpace(artistName))
+                {
+                    artist = await _artistService.GetOrCreateArtistByNameAsync(artistName);
+                }
+
+                if (!string.IsNullOrWhiteSpace(albumName))
+                {
+                    album = await _albumService.GetOrCreateAlbumAsync(albumName, artist?.Id);
+                }
+
+                track = new Track
+                {
+                    Title = title,
+                    FilePath = filePath,
+                    DurationSeconds = durationSeconds,
+                    BitRate = bitRate,
+                    Format = format,
+                    ArtistId = artist?.Id,
+                    AlbumId = album?.Id
+                };
+
+                _context.Tracks.Add(track);
+                await _context.SaveChangesAsync();
+                if (transaction != null)
+                    await transaction.CommitAsync();
+                trackSaved = true;
             }
-
-            // Create track entity
-            var track = new Track
+            catch
             {
-                Title = title,
-                FilePath = filePath,
-                DurationSeconds = durationSeconds,
-                BitRate = bitRate,
-                Format = format,
-                ArtistId = artist?.Id,
-                AlbumId = album?.Id
-            };
-
-            _context.Tracks.Add(track);
-            await _context.SaveChangesAsync();
+                if (transaction != null)
+                {
+                    try
+                    {
+                        await transaction.RollbackAsync();
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        _logger.LogError(
+                            rollbackException,
+                            "Failed to roll back track metadata transaction for {FileName}",
+                            fileName);
+                    }
+                }
+                throw;
+            }
 
             // Upload cover if extracted
             if (coverData != null && coverExtension != null && coverContentType != null)
@@ -141,8 +175,7 @@ public class TrackService : ITrackService
                 {
                     using var coverStream = new MemoryStream(coverData);
                     var coverPath = await _storageService.UploadFileAsync(coverStream, $"cover{coverExtension}", coverContentType, $"covers/{track.Id}");
-                    track.CoverUrl = coverPath;
-                    await _context.SaveChangesAsync();
+                    await PersistExtractedCoverReferenceAsync(track, coverPath);
                 }
                 catch (Exception ex)
                 {
@@ -153,6 +186,14 @@ public class TrackService : ITrackService
             _logger.LogInformation("Uploaded track: {Title} by {Artist}", title, artistName ?? "Unknown");
 
             return MapToDto(track, artist, album);
+        }
+        catch
+        {
+            if (uploadedFilePath != null && !trackSaved)
+                await _deletionQueue.CompensateUploadAsync(
+                    _storageService,
+                    uploadedFilePath);
+            throw;
         }
         finally
         {
@@ -166,7 +207,9 @@ public class TrackService : ITrackService
 
     public async Task<(List<TrackDto> Tracks, int TotalCount)> GetTracksAsync(int page = 1, int pageSize = 20, string? search = null, Guid? artistId = null, Guid? albumId = null)
     {
+        var offset = PaginationPolicy.GetOffset(page, pageSize);
         var query = _context.Tracks
+            .AsNoTracking()
             .Include(t => t.Artist)
             .Include(t => t.Album)
             .AsQueryable();
@@ -194,7 +237,8 @@ public class TrackService : ITrackService
         
         var tracks = await query
             .OrderByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
+            .ThenBy(t => t.Id)
+            .Skip(offset)
             .Take(pageSize)
             .ToListAsync();
 
@@ -204,6 +248,7 @@ public class TrackService : ITrackService
     public async Task<TrackDto?> GetTrackByIdAsync(Guid id)
     {
         var track = await _context.Tracks
+            .AsNoTracking()
             .Include(t => t.Artist)
             .Include(t => t.Album)
             .FirstOrDefaultAsync(t => t.Id == id);
@@ -229,12 +274,6 @@ public class TrackService : ITrackService
         if (request.AlbumId.HasValue)
             track.AlbumId = request.AlbumId.Value;
 
-        if (request.CoverUrl != null)
-            track.CoverUrl = request.CoverUrl;
-
-        if (request.LyricsUrl != null)
-            track.LyricsUrl = request.LyricsUrl;
-
         await _context.SaveChangesAsync();
 
         // Reload with navigation properties
@@ -249,9 +288,9 @@ public class TrackService : ITrackService
         var track = await _context.Tracks.FindAsync(id);
         if (track == null) return false;
 
-        // Delete from storage
-        await _storageService.DeleteFileAsync(track.FilePath);
-
+        _deletionQueue.Enqueue(track.FilePath);
+        _deletionQueue.TryEnqueue(track.CoverUrl);
+        _deletionQueue.TryEnqueue(track.LyricsUrl);
         _context.Tracks.Remove(track);
         await _context.SaveChangesAsync();
 
@@ -259,16 +298,14 @@ public class TrackService : ITrackService
         return true;
     }
 
-    public async Task<(Stream? Stream, string? ContentType, long? Length)> GetTrackStreamAsync(Guid id)
+    public async Task<StoredObjectDescriptor?> GetTrackObjectAsync(Guid id)
     {
-        var track = await _context.Tracks.FindAsync(id);
-        if (track == null) return (null, null, null);
-
-        var stream = await _storageService.GetFileAsync(track.FilePath);
-        if (stream == null) return (null, null, null);
-
-        var contentType = GetContentType(track.Format);
-        return (stream, contentType, stream.Length);
+        var track = await _context.Tracks
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Id == id);
+        return track == null
+            ? null
+            : new StoredObjectDescriptor(track.FilePath, GetContentType(track.Format));
     }
 
     private static TrackDto MapToDto(Track track, Artist? artist, Album? album)
@@ -306,19 +343,40 @@ public class TrackService : ITrackService
         if (track == null)
             throw new ArgumentException($"Track {trackId} not found");
 
-        // Delete old cover if exists
-        if (!string.IsNullOrEmpty(track.CoverUrl))
-        {
-            await _storageService.DeleteFileAsync(track.CoverUrl);
-        }
-
-        // Upload new cover
+        var oldCoverPath = track.CoverUrl;
         var coverPath = await _storageService.UploadFileAsync(fileStream, fileName, contentType, $"covers/{trackId}");
         track.CoverUrl = coverPath;
-        await _context.SaveChangesAsync();
+        _deletionQueue.TryEnqueue(oldCoverPath);
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch
+        {
+            await _deletionQueue.CompensateUploadAsync(_storageService, coverPath);
+            throw;
+        }
 
         _logger.LogInformation("Uploaded cover for track {TrackId}: {Path}", trackId, coverPath);
         return coverPath;
+    }
+
+    internal async Task PersistExtractedCoverReferenceAsync(
+        Track track,
+        string coverPath)
+    {
+        var previousCoverPath = track.CoverUrl;
+        track.CoverUrl = coverPath;
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch
+        {
+            track.CoverUrl = previousCoverPath;
+            await _deletionQueue.CompensateUploadAsync(_storageService, coverPath);
+            throw;
+        }
     }
 
     public async Task<string> UploadTrackLyricsAsync(Guid trackId, Stream fileStream, string fileName, string contentType)
@@ -327,37 +385,39 @@ public class TrackService : ITrackService
         if (track == null)
             throw new ArgumentException($"Track {trackId} not found");
 
-        // Delete old lyrics if exists
-        if (!string.IsNullOrEmpty(track.LyricsUrl))
-        {
-            await _storageService.DeleteFileAsync(track.LyricsUrl);
-        }
-
-        // Upload new lyrics
+        var oldLyricsPath = track.LyricsUrl;
         var lyricsPath = await _storageService.UploadFileAsync(fileStream, fileName, contentType, $"lyrics/{trackId}");
         track.LyricsUrl = lyricsPath;
-        await _context.SaveChangesAsync();
+        _deletionQueue.TryEnqueue(oldLyricsPath);
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch
+        {
+            await _deletionQueue.CompensateUploadAsync(_storageService, lyricsPath);
+            throw;
+        }
 
         _logger.LogInformation("Uploaded lyrics for track {TrackId}: {Path}", trackId, lyricsPath);
         return lyricsPath;
     }
 
-    public async Task<(Stream? Stream, string? ContentType)?> GetLyricsStreamAsync(Guid trackId)
+    public async Task<StoredObjectDescriptor?> GetLyricsObjectAsync(Guid trackId)
     {
-        var track = await _context.Tracks.FindAsync(trackId);
+        var track = await _context.Tracks
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item => item.Id == trackId);
         if (track == null || string.IsNullOrEmpty(track.LyricsUrl))
             return null;
 
-        var stream = await _storageService.GetFileAsync(track.LyricsUrl);
-        if (stream == null)
-            return null;
-
-        return (stream, "text/plain; charset=utf-8");
+        return new StoredObjectDescriptor(track.LyricsUrl, "text/plain; charset=utf-8");
     }
 
     public async Task<List<TagDto>> GetTrackTagsAsync(Guid trackId)
     {
         return await _context.TrackTags
+            .AsNoTracking()
             .Where(tt => tt.TrackId == trackId)
             .Select(tt => new TagDto(
                 tt.Tag.Id,

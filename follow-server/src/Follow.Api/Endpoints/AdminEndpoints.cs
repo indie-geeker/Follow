@@ -1,6 +1,7 @@
 using Follow.Core.Entities;
 using Follow.Core.Interfaces;
 using Follow.Shared.Constants;
+using Follow.Shared.DTOs;
 
 namespace Follow.Api.Endpoints;
 
@@ -16,6 +17,10 @@ public static class AdminEndpoints
             .WithDescription("Get dashboard statistics");
 
         // User Management
+        group.MapPost("/users", CreateUser)
+            .WithName("AdminCreateUser")
+            .WithDescription("Create or invite a user with an initial password");
+
         group.MapGet("/users", GetUsers)
             .WithName("AdminGetUsers")
             .WithDescription("Get all users with pagination");
@@ -37,6 +42,23 @@ public static class AdminEndpoints
     {
         var stats = await adminService.GetDashboardStatsAsync();
         return Results.Ok(stats);
+    }
+
+    private static async Task<IResult> CreateUser(CreateUserRequest request, IAdminService adminService)
+    {
+        try
+        {
+            var user = await adminService.CreateUserAsync(request);
+            return Results.Created($"/api/admin/users/{user.Id}", user);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(ApiResponse.Error(400, exception.Message));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Results.Conflict(ApiResponse.Error(409, exception.Message));
+        }
     }
 
     private static async Task<IResult> GetUsers(
@@ -64,11 +86,20 @@ public static class AdminEndpoints
 
     private static async Task<IResult> UpdateUserRole(Guid id, UpdateRoleRequest request, IAdminService adminService)
     {
-        if (!Enum.TryParse<UserRole>(request.Role, out var role))
+        if (!TryParseRole(request.Role, out var role))
             return Results.BadRequest(new { error = "Invalid role" });
 
         var user = await adminService.UpdateUserRoleAsync(id, role);
         return user == null ? Results.NotFound() : Results.Ok(user);
+    }
+
+    public static bool TryParseRole(string? value, out UserRole role)
+    {
+        role = default;
+        return !string.IsNullOrWhiteSpace(value) &&
+               !int.TryParse(value, out _) &&
+               Enum.TryParse(value, true, out role) &&
+               Enum.IsDefined(role);
     }
 
     private static async Task<IResult> DeleteUser(Guid id, IAdminService adminService)

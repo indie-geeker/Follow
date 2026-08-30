@@ -2,11 +2,15 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:open_dir/open_dir.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:follow/core/platform/platform_capabilities.dart';
+import 'package:follow/core/network/media_url.dart';
 import 'package:follow/data/models/track.dart';
-import 'package:follow/core/config/app_config.dart';
+import 'package:follow/data/services/api/api_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 part 'download_provider.g.dart';
@@ -73,7 +77,9 @@ class DownloadManager extends _$DownloadManager {
 
   void _onProgress(TaskUpdate update) {
     if (update is TaskProgressUpdate) {
-      print('Download Progress: ${update.task.taskId} - ${update.progress}');
+      debugPrint(
+        'Download Progress: ${update.task.taskId} - ${update.progress}',
+      );
       final taskId = update.task.taskId;
       if (state.containsKey(taskId)) {
         state = {
@@ -87,19 +93,19 @@ class DownloadManager extends _$DownloadManager {
   void _onStatus(TaskUpdate update) async {
     if (update is TaskStatusUpdate) {
       // Debug log
-      print('Download Status: ${update.task.taskId} - ${update.status}'); 
+      debugPrint('Download Status: ${update.task.taskId} - ${update.status}');
       final taskId = update.task.taskId;
       if (update.exception != null) {
-        print('Download Exception for $taskId: ${update.exception}');
+        debugPrint('Download Exception for $taskId: ${update.exception}');
       }
       if (state.containsKey(taskId)) {
         String? localPath;
         if (update.status == TaskStatus.complete) {
           localPath = await update.task.filePath();
-          print('Download Complete: $localPath');
+          debugPrint('Download Complete: $localPath');
           // Save track metadata for persistence
           final taskInfo = state[taskId]!;
-          await _saveTrackMetadata(taskId, taskInfo, localPath!);
+          await _saveTrackMetadata(taskId, taskInfo, localPath);
           // Refresh downloaded tracks list
           ref.invalidate(downloadedTracksProvider);
         }
@@ -115,16 +121,20 @@ class DownloadManager extends _$DownloadManager {
   }
 
   /// Save track metadata to SharedPreferences for persistence
-  Future<void> _saveTrackMetadata(String trackId, DownloadTaskInfo taskInfo, String localPath) async {
+  Future<void> _saveTrackMetadata(
+    String trackId,
+    DownloadTaskInfo taskInfo,
+    String localPath,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     final metadataKey = 'downloaded_tracks_metadata';
     final existingData = prefs.getString(metadataKey);
-    
+
     Map<String, dynamic> allMetadata = {};
     if (existingData != null) {
       allMetadata = Map<String, dynamic>.from(jsonDecode(existingData));
     }
-    
+
     allMetadata[trackId] = {
       'title': taskInfo.trackTitle,
       'artistId': taskInfo.artistId,
@@ -133,27 +143,28 @@ class DownloadManager extends _$DownloadManager {
       'localPath': localPath,
       'downloadedAt': DateTime.now().toIso8601String(),
     };
-    
+
     await prefs.setString(metadataKey, jsonEncode(allMetadata));
-    print('Saved metadata for track: $trackId - ${taskInfo.trackTitle} by ${taskInfo.artistName}');
+    debugPrint(
+      'Saved metadata for track: $trackId - ${taskInfo.trackTitle} by ${taskInfo.artistName}',
+    );
   }
 
   Future<void> downloadTrack(Track track) async {
-    print('Starting download for track: ${track.id} - ${track.title}');
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('accessToken');
-    
+    debugPrint('Starting download for track: ${track.id} - ${track.title}');
+    final tokens = await ApiClient.tokenStore.readTokens();
+
     // Get custom or default download path
     final downloadPath = await ref.read(downloadPathProvider.future);
     final downloadDir = Directory(downloadPath);
     if (!await downloadDir.exists()) {
       await downloadDir.create(recursive: true);
     }
-    print('Download directory: ${downloadDir.path}');
+    debugPrint('Download directory: ${downloadDir.path}');
 
+    final url = resolveTrackStreamUri(track.id).toString();
     final fileName = '${track.id}.mp3';
-    final url = '${AppConfig.apiBaseUrl}/api/tracks/${track.id}/stream';
-    print('Download URL: $url');
+    debugPrint('Download URL: $url');
 
     final task = DownloadTask(
       taskId: track.id,
@@ -161,7 +172,9 @@ class DownloadManager extends _$DownloadManager {
       filename: fileName,
       directory: downloadPath, // Use custom or default path
       baseDirectory: BaseDirectory.root,
-      headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+      headers: tokens != null
+          ? {'Authorization': 'Bearer ${tokens.accessToken}'}
+          : {},
       updates: Updates.statusAndProgress,
       retries: 3,
       allowPause: true,
@@ -181,14 +194,14 @@ class DownloadManager extends _$DownloadManager {
         status: TaskStatus.enqueued,
       ),
     };
-    print('Task enqueued in state');
+    debugPrint('Task enqueued in state');
 
     final result = await FileDownloader().enqueue(task);
-    print('Enqueue result: $result');
+    debugPrint('Enqueue result: $result');
   }
 
   Future<void> cancelDownload(String trackId) async {
-    print('Cancelling download: $trackId');
+    debugPrint('Cancelling download: $trackId');
     if (_tasks.containsKey(trackId)) {
       await FileDownloader().cancelTaskWithId(trackId);
       _tasks.remove(trackId);
@@ -197,17 +210,26 @@ class DownloadManager extends _$DownloadManager {
   }
 
   Future<void> pauseDownload(String trackId) async {
-    print('Pausing download: $trackId');
+    debugPrint('Pausing download: $trackId');
     if (_tasks.containsKey(trackId)) {
       await FileDownloader().pause(_tasks[trackId]!);
     }
   }
 
   Future<void> resumeDownload(String trackId) async {
-    print('Resuming download: $trackId');
+    debugPrint('Resuming download: $trackId');
     if (_tasks.containsKey(trackId)) {
       await FileDownloader().resume(_tasks[trackId]!);
     }
+  }
+
+  Future<void> clearForLogout() async {
+    final taskIds = _tasks.keys.toList(growable: false);
+    for (final taskId in taskIds) {
+      await FileDownloader().cancelTaskWithId(taskId);
+    }
+    _tasks.clear();
+    state = {};
   }
 }
 
@@ -230,9 +252,9 @@ class DownloadedTracks extends _$DownloadedTracks {
       final dir = await getApplicationDocumentsDirectory();
       downloadPath = '${dir.path}/music';
     }
-    
+
     final downloadDir = Directory(downloadPath);
-    
+
     if (!await downloadDir.exists()) {
       return [];
     }
@@ -240,44 +262,49 @@ class DownloadedTracks extends _$DownloadedTracks {
     // Load saved metadata from SharedPreferences
     final metadataKey = 'downloaded_tracks_metadata';
     final existingData = prefs.getString(metadataKey);
-    
+
     Map<String, dynamic> allMetadata = {};
     if (existingData != null) {
       allMetadata = Map<String, dynamic>.from(jsonDecode(existingData));
     }
-    
+
     // Scan directory
     try {
       if (await downloadDir.exists()) {
-        final files = downloadDir.listSync().whereType<File>().where((f) => f.path.endsWith('.mp3'));
-        
+        final files = downloadDir.listSync().whereType<File>().where(
+          (f) => f.path.endsWith('.mp3'),
+        );
+
         final tracks = <Track>[];
         for (final file in files) {
-           final filename = file.path.split(Platform.pathSeparator).last;
-           final id = filename.replaceAll('.mp3', '');
-           
-           // Get saved metadata or use fallback
-           final metadata = allMetadata[id] as Map<String, dynamic>?;
-           final title = metadata?['title'] as String? ?? 'Unknown Song';
-           final artistId = metadata?['artistId'] as String? ?? 'unknown';
-           final artistName = metadata?['artistName'] as String? ?? 'Unknown Artist';
-           final coverUrl = metadata?['coverUrl'] as String?;
-           
-           tracks.add(Track(
-               id: id, 
-               title: title,
-               artist: Artist(id: artistId, name: artistName),
-               coverUrl: coverUrl,
-               durationSeconds: 0,
-               createdAt: DateTime.now(),
-               isDownloaded: true,
-               localPath: file.path,
-             ));
+          final filename = file.path.split(Platform.pathSeparator).last;
+          final id = filename.replaceAll('.mp3', '');
+
+          // Get saved metadata or use fallback
+          final metadata = allMetadata[id] as Map<String, dynamic>?;
+          final title = metadata?['title'] as String? ?? 'Unknown Song';
+          final artistId = metadata?['artistId'] as String? ?? 'unknown';
+          final artistName =
+              metadata?['artistName'] as String? ?? 'Unknown Artist';
+          final coverUrl = metadata?['coverUrl'] as String?;
+
+          tracks.add(
+            Track(
+              id: id,
+              title: title,
+              artist: Artist(id: artistId, name: artistName),
+              coverUrl: coverUrl,
+              durationSeconds: 0,
+              createdAt: DateTime.now(),
+              isDownloaded: true,
+              localPath: file.path,
+            ),
+          );
         }
         return tracks;
       }
     } catch (e) {
-      print('Error loading downloaded tracks: $e');
+      debugPrint('Error loading downloaded tracks: $e');
     }
     return [];
   }
@@ -313,12 +340,22 @@ class DownloadPath extends _$DownloadPath {
 
   /// Pick a new download folder
   Future<String?> pickDownloadFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择下载文件夹',
-    );
-    if (result != null) {
-      await setDownloadPath(result);
-      return result;
+    if (kIsWeb || !supportsNativeFolderBrowsing(defaultTargetPlatform)) {
+      return null;
+    }
+
+    try {
+      final result = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: '选择下载文件夹',
+      );
+      if (result != null) {
+        await setDownloadPath(result);
+        return result;
+      }
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
     }
     return null;
   }
@@ -342,24 +379,53 @@ class DownloadPath extends _$DownloadPath {
     ref.invalidate(downloadedTracksProvider);
   }
 
-  /// Open download folder in Finder
-  Future<void> openDownloadFolder() async {
+  /// Open the download folder on supported desktop platforms.
+  Future<bool> openDownloadFolder() async {
+    if (kIsWeb || !supportsNativeFolderBrowsing(defaultTargetPlatform)) {
+      return false;
+    }
+
     final path = state.value;
-    if (path != null) {
-      await OpenDir().openNativeDir(path: path);
+    if (path == null) {
+      return false;
+    }
+
+    try {
+      return await OpenDir().openNativeDir(path: path) ?? false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
     }
   }
 
-  /// Reveal a specific file in Finder
-  Future<void> revealFileInFinder(String trackId) async {
+  /// Reveal a specific file on supported desktop platforms.
+  Future<bool> revealFileInFinder(String trackId) async {
+    if (kIsWeb || !supportsNativeFolderBrowsing(defaultTargetPlatform)) {
+      return false;
+    }
+
     final path = state.value;
-    if (path != null) {
-      final filePath = '$path/$trackId.mp3';
-      final file = File(filePath);
-      if (await file.exists()) {
-        // Open the directory and highlight the file
-        await OpenDir().openNativeDir(path: path, highlightedFileName: '$trackId.mp3');
-      }
+    if (path == null) {
+      return false;
+    }
+
+    final filePath = '$path/$trackId.mp3';
+    final file = File(filePath);
+    if (!await file.exists()) {
+      return false;
+    }
+
+    try {
+      return await OpenDir().openNativeDir(
+            path: path,
+            highlightedFileName: '$trackId.mp3',
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
     }
   }
 }

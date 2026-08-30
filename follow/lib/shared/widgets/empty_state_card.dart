@@ -6,12 +6,18 @@ class EmptyStateCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final String? actionLabel;
+  final IconData? actionIcon;
+  final VoidCallback? onAction;
 
   const EmptyStateCard({
     super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.actionLabel,
+    this.actionIcon,
+    this.onAction,
   });
 
   @override
@@ -50,7 +56,9 @@ class EmptyStateCard extends StatelessWidget {
               child: Icon(
                 icon,
                 size: 32,
-                color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+                color: isDark
+                    ? LoginColors.accentPurple
+                    : theme.colorScheme.primary,
               ),
             ),
             const SizedBox(height: 16),
@@ -73,6 +81,22 @@ class EmptyStateCard extends StatelessWidget {
               ),
               textAlign: TextAlign.center,
             ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 20),
+              SizedBox(
+                height: 48,
+                child: actionIcon == null
+                    ? FilledButton(
+                        onPressed: onAction,
+                        child: Text(actionLabel!),
+                      )
+                    : FilledButton.icon(
+                        onPressed: onAction,
+                        icon: Icon(actionIcon),
+                        label: Text(actionLabel!),
+                      ),
+              ),
+            ],
           ],
         ),
       ),

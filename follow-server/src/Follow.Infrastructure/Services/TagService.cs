@@ -1,5 +1,6 @@
 using Follow.Core.Entities;
 using Follow.Core.Interfaces;
+using Follow.Core.Services;
 using Follow.Infrastructure.Data;
 using Follow.Shared.DTOs;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +21,7 @@ public class TagService : ITagService
 
     public async Task<List<TagDto>> GetTagsAsync(string? category = null)
     {
-        var query = _context.Tags.AsQueryable();
+        var query = _context.Tags.AsNoTracking().AsQueryable();
         
         if (!string.IsNullOrEmpty(category))
         {
@@ -44,6 +45,7 @@ public class TagService : ITagService
     public async Task<TagDto?> GetTagByIdAsync(Guid id)
     {
         return await _context.Tags
+            .AsNoTracking()
             .Where(t => t.Id == id)
             .Select(t => new TagDto(
                 t.Id,
@@ -61,8 +63,7 @@ public class TagService : ITagService
         var tag = new Tag
         {
             Name = request.Name,
-            Category = request.Category,
-            CoverUrl = request.CoverUrl
+            Category = request.Category
         };
 
         _context.Tags.Add(tag);
@@ -85,7 +86,6 @@ public class TagService : ITagService
 
         tag.Name = request.Name;
         tag.Category = request.Category;
-        tag.CoverUrl = request.CoverUrl;
 
         await _context.SaveChangesAsync();
 
@@ -113,7 +113,9 @@ public class TagService : ITagService
 
     public async Task<(List<TrackDto> Tracks, int TotalCount)> GetTracksByTagAsync(Guid tagId, int page = 1, int pageSize = 20)
     {
+        var offset = PaginationPolicy.GetOffset(page, pageSize);
         var query = _context.TrackTags
+            .AsNoTracking()
             .Where(tt => tt.TagId == tagId)
             .Select(tt => tt.Track)
             .Include(t => t.Artist)
@@ -123,7 +125,8 @@ public class TagService : ITagService
 
         var tracks = await query
             .OrderByDescending(t => t.CreatedAt)
-            .Skip((page - 1) * pageSize)
+            .ThenBy(t => t.Id)
+            .Skip(offset)
             .Take(pageSize)
             .Select(t => new TrackDto(
                 t.Id,

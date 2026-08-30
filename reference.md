@@ -4,7 +4,7 @@ This file provides guidance to AI when working with code in this repository.
 
 ## Project Overview
 
-Follow Music is a cross-platform music player with three sub-projects in a monorepo:
+Follow Music is a family music library and player with three sub-projects in a monorepo. The product boundary is household music management, personal libraries, playlists, and playback across trusted devices.
 
 | Sub-project | Stack | Purpose |
 |---|---|---|
@@ -17,13 +17,14 @@ Follow Music is a cross-platform music player with three sub-projects in a monor
 ### Backend (`follow-server/`)
 
 ```bash
-# Start dev dependencies (PostgreSQL, Redis, MinIO)
-cd follow-server && docker compose up -d
+# Start dev dependencies (PostgreSQL, Redis, MinIO) from the repo root
+cp .env.example .env  # first run only; replace every placeholder
+docker compose up -d postgres redis minio
 
 # Database migration
-dotnet ef database update --project src/Follow.Infrastructure --startup-project src/Follow.Api
+dotnet ef database update --project follow-server/src/Follow.Infrastructure --startup-project follow-server/src/Follow.Api
 
-# Run API server (localhost:5000, Swagger at /swagger)
+# Run API server (localhost:5050, Swagger at /swagger)
 dotnet run --project follow-server/src/Follow.Api
 
 # Run tests
@@ -40,7 +41,7 @@ dotnet publish follow-server/src/Follow.Api -c Release -o ./publish
 # Install dependencies (uses pnpm)
 cd follow-admin && pnpm install
 
-# Dev server (localhost:3000)
+# Start Vite development server
 pnpm dev
 
 # Type-check and build
@@ -63,8 +64,8 @@ flutter run
 ### Full Stack via Docker
 
 ```bash
-# From repo root - starts API (port 5000) + Admin (port 3000)
-docker compose up -d
+# From repo root - starts the complete stack
+docker compose up -d --build
 ```
 
 ## Architecture
@@ -76,9 +77,15 @@ docker compose up -d
 - **Follow.Infrastructure** - EF Core DbContext (`Data/`), service implementations (`Services/`), migrations
 - **Follow.Shared** - DTOs (`DTOs/`) and constants (`Constants/` - roles, policies)
 
-API endpoints are organized as static extension methods in `Endpoints/*.cs` (Auth, Track, Artist, Album, Playlist, UserMusic, Admin, RSS).
+API endpoints are organized as static extension methods in `Endpoints/*.cs` (Auth, Track, Artist, Album, Playlist, UserMusic, Admin, Tag).
 
-Authentication: JWT + Refresh Token. First registered user is auto-promoted to Admin. Two roles: Admin (full management) and Member (playback, favorites, playlists).
+Authentication uses JWT access tokens plus per-device `UserSession` refresh rotation. Access tokens carry `sid`, and every authenticated request verifies that the session is still active. The Web admin uses same-origin Secure/HttpOnly/Strict cookies and receives no JSON tokens; Flutter receives body tokens and stores them in platform secure storage. Public registration always creates a Member; the environment-managed account is the Admin.
+
+Session lifecycle endpoints are `POST /api/auth/logout`, `POST /api/auth/logout-all`, `GET /api/auth/sessions`, and `DELETE /api/auth/sessions/{id}`. Logout revokes server state immediately; clearing client state alone is not a valid logout implementation. Register, login, refresh, normal API traffic, uploads, and concurrent streams have separate rate limits and use `429` plus `Retry-After` when rejected.
+
+Media playback uses `GET`/`HEAD /api/tracks/{id}/stream` with single-range `200`/`206`/`416` semantics and direct object-to-response copying. MinIO is private infrastructure. The anonymous cover proxy only accepts managed image keys under `covers/`, `artists/`, or `albums/`; audio, lyrics, and arbitrary keys require authenticated resource endpoints.
+
+Database/object consistency uses transactional metadata writes, upload compensation, and durable `StorageDeletionJob` records processed by `StorageDeletionWorker`. Playlist writes are owner-only, public playlists are read-only to non-owners, DTOs expose `ownerId`/`ownerName`/`isOwnedByCurrentUser`/`canEdit`, reorder accepts only a complete unique permutation, and pagination-capable list queries must stay bounded and stably ordered.
 
 ### Admin Dashboard - Vue 3 SPA
 
@@ -102,9 +109,9 @@ Code generation is required after modifying models, providers, or routes: `dart 
 
 ## Key Dev Environment Details
 
-- Backend dev services: PostgreSQL (5432), Redis (6379), MinIO (9000, console 9001)
-- MinIO dev credentials: `follow` / `follow123`
-- PostgreSQL dev credentials: `follow` / `follow`
-- Docker deployment uses SQLite (via `ConnectionStrings__DefaultConnection=Data Source=/app/data/follow.db`)
-- Environment config: `.env.development` / `.env.production` for admin; `appsettings.*.json` for server
+- The local Docker stack binds API `5050` and Admin `3000` to host loopback only; PostgreSQL, Redis, and MinIO have no host ports.
+- Android Emulator Debug uses `http://10.0.2.2:5050` without run arguments. Release clients must use an explicit public HTTPS origin, and production must place an HTTPS reverse proxy in front of the loopback Admin endpoint.
+- MinIO and PostgreSQL credentials come from the root `.env` file.
+- Docker and local development both use PostgreSQL; Docker persists data in named volumes.
+- Admin API calls are relative `/api` requests; Vite proxies them only during development. Server configuration remains in `appsettings.*.json` and root Compose environment variables.
 - Project language: Chinese comments and documentation throughout

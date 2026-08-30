@@ -4,19 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/providers/track_provider.dart';
-import 'package:follow/data/models/track.dart';
-import 'package:follow/data/providers/playlist_provider.dart';
-import 'package:follow/data/services/api/api_service.dart';
-import 'package:follow/data/providers/audio_provider.dart';
-import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
-import 'package:follow/shared/widgets/track_tile.dart';
-import 'package:follow/shared/widgets/track_options_sheet.dart';
-import 'package:follow/shared/widgets/add_to_playlist_dialog.dart';
-import 'package:follow/features/library/widgets/artists_tab.dart';
 import 'package:follow/features/library/widgets/artists_tab.dart';
 import 'package:follow/features/library/widgets/albums_tab.dart';
 import 'package:follow/features/library/widgets/library_search_box.dart';
+import 'package:follow/router/app_router.dart';
+import 'package:follow/router/mobile_navigation.dart';
 
 @RoutePage()
 class LibraryPage extends ConsumerStatefulWidget {
@@ -47,27 +40,28 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final isDesktop = usesDesktopNavigation(MediaQuery.sizeOf(context).width);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-            // Full-screen gradient background
-            if (isDark)
-              Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      LoginColors.gradientEnd,
-                      LoginColors.gradientMid2,
-                      LoginColors.gradientMid1,
-                      LoginColors.gradientStart,
-                    ],
-                  ),
+          // Full-screen gradient background
+          if (isDark)
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    LoginColors.gradientEnd,
+                    LoginColors.gradientMid2,
+                    LoginColors.gradientMid1,
+                    LoginColors.gradientStart,
+                  ],
                 ),
               ),
+            ),
 
           // Content
           SafeArea(
@@ -83,11 +77,16 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                          color: isDark
+                              ? Colors.white
+                              : theme.colorScheme.onSurface,
                         ),
                       ),
                       const Spacer(),
-                      const LibrarySearchBox(),
+                      if (isDesktop)
+                        const LibrarySearchBox()
+                      else
+                        _LibrarySearchButton(tooltip: l10n.search),
                     ],
                   ),
                 ),
@@ -111,7 +110,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                     dividerColor: Colors.transparent,
                     indicator: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [LoginColors.accentPurple, LoginColors.accentPink],
+                        colors: [
+                          LoginColors.accentPurple,
+                          LoginColors.accentPink,
+                        ],
                       ),
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -131,7 +133,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                       Tab(text: l10n.tracks),
                       Tab(text: l10n.artists),
                       Tab(text: l10n.albums),
-
                     ],
                   ),
                 ),
@@ -146,7 +147,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                       _TracksTab(),
                       const ArtistsTab(),
                       const AlbumsTab(),
-
                     ],
                   ),
                 ),
@@ -159,13 +159,46 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
   }
 }
 
+class _LibrarySearchButton extends StatelessWidget {
+  const _LibrarySearchButton({required this.tooltip});
+
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return SizedBox.square(
+      dimension: 48,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: () {
+          context.router.root.push(const SearchRoute());
+        },
+        style: IconButton.styleFrom(
+          backgroundColor: isDark
+              ? LoginColors.cardBackground
+              : theme.colorScheme.surfaceContainerHighest,
+          foregroundColor: isDark
+              ? LoginColors.accentPurple
+              : theme.colorScheme.primary,
+          side: isDark ? const BorderSide(color: LoginColors.cardBorder) : null,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        icon: const Icon(Icons.search_rounded),
+      ),
+    );
+  }
+}
+
 class _TracksTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tracksAsync = ref.watch(tracksProvider);
-    final currentTrack = ref.watch(currentTrackProvider);
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return tracksAsync.when(
       data: (tracks) {
@@ -176,18 +209,35 @@ class _TracksTab extends ConsumerWidget {
             subtitle: '添加一些音乐到库中',
           );
         }
-        return RefreshIndicator(
-          onRefresh: () => ref.read(tracksProvider.notifier).refresh(),
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 100),
-            itemCount: tracks.length,
-            itemBuilder: (context, index) {
-              final track = tracks[index];
-              return SmartTrackTile(
-                track: track,
-                playlist: tracks,
-              );
-            },
+        final notifier = ref.read(tracksProvider.notifier);
+        final hasMore = notifier.hasMore;
+        return NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification.metrics.axis == Axis.vertical &&
+                notification.metrics.extentAfter < 400 &&
+                hasMore) {
+              notifier.loadMore();
+            }
+            return false;
+          },
+          child: RefreshIndicator(
+            onRefresh: notifier.refresh,
+            child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 100),
+              itemCount: tracks.length + (hasMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index == tracks.length) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                }
+                final track = tracks[index];
+                return SmartTrackTile(track: track, playlist: tracks);
+              },
+            ),
           ),
         );
       },
@@ -196,42 +246,15 @@ class _TracksTab extends ConsumerWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
+            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
             const SizedBox(height: 16),
-            Text(
-              '加载失败: $e',
-              style: TextStyle(color: theme.colorScheme.error),
-            ),
+            Text('加载失败: $e', style: TextStyle(color: theme.colorScheme.error)),
           ],
         ),
       ),
     );
   }
-
-  void _showTrackOptions(BuildContext context, WidgetRef ref, Track track, bool isDark) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: isDark ? LoginColors.gradientMid1 : null,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => TrackOptionsSheet(track: track),
-    );
-  }
-
-  void _showAddToPlaylistDialog(BuildContext context, Track track) {
-    showDialog(
-      context: context,
-      builder: (context) => AddToPlaylistDialog(track: track),
-    );
-  }
 }
-
-
 
 class _PlaceholderTab extends StatelessWidget {
   final IconData icon;
@@ -268,7 +291,9 @@ class _PlaceholderTab extends StatelessWidget {
             child: Icon(
               icon,
               size: 40,
-              color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+              color: isDark
+                  ? LoginColors.accentPurple
+                  : theme.colorScheme.primary,
             ),
           ),
           const SizedBox(height: 20),

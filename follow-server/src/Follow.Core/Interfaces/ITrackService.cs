@@ -34,9 +34,9 @@ public interface ITrackService
     Task<bool> DeleteTrackAsync(Guid id);
 
     /// <summary>
-    /// Get audio stream for playback
+    /// Get storage descriptor for audio playback
     /// </summary>
-    Task<(Stream? Stream, string? ContentType, long? Length)> GetTrackStreamAsync(Guid id);
+    Task<StoredObjectDescriptor?> GetTrackObjectAsync(Guid id);
 
     /// <summary>
     /// Upload cover image for a track
@@ -49,9 +49,9 @@ public interface ITrackService
     Task<string> UploadTrackLyricsAsync(Guid trackId, Stream fileStream, string fileName, string contentType);
 
     /// <summary>
-    /// Get lyrics stream for a track
+    /// Get storage descriptor for track lyrics
     /// </summary>
-    Task<(Stream? Stream, string? ContentType)?> GetLyricsStreamAsync(Guid trackId);
+    Task<StoredObjectDescriptor?> GetLyricsObjectAsync(Guid trackId);
 
     /// <summary>
     /// Get all tags for a track
@@ -64,4 +64,5 @@ public interface ITrackService
     Task<bool> SetTrackTagsAsync(Guid trackId, List<Guid> tagIds);
 }
 
-public record UpdateTrackRequest(string? Title, Guid? ArtistId, Guid? AlbumId, string? CoverUrl, string? LyricsUrl);
+public record UpdateTrackRequest(string? Title, Guid? ArtistId, Guid? AlbumId);
+public sealed record StoredObjectDescriptor(string Path, string ContentType);

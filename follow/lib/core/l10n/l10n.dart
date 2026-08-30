@@ -63,7 +63,7 @@ class AppLocalizations {
       'loading': 'Loading...',
       'noData': 'No data',
       'retry': 'Retry',
-      'rememberPassword': 'Remember Password',
+      'rememberEmail': 'Remember email',
     },
     'zh': {
       'home': '首页',
@@ -106,7 +106,7 @@ class AppLocalizations {
       'loading': '加载中...',
       'noData': '暂无数据',
       'retry': '重试',
-      'rememberPassword': '记住密码',
+      'rememberEmail': '记住邮箱',
     },
   };
 

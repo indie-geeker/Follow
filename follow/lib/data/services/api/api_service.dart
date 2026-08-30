@@ -1,13 +1,24 @@
 import 'package:dio/dio.dart';
 import 'package:follow/data/models/user.dart';
 import 'package:follow/data/models/track.dart';
+import 'package:follow/core/network/media_url.dart';
 import 'package:follow/data/services/api/api_client.dart';
 
 /// API Service - Plain Dio implementation
-class ApiService {
+abstract interface class AuthApi {
+  Future<AuthResponse> login(LoginRequest request);
+
+  Future<AuthResponse> register(RegisterRequest request);
+
+  Future<User> getCurrentUser();
+
+  Future<void> logout();
+}
+
+class ApiService implements AuthApi {
   final Dio _dio;
 
-  ApiService() : _dio = ApiClient.instance;
+  ApiService({Dio? dio}) : _dio = dio ?? ApiClient.instance;
 
   // ============ Auth ============
 
@@ -24,19 +35,46 @@ class ApiService {
     return responseData;
   }
 
+  @override
   Future<AuthResponse> login(LoginRequest request) async {
     final response = await _dio.post('/api/auth/login', data: request.toJson());
     return AuthResponse.fromJson(_getData(response.data));
   }
 
+  @override
   Future<AuthResponse> register(RegisterRequest request) async {
-    final response = await _dio.post('/api/auth/register', data: request.toJson());
+    final response = await _dio.post(
+      '/api/auth/register',
+      data: request.toJson(),
+    );
     return AuthResponse.fromJson(_getData(response.data));
   }
 
+  @override
   Future<User> getCurrentUser() async {
     final response = await _dio.get('/api/auth/me');
     return User.fromJson(_getData(response.data));
+  }
+
+  Future<List<SessionInfo>> getSessions() async {
+    final response = await _dio.get('/api/auth/sessions');
+    final data = _getData(response.data) as List<dynamic>;
+    return data
+        .map((item) => SessionInfo.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  @override
+  Future<void> logout() async {
+    await _dio.post('/api/auth/logout');
+  }
+
+  Future<void> revokeSession(String sessionId) async {
+    await _dio.delete('/api/auth/sessions/$sessionId');
+  }
+
+  Future<void> logoutAll() async {
+    await _dio.post('/api/auth/logout-all');
   }
 
   // ============ Tracks ============
@@ -48,13 +86,26 @@ class ApiService {
     String? artistId,
     String? albumId,
   }) async {
-    final response = await _dio.get('/api/tracks', queryParameters: {
-      'page': page,
-      'pageSize': pageSize,
-      if (search != null) 'search': search,
-      if (artistId != null) 'artistId': artistId,
-      if (albumId != null) 'albumId': albumId,
-    });
+    if (page < 1) {
+      throw ArgumentError.value(page, 'page', 'must be at least 1');
+    }
+    if (pageSize < 1 || pageSize > 100) {
+      throw ArgumentError.value(
+        pageSize,
+        'pageSize',
+        'must be between 1 and 100',
+      );
+    }
+    final response = await _dio.get(
+      '/api/tracks',
+      queryParameters: {
+        'page': page,
+        'pageSize': pageSize,
+        if (search != null) 'search': search,
+        if (artistId != null) 'artistId': artistId,
+        if (albumId != null) 'albumId': albumId,
+      },
+    );
     return TrackListResponse.fromJson(response.data);
   }
 
@@ -64,7 +115,10 @@ class ApiService {
   }
 
   String getStreamUrl(String trackId) {
-    return '${_dio.options.baseUrl}/api/tracks/$trackId/stream';
+    return resolveTrackStreamUri(
+      trackId,
+      apiBaseUrl: _dio.options.baseUrl,
+    ).toString();
   }
 
   // ============ Artists ============
@@ -104,10 +158,10 @@ class ApiService {
   }
 
   Future<Playlist> createPlaylist(String name, {String? description}) async {
-    final response = await _dio.post('/api/playlists', data: {
-      'name': name,
-      if (description != null) 'description': description,
-    });
+    final response = await _dio.post(
+      '/api/playlists',
+      data: {'name': name, if (description != null) 'description': description},
+    );
     return Playlist.fromJson(response.data);
   }
 
@@ -116,12 +170,16 @@ class ApiService {
   }
 
   Future<void> addTrackToPlaylist(String playlistId, String trackId) async {
-    await _dio.post('/api/playlists/$playlistId/tracks', data: {
-      'trackId': trackId,
-    });
+    await _dio.post(
+      '/api/playlists/$playlistId/tracks',
+      data: {'trackId': trackId},
+    );
   }
 
-  Future<void> removeTrackFromPlaylist(String playlistId, String trackId) async {
+  Future<void> removeTrackFromPlaylist(
+    String playlistId,
+    String trackId,
+  ) async {
     await _dio.delete('/api/playlists/$playlistId/tracks/$trackId');
   }
 
@@ -181,11 +239,13 @@ class TrackListResponse {
 
   factory TrackListResponse.fromJson(Map<String, dynamic> json) {
     return TrackListResponse(
-      tracks: (json['tracks'] as List?)?.map((e) => Track.fromJson(e)).toList() ?? [],
+      tracks:
+          (json['tracks'] as List?)?.map((e) => Track.fromJson(e)).toList() ??
+          [],
       totalCount: json['totalCount'] ?? 0,
       page: json['page'] ?? 1,
       pageSize: json['pageSize'] ?? 20,
-      totalPages: json['totalPages'] ?? 1,
+      totalPages: json['totalPages'] ?? 0,
     );
   }
 }

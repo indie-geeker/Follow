@@ -18,4 +18,8 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Follow.Core\Follow.Core.csproj" />
+  </ItemGroup>
+
 </Project>

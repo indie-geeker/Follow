@@ -47,5 +47,5 @@ public record TagDto(
     DateTime CreatedAt
 );
 
-public record CreateTagRequest(string Name, string? Category, string? CoverUrl);
-public record UpdateTagRequest(string Name, string? Category, string? CoverUrl);
+public record CreateTagRequest(string Name, string? Category);
+public record UpdateTagRequest(string Name, string? Category);

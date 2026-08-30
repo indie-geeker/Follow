@@ -14,23 +14,28 @@ public class AlbumService : IAlbumService
 {
     private readonly FollowDbContext _context;
     private readonly IStorageService _storageService;
+    private readonly StorageDeletionQueue _deletionQueue;
     private readonly ILogger<AlbumService> _logger;
 
     public AlbumService(
         FollowDbContext context,
         IStorageService storageService,
+        StorageDeletionQueue deletionQueue,
         ILogger<AlbumService> logger)
     {
         _context = context;
         _storageService = storageService;
+        _deletionQueue = deletionQueue;
         _logger = logger;
     }
 
     public async Task<List<AlbumDto>> GetAlbumsAsync()
     {
         var albums = await _context.Albums
+            .AsNoTracking()
             .Include(a => a.Artist)
             .OrderBy(a => a.Title)
+            .ThenBy(a => a.Id)
             .ToListAsync();
 
         return albums.Select(a => new AlbumDto(
@@ -45,6 +50,7 @@ public class AlbumService : IAlbumService
     public async Task<AlbumDto?> GetAlbumByIdAsync(Guid id)
     {
         var album = await _context.Albums
+            .AsNoTracking()
             .Include(a => a.Artist)
             .FirstOrDefaultAsync(a => a.Id == id);
         
@@ -94,11 +100,6 @@ public class AlbumService : IAlbumService
         album.Year = request.Year;
         album.ArtistId = request.ArtistId;
 
-        if (request.CoverUrl != null)
-        {
-            album.CoverUrl = request.CoverUrl;
-        }
-
         await _context.SaveChangesAsync();
         await _context.Entry(album).Reference(a => a.Artist).LoadAsync();
 
@@ -116,6 +117,7 @@ public class AlbumService : IAlbumService
         var album = await _context.Albums.FindAsync(id);
         if (album == null) return false;
 
+        _deletionQueue.TryEnqueue(album.CoverUrl);
         _context.Albums.Remove(album);
         await _context.SaveChangesAsync();
 
@@ -129,7 +131,6 @@ public class AlbumService : IAlbumService
 
         album = new Album { Title = title, ArtistId = artistId };
         _context.Albums.Add(album);
-        await _context.SaveChangesAsync();
 
         return album;
     }
@@ -140,14 +141,19 @@ public class AlbumService : IAlbumService
         if (album == null)
             throw new ArgumentException($"Album {id} not found");
 
-        if (!string.IsNullOrEmpty(album.CoverUrl) && !album.CoverUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-        {
-            await _storageService.DeleteFileAsync(album.CoverUrl);
-        }
-
+        var oldCoverPath = album.CoverUrl;
         var coverPath = await _storageService.UploadFileAsync(fileStream, fileName, contentType, $"albums/{id}/cover");
         album.CoverUrl = coverPath;
-        await _context.SaveChangesAsync();
+        _deletionQueue.TryEnqueue(oldCoverPath);
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch
+        {
+            await _deletionQueue.CompensateUploadAsync(_storageService, coverPath);
+            throw;
+        }
 
         _logger.LogInformation("Uploaded cover for album {AlbumId}: {Path}", id, coverPath);
         return coverPath;

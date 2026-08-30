@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/data/models/track.dart';
-import 'package:follow/data/providers/playlist_provider.dart';
-import 'package:follow/data/services/api/api_service.dart';
 import 'package:follow/data/providers/download_provider.dart';
 import 'package:follow/shared/widgets/add_to_playlist_dialog.dart';
 
@@ -11,11 +9,7 @@ class TrackOptionsSheet extends ConsumerWidget {
   final Track track;
   final VoidCallback? onRemove;
 
-  const TrackOptionsSheet({
-    super.key,
-    required this.track,
-    this.onRemove,
-  });
+  const TrackOptionsSheet({super.key, required this.track, this.onRemove});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

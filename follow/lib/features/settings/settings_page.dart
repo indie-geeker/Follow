@@ -1,11 +1,15 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
+import 'package:follow/core/platform/platform_capabilities.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/theme/theme_provider.dart';
 import 'package:follow/data/providers/auth_provider.dart';
+import 'package:follow/data/providers/api_provider.dart';
 import 'package:follow/data/providers/download_provider.dart';
+import 'package:follow/features/settings/session_management_sheet.dart';
 
 @RoutePage()
 class SettingsPage extends ConsumerWidget {
@@ -19,6 +23,8 @@ class SettingsPage extends ConsumerWidget {
     final themeMode = ref.watch(appThemeModeProvider);
     final locale = ref.watch(appLocaleProvider);
     final user = ref.watch(currentUserProvider);
+    final canBrowseDownloadFolder =
+        !kIsWeb && supportsNativeFolderBrowsing(defaultTargetPlatform);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -54,7 +60,9 @@ class SettingsPage extends ConsumerWidget {
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : theme.colorScheme.onSurface,
+                      color: isDark
+                          ? Colors.white
+                          : theme.colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -63,19 +71,29 @@ class SettingsPage extends ConsumerWidget {
                 _SectionCard(
                   isDark: isDark,
                   children: [
-                    _SectionHeader(title: l10n.get('appearance'), isDark: isDark),
+                    _SectionHeader(
+                      title: l10n.get('appearance'),
+                      isDark: isDark,
+                    ),
                     _SettingsTile(
                       icon: Icons.palette_outlined,
                       title: l10n.theme,
                       subtitle: _getThemeName(themeMode, l10n),
-                      onTap: () => _showThemeDialog(context, ref, themeMode, l10n, isDark),
+                      onTap: () => _showThemeDialog(
+                        context,
+                        ref,
+                        themeMode,
+                        l10n,
+                        isDark,
+                      ),
                       isDark: isDark,
                     ),
                     _SettingsTile(
                       icon: Icons.language_rounded,
                       title: l10n.language,
                       subtitle: locale.languageCode == 'zh' ? '中文' : 'English',
-                      onTap: () => _showLanguageDialog(context, ref, locale, isDark),
+                      onTap: () =>
+                          _showLanguageDialog(context, ref, locale, isDark),
                       isDark: isDark,
                     ),
                   ],
@@ -88,22 +106,38 @@ class SettingsPage extends ConsumerWidget {
                   isDark: isDark,
                   children: [
                     _SectionHeader(title: '存储', isDark: isDark),
-                    Consumer(
-                      builder: (context, ref, _) {
-                        final downloadPathAsync = ref.watch(downloadPathProvider);
-                        return _SettingsTile(
-                          icon: Icons.folder_outlined,
-                          title: '下载位置',
-                          subtitle: downloadPathAsync.when(
-                            data: (path) => _truncatePath(path, 30),
-                            loading: () => '...',
-                            error: (_, __) => '加载失败',
-                          ),
-                          onTap: () => _showDownloadPathDialog(context, ref, isDark, downloadPathAsync.value),
-                          isDark: isDark,
-                        );
-                      },
-                    ),
+                    if (canBrowseDownloadFolder)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final downloadPathAsync = ref.watch(
+                            downloadPathProvider,
+                          );
+                          return _SettingsTile(
+                            icon: Icons.folder_outlined,
+                            title: '下载位置',
+                            subtitle: downloadPathAsync.when(
+                              data: (path) => _truncatePath(path, 30),
+                              loading: () => '...',
+                              error: (_, __) => '加载失败',
+                            ),
+                            onTap: () => _showDownloadPathDialog(
+                              context,
+                              ref,
+                              isDark,
+                              downloadPathAsync.value,
+                            ),
+                            isDark: isDark,
+                          );
+                        },
+                      )
+                    else
+                      _SettingsTile(
+                        icon: Icons.smartphone_rounded,
+                        title: '下载位置',
+                        subtitle: '应用内存储',
+                        showArrow: false,
+                        isDark: isDark,
+                      ),
                   ],
                 ),
 
@@ -116,6 +150,13 @@ class SettingsPage extends ConsumerWidget {
                     _SectionHeader(title: l10n.get('account'), isDark: isDark),
                     if (user != null) ...[
                       _UserTile(user: user, isDark: isDark),
+                      _SettingsTile(
+                        icon: Icons.devices_rounded,
+                        title: '登录设备',
+                        subtitle: '查看并撤销家庭设备会话',
+                        onTap: () => _showSessions(context, ref),
+                        isDark: isDark,
+                      ),
                       _SettingsTile(
                         icon: Icons.logout_rounded,
                         title: l10n.logout,
@@ -181,7 +222,16 @@ class SettingsPage extends ConsumerWidget {
     return '.../$result';
   }
 
-  void _showDownloadPathDialog(BuildContext context, WidgetRef ref, bool isDark, String? currentPath) {
+  void _showDownloadPathDialog(
+    BuildContext context,
+    WidgetRef ref,
+    bool isDark,
+    String? currentPath,
+  ) {
+    if (kIsWeb || !supportsNativeFolderBrowsing(defaultTargetPlatform)) {
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? LoginColors.gradientMid1 : null,
@@ -199,12 +249,17 @@ class SettingsPage extends ConsumerWidget {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: isDark ? LoginColors.textSecondary : Colors.grey.shade300,
+                  color: isDark
+                      ? LoginColors.textSecondary
+                      : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
                 child: Column(
                   children: [
                     Text(
@@ -212,7 +267,9 @@ class SettingsPage extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Theme.of(context).colorScheme.onSurface,
+                        color: isDark
+                            ? Colors.white
+                            : Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
                     if (currentPath != null) ...[
@@ -221,7 +278,9 @@ class SettingsPage extends ConsumerWidget {
                         currentPath,
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark ? LoginColors.textSecondary : Colors.grey.shade600,
+                          color: isDark
+                              ? LoginColors.textSecondary
+                              : Colors.grey.shade600,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -236,7 +295,9 @@ class SettingsPage extends ConsumerWidget {
                 isDark: isDark,
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await ref.read(downloadPathProvider.notifier).pickDownloadFolder();
+                  await ref
+                      .read(downloadPathProvider.notifier)
+                      .pickDownloadFolder();
                 },
               ),
               _DialogOption(
@@ -244,9 +305,15 @@ class SettingsPage extends ConsumerWidget {
                 icon: Icons.open_in_new_rounded,
                 selected: false,
                 isDark: isDark,
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
-                  ref.read(downloadPathProvider.notifier).openDownloadFolder();
+                  final opened = await ref
+                      .read(downloadPathProvider.notifier)
+                      .openDownloadFolder();
+                  if (opened || !context.mounted) return;
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('无法打开下载文件夹')));
                 },
               ),
               _DialogOption(
@@ -256,7 +323,9 @@ class SettingsPage extends ConsumerWidget {
                 isDark: isDark,
                 onTap: () async {
                   Navigator.pop(ctx);
-                  await ref.read(downloadPathProvider.notifier).resetToDefault();
+                  await ref
+                      .read(downloadPathProvider.notifier)
+                      .resetToDefault();
                 },
               ),
               const SizedBox(height: 8),
@@ -267,7 +336,13 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
-  void _showThemeDialog(BuildContext context, WidgetRef ref, ThemeMode current, AppLocalizations l10n, bool isDark) {
+  void _showThemeDialog(
+    BuildContext context,
+    WidgetRef ref,
+    ThemeMode current,
+    AppLocalizations l10n,
+    bool isDark,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? LoginColors.gradientMid1 : null,
@@ -285,18 +360,25 @@ class SettingsPage extends ConsumerWidget {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: isDark ? LoginColors.textSecondary : Colors.grey.shade300,
+                  color: isDark
+                      ? LoginColors.textSecondary
+                      : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
                 child: Text(
                   l10n.theme,
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Theme.of(context).colorScheme.onSurface,
+                    color: isDark
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -306,7 +388,9 @@ class SettingsPage extends ConsumerWidget {
                 selected: current == ThemeMode.system,
                 isDark: isDark,
                 onTap: () {
-                  ref.read(appThemeModeProvider.notifier).setThemeMode(ThemeMode.system);
+                  ref
+                      .read(appThemeModeProvider.notifier)
+                      .setThemeMode(ThemeMode.system);
                   Navigator.pop(ctx);
                 },
               ),
@@ -316,7 +400,9 @@ class SettingsPage extends ConsumerWidget {
                 selected: current == ThemeMode.light,
                 isDark: isDark,
                 onTap: () {
-                  ref.read(appThemeModeProvider.notifier).setThemeMode(ThemeMode.light);
+                  ref
+                      .read(appThemeModeProvider.notifier)
+                      .setThemeMode(ThemeMode.light);
                   Navigator.pop(ctx);
                 },
               ),
@@ -326,7 +412,9 @@ class SettingsPage extends ConsumerWidget {
                 selected: current == ThemeMode.dark,
                 isDark: isDark,
                 onTap: () {
-                  ref.read(appThemeModeProvider.notifier).setThemeMode(ThemeMode.dark);
+                  ref
+                      .read(appThemeModeProvider.notifier)
+                      .setThemeMode(ThemeMode.dark);
                   Navigator.pop(ctx);
                 },
               ),
@@ -338,7 +426,12 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
-  void _showLanguageDialog(BuildContext context, WidgetRef ref, Locale current, bool isDark) {
+  void _showLanguageDialog(
+    BuildContext context,
+    WidgetRef ref,
+    Locale current,
+    bool isDark,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? LoginColors.gradientMid1 : null,
@@ -356,18 +449,25 @@ class SettingsPage extends ConsumerWidget {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: isDark ? LoginColors.textSecondary : Colors.grey.shade300,
+                  color: isDark
+                      ? LoginColors.textSecondary
+                      : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
                 child: Text(
                   '语言 / Language',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Theme.of(context).colorScheme.onSurface,
+                    color: isDark
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -377,7 +477,9 @@ class SettingsPage extends ConsumerWidget {
                 selected: current.languageCode == 'zh',
                 isDark: isDark,
                 onTap: () {
-                  ref.read(appLocaleProvider.notifier).setLocale(const Locale('zh', 'CN'));
+                  ref
+                      .read(appLocaleProvider.notifier)
+                      .setLocale(const Locale('zh', 'CN'));
                   Navigator.pop(ctx);
                 },
               ),
@@ -387,7 +489,9 @@ class SettingsPage extends ConsumerWidget {
                 selected: current.languageCode == 'en',
                 isDark: isDark,
                 onTap: () {
-                  ref.read(appLocaleProvider.notifier).setLocale(const Locale('en', 'US'));
+                  ref
+                      .read(appLocaleProvider.notifier)
+                      .setLocale(const Locale('en', 'US'));
                   Navigator.pop(ctx);
                 },
               ),
@@ -414,9 +518,7 @@ class SettingsPage extends ConsumerWidget {
         ),
         content: Text(
           '确定要退出登录吗？',
-          style: TextStyle(
-            color: isDark ? LoginColors.textSecondary : null,
-          ),
+          style: TextStyle(color: isDark ? LoginColors.textSecondary : null),
         ),
         actions: [
           TextButton(
@@ -429,16 +531,42 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           TextButton(
-            onPressed: () {
-              ref.read(authProvider.notifier).logout();
+            onPressed: () async {
+              final revoked = await ref.read(authProvider.notifier).logout();
+              if (!ctx.mounted) return;
+              if (!revoked) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('服务器未确认注销，本机会话已保留，请重试')),
+                );
+                return;
+              }
               Navigator.pop(ctx);
             },
-            child: const Text(
-              '退出',
-              style: TextStyle(color: Colors.red),
-            ),
+            child: const Text('退出', style: TextStyle(color: Colors.red)),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showSessions(BuildContext context, WidgetRef ref) {
+    final api = ref.read(apiServiceProvider);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: false,
+      builder: (_) => SessionManagementSheet(
+        loadSessions: api.getSessions,
+        onRevoke: (session) async {
+          await api.revokeSession(session.id);
+          if (session.isCurrent) {
+            await ref.read(authProvider.notifier).sessionExpired();
+          }
+        },
+        onLogoutAll: () async {
+          await api.logoutAll();
+          await ref.read(authProvider.notifier).sessionExpired();
+        },
       ),
     );
   }
@@ -499,7 +627,9 @@ class _SectionHeader extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: isDark ? LoginColors.accentPurple : Theme.of(context).colorScheme.primary,
+              color: isDark
+                  ? LoginColors.accentPurple
+                  : Theme.of(context).colorScheme.primary,
             ),
           ),
         ],
@@ -541,24 +671,23 @@ class _SettingsTile extends StatelessWidget {
           color: isDestructive
               ? Colors.red.withValues(alpha: 0.15)
               : (isDark
-                  ? LoginColors.accentPurple.withValues(alpha: 0.2)
-                  : Theme.of(context).colorScheme.primaryContainer),
+                    ? LoginColors.accentPurple.withValues(alpha: 0.2)
+                    : Theme.of(context).colorScheme.primaryContainer),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(
           icon,
           color: isDestructive
               ? Colors.red
-              : (isDark ? LoginColors.accentPurple : Theme.of(context).colorScheme.primary),
+              : (isDark
+                    ? LoginColors.accentPurple
+                    : Theme.of(context).colorScheme.primary),
           size: 20,
         ),
       ),
       title: Text(
         title,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w500,
-        ),
+        style: TextStyle(color: color, fontWeight: FontWeight.w500),
       ),
       subtitle: subtitle != null
           ? Text(
@@ -623,7 +752,9 @@ class _UserTile extends StatelessWidget {
       title: Text(
         user.username,
         style: TextStyle(
-          color: isDark ? Colors.white : Theme.of(context).colorScheme.onSurface,
+          color: isDark
+              ? Colors.white
+              : Theme.of(context).colorScheme.onSurface,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -679,7 +810,9 @@ class _DialogOption extends StatelessWidget {
         style: TextStyle(
           color: selected
               ? LoginColors.accentPurple
-              : (isDark ? Colors.white : Theme.of(context).colorScheme.onSurface),
+              : (isDark
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onSurface),
           fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
         ),
       ),

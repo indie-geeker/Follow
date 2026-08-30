@@ -8,6 +8,7 @@ namespace Follow.Core.Interfaces;
 /// </summary>
 public interface IAdminService
 {
+    Task<AdminUserDto> CreateUserAsync(CreateUserRequest request);
     Task<(List<AdminUserDto> Users, int TotalCount)> GetUsersAsync(int page = 1, int pageSize = 20, string? search = null);
     Task<AdminUserDto?> GetUserByIdAsync(Guid id);
     Task<AdminUserDto?> UpdateUserRoleAsync(Guid id, UserRole role);
