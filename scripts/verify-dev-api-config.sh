@@ -14,6 +14,7 @@ fail() {
 
 command -v docker >/dev/null 2>&1 || fail 'docker is required'
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
+command -v rg >/dev/null 2>&1 || fail 'rg is required'
 [[ -f "$FOLLOW_DEV_COMPOSE" ]] || fail 'docker-compose.dev.yml is missing'
 
 FOLLOW_DEV_JSON="$(docker compose -f "$FOLLOW_DEV_COMPOSE" config --format json)"
@@ -203,5 +204,29 @@ FOLLOW_DRIFTED_IMAGE_JSON="$(jq '
   .services.redis.image = "redis:8-alpine@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 ' <<<"$FOLLOW_DEV_JSON")"
 assert_contract_rejects 'a dependency image that differs from the root Compose' "$FOLLOW_DRIFTED_IMAGE_JSON"
+
+FOLLOW_DEV_COMMAND="$FOLLOW_REPO_ROOT/scripts/dev-api.sh"
+
+[[ -x "$FOLLOW_DEV_COMMAND" ]] || fail 'scripts/dev-api.sh is missing or not executable'
+bash -n "$FOLLOW_DEV_COMMAND" || fail 'scripts/dev-api.sh has invalid Bash syntax'
+
+for subcommand in run up down status reset; do
+  rg -q "^[[:space:]]*$subcommand\\)" "$FOLLOW_DEV_COMMAND" ||
+    fail "scripts/dev-api.sh does not handle $subcommand"
+done
+
+rg -q 'FOLLOW_DEV_COMPOSE=.*docker-compose\.dev\.yml' "$FOLLOW_DEV_COMMAND" ||
+  fail 'development command must resolve docker-compose.dev.yml from the repository root'
+rg -q '^[[:space:]]*docker compose -f "\$FOLLOW_DEV_COMPOSE" "\$@"' "$FOLLOW_DEV_COMMAND" ||
+  fail 'development Compose operations must use the isolated compose helper'
+FOLLOW_DOCKER_COMPOSE_CALLS="$(
+  rg -c '^[[:space:]]*docker compose([[:space:]]|$)' "$FOLLOW_DEV_COMMAND" || true
+)"
+[[ "$FOLLOW_DOCKER_COMPOSE_CALLS" == '1' ]] ||
+  fail 'development command must route every Compose operation through the isolated compose helper'
+
+if rg -q 'docker-compose\.yml|docker compose (stop|down)' "$FOLLOW_DEV_COMMAND"; then
+  fail 'development command must not stop or target the root full stack'
+fi
 
 echo 'Development API config checks passed.'
