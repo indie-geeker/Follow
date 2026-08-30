@@ -148,15 +148,21 @@ jq -e '
 ' <<<"$FOLLOW_DEV_JSON" >/dev/null ||
   fail 'development dependency credentials must match Development settings'
 
-jq -e '
+jq -e --argjson root "$FOLLOW_ROOT_JSON" '
   .ConnectionStrings.DefaultConnection == "Host=localhost;Port=5432;Database=follow;Username=follow;Password=follow" and
   .RedisSettings.ConnectionString == "localhost:6379" and
   .MinioSettings.Endpoint == "localhost:9000" and
   .MinioSettings.AccessKey == "follow" and
   .MinioSettings.SecretKey == "follow123" and
-  .MinioSettings.UseSSL == false
+  .MinioSettings.UseSSL == false and
+  .AdminAccount.Username == "admin" and
+  .AdminAccount.Email == "admin@follow.local" and
+  .AdminAccount.Password == "FollowDev!123" and
+  $root.services.api.environment.AdminAccount__Username == "${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}" and
+  $root.services.api.environment.AdminAccount__Email == "${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}" and
+  $root.services.api.environment.AdminAccount__Password == "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}"
 ' "$FOLLOW_DEV_SETTINGS" >/dev/null ||
-  fail 'appsettings.Development.json does not match development dependencies'
+  fail 'Development settings must match isolated dependencies and local administrator credentials'
 
 FOLLOW_EXTRA_PORT_JSON="$(jq '
   .services.postgres.ports += [{
@@ -624,6 +630,13 @@ rg -q '`\./scripts/dev-api\.sh reset --confirm`' <<<"$FOLLOW_LOCAL_BACKEND_SECTI
   fail 'the local backend section must document the exact confirmed reset command'
 rg -q '删除.*follow-dev.*卷' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
   fail 'the local backend section must warn that reset deletes follow-dev volumes'
+rg -q '`admin`' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must document the local administrator username'
+rg -q '仅.*(Development|本地开发).*127\.0\.0\.1|127\.0\.0\.1.*仅.*(Development|本地开发)' \
+  <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must limit the default administrator to loopback Development use'
+rg -q '不得.*生产|生产.*不得' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must forbid using local administrator credentials in production'
 
 rg -q 'docker-compose\.yml.*(旧版|非推荐).*后端 Compose' "$FOLLOW_BACKEND_README" ||
   fail 'the project structure must mark follow-server Compose as a legacy non-recommended entry'
