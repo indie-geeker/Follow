@@ -52,8 +52,10 @@ tmp/
 temp/
 *.tmp
 *.temp
+.local-backups/
 
 # ----------------
 # Claude Code
 # ----------------
 .claude/
+.gstack/
