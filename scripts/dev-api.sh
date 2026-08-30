@@ -17,7 +17,7 @@ require_command() {
 }
 
 compose() {
-  docker compose -f "$FOLLOW_DEV_COMPOSE" "$@"
+  docker compose --env-file /dev/null -f "$FOLLOW_DEV_COMPOSE" "$@"
 }
 
 require_docker() {

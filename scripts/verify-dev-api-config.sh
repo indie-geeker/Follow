@@ -17,7 +17,9 @@ command -v jq >/dev/null 2>&1 || fail 'jq is required'
 command -v rg >/dev/null 2>&1 || fail 'rg is required'
 [[ -f "$FOLLOW_DEV_COMPOSE" ]] || fail 'docker-compose.dev.yml is missing'
 
-FOLLOW_DEV_JSON="$(docker compose -f "$FOLLOW_DEV_COMPOSE" config --format json)"
+FOLLOW_DEV_JSON="$(
+  docker compose --env-file /dev/null -f "$FOLLOW_DEV_COMPOSE" config --format json
+)"
 FOLLOW_ROOT_JSON="$(
   docker compose --env-file /dev/null -f "$FOLLOW_ROOT_COMPOSE" \
     config --format json --no-interpolate
@@ -235,7 +237,7 @@ FOLLOW_DOTNET_REQUIRE_LINE="${FOLLOW_DOTNET_REQUIRE_MATCH%%:*}"
 
 rg -q 'FOLLOW_DEV_COMPOSE=.*docker-compose\.dev\.yml' "$FOLLOW_DEV_COMMAND" ||
   fail 'development command must resolve docker-compose.dev.yml from the repository root'
-rg -q '^[[:space:]]*docker compose -f "\$FOLLOW_DEV_COMPOSE" "\$@"' "$FOLLOW_DEV_COMMAND" ||
+rg -q '^[[:space:]]*docker compose --env-file /dev/null -f "\$FOLLOW_DEV_COMPOSE" "\$@"' "$FOLLOW_DEV_COMMAND" ||
   fail 'development Compose operations must use the isolated compose helper'
 FOLLOW_DOCKER_COMPOSE_CALLS="$(
   rg -c '^[[:space:]]*docker compose([[:space:]]|$)' "$FOLLOW_DEV_COMMAND" || true
@@ -272,7 +274,7 @@ set -euo pipefail
   printf '\n'
 } >>"$FOLLOW_TEST_DOCKER_LOG"
 
-if [[ "$*" == "-f $FOLLOW_TEST_DEV_COMPOSE up --help" ]]; then
+if [[ "$*" == "--env-file /dev/null -f $FOLLOW_TEST_DEV_COMPOSE up --help" ]]; then
   if [[ "$FOLLOW_TEST_WAIT_MODE" == 'supported' ]]; then
     echo '      --wait            Wait for services to be running|healthy'
   else
@@ -403,23 +405,23 @@ assert_rejected_without_docker() {
 }
 
 FOLLOW_EXPECT_DOCKER_STATUS="$(
-  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tps' \
+  printf 'info\ncompose\t--env-file\t/dev/null\t-f\t%s\tversion\ncompose\t--env-file\t/dev/null\t-f\t%s\tps' \
     "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
 )"
 FOLLOW_EXPECT_DOCKER_DOWN="$(
-  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tdown\t--remove-orphans' \
+  printf 'info\ncompose\t--env-file\t/dev/null\t-f\t%s\tversion\ncompose\t--env-file\t/dev/null\t-f\t%s\tdown\t--remove-orphans' \
     "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
 )"
 FOLLOW_EXPECT_DOCKER_UP="$(
-  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tup\t--help\ncompose\t-f\t%s\tup\t-d\t--wait' \
+  printf 'info\ncompose\t--env-file\t/dev/null\t-f\t%s\tversion\ncompose\t--env-file\t/dev/null\t-f\t%s\tup\t--help\ncompose\t--env-file\t/dev/null\t-f\t%s\tup\t-d\t--wait' \
     "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
 )"
 FOLLOW_EXPECT_DOCKER_UP_WITHOUT_WAIT="$(
-  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tup\t--help' \
+  printf 'info\ncompose\t--env-file\t/dev/null\t-f\t%s\tversion\ncompose\t--env-file\t/dev/null\t-f\t%s\tup\t--help' \
     "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
 )"
 FOLLOW_EXPECT_DOCKER_RESET="$(
-  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tdown\t--volumes\t--remove-orphans' \
+  printf 'info\ncompose\t--env-file\t/dev/null\t-f\t%s\tversion\ncompose\t--env-file\t/dev/null\t-f\t%s\tdown\t--volumes\t--remove-orphans' \
     "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
 )"
 FOLLOW_EXPECT_LSOF_CALL="$(
