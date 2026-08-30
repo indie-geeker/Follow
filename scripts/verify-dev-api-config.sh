@@ -247,4 +247,275 @@ if rg -q 'docker-compose\.yml|docker compose (stop|down)' "$FOLLOW_DEV_COMMAND";
   fail 'development command must not stop or target the root full stack'
 fi
 
+FOLLOW_COMMAND_TEST_ROOT="$(
+  mktemp -d "${TMPDIR:-/tmp}/follow-dev-api-command.XXXXXX"
+)" || fail 'could not create the command contract test directory'
+FOLLOW_TEST_BIN="$FOLLOW_COMMAND_TEST_ROOT/bin"
+FOLLOW_TEST_DOCKER_LOG="$FOLLOW_COMMAND_TEST_ROOT/docker.log"
+FOLLOW_TEST_LSOF_LOG="$FOLLOW_COMMAND_TEST_ROOT/lsof.log"
+FOLLOW_TEST_LSOF_COUNTER="$FOLLOW_COMMAND_TEST_ROOT/lsof.count"
+FOLLOW_TEST_DOTNET_LOG="$FOLLOW_COMMAND_TEST_ROOT/dotnet.log"
+FOLLOW_TEST_OUTPUT="$FOLLOW_COMMAND_TEST_ROOT/command.out"
+mkdir -p "$FOLLOW_TEST_BIN"
+trap 'rm -rf -- "$FOLLOW_COMMAND_TEST_ROOT"' EXIT
+
+cat >"$FOLLOW_TEST_BIN/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+{
+  printf '%s' "${1:-}"
+  shift || true
+  for argument in "$@"; do
+    printf '\t%s' "$argument"
+  done
+  printf '\n'
+} >>"$FOLLOW_TEST_DOCKER_LOG"
+
+if [[ "$*" == "-f $FOLLOW_TEST_DEV_COMPOSE up --help" ]]; then
+  if [[ "$FOLLOW_TEST_WAIT_MODE" == 'supported' ]]; then
+    echo '      --wait            Wait for services to be running|healthy'
+  else
+    echo 'Usage: docker compose up [OPTIONS] [SERVICE...]'
+    echo '      --wait-timeout duration'
+  fi
+fi
+EOF
+
+cat >"$FOLLOW_TEST_BIN/lsof" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+{
+  printf '%s' "${1:-}"
+  shift || true
+  for argument in "$@"; do
+    printf '\t%s' "$argument"
+  done
+  printf '\n'
+} >>"$FOLLOW_TEST_LSOF_LOG"
+
+follow_lsof_count=0
+if [[ -f "$FOLLOW_TEST_LSOF_COUNTER" ]]; then
+  read -r follow_lsof_count <"$FOLLOW_TEST_LSOF_COUNTER"
+fi
+follow_lsof_count=$((follow_lsof_count + 1))
+printf '%s\n' "$follow_lsof_count" >"$FOLLOW_TEST_LSOF_COUNTER"
+
+case "$FOLLOW_TEST_LSOF_MODE" in
+  occupied)
+    echo '4242'
+    exit 0
+    ;;
+  free)
+    exit 1
+    ;;
+  free-then-occupied)
+    if [[ "$follow_lsof_count" -eq 1 ]]; then
+      exit 1
+    fi
+    echo '4242'
+    exit 0
+    ;;
+  rc2)
+    exit 2
+    ;;
+  error-output)
+    echo 'simulated lsof diagnostic' >&2
+    exit 1
+    ;;
+  *)
+    echo "unknown fake lsof mode: $FOLLOW_TEST_LSOF_MODE" >&2
+    exit 2
+    ;;
+esac
+EOF
+
+cat >"$FOLLOW_TEST_BIN/dotnet" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+{
+  printf '%s' "${1:-}"
+  shift || true
+  for argument in "$@"; do
+    printf '\t%s' "$argument"
+  done
+  printf '\n'
+} >>"$FOLLOW_TEST_DOTNET_LOG"
+EOF
+
+chmod +x "$FOLLOW_TEST_BIN/docker" "$FOLLOW_TEST_BIN/lsof" "$FOLLOW_TEST_BIN/dotnet"
+
+reset_command_test_logs() {
+  : >"$FOLLOW_TEST_DOCKER_LOG"
+  : >"$FOLLOW_TEST_LSOF_LOG"
+  : >"$FOLLOW_TEST_DOTNET_LOG"
+  : >"$FOLLOW_TEST_OUTPUT"
+  rm -f "$FOLLOW_TEST_LSOF_COUNTER"
+}
+
+run_command_test() {
+  local lsof_mode="$1"
+  local wait_mode="$2"
+  shift 2
+
+  (
+    export PATH="$FOLLOW_TEST_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
+    export FOLLOW_TEST_DOCKER_LOG FOLLOW_TEST_LSOF_LOG FOLLOW_TEST_LSOF_COUNTER
+    export FOLLOW_TEST_DOTNET_LOG
+    export FOLLOW_TEST_DEV_COMPOSE="$FOLLOW_DEV_COMPOSE"
+    export FOLLOW_TEST_LSOF_MODE="$lsof_mode"
+    export FOLLOW_TEST_WAIT_MODE="$wait_mode"
+    "$FOLLOW_DEV_COMMAND" "$@"
+  ) >"$FOLLOW_TEST_OUTPUT" 2>&1
+}
+
+assert_command_exit() {
+  local expected_exit="$1"
+  local actual_exit="$2"
+  local scenario="$3"
+
+  [[ "$actual_exit" -eq "$expected_exit" ]] ||
+    fail "$scenario exited $actual_exit instead of $expected_exit: $(<"$FOLLOW_TEST_OUTPUT")"
+}
+
+assert_log_equals() {
+  local expected_log="$1"
+  local log_path="$2"
+  local scenario="$3"
+  local actual_log
+  actual_log="$(<"$log_path")"
+
+  [[ "$actual_log" == "$expected_log" ]] ||
+    fail "$scenario recorded unexpected argv; expected [$expected_log], got [$actual_log]"
+}
+
+assert_rejected_without_docker() {
+  local scenario="$1"
+  shift
+  local command_exit=0
+
+  reset_command_test_logs
+  run_command_test free supported "$@" || command_exit=$?
+  [[ "$command_exit" -ne 0 ]] || fail "$scenario must be rejected"
+  assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" "$scenario"
+}
+
+FOLLOW_EXPECT_DOCKER_STATUS="$(
+  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tps' \
+    "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
+)"
+FOLLOW_EXPECT_DOCKER_DOWN="$(
+  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tdown\t--remove-orphans' \
+    "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
+)"
+FOLLOW_EXPECT_DOCKER_UP="$(
+  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tup\t--help\ncompose\t-f\t%s\tup\t-d\t--wait' \
+    "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
+)"
+FOLLOW_EXPECT_DOCKER_UP_WITHOUT_WAIT="$(
+  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tup\t--help' \
+    "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
+)"
+FOLLOW_EXPECT_DOCKER_RESET="$(
+  printf 'info\ncompose\t-f\t%s\tversion\ncompose\t-f\t%s\tdown\t--volumes\t--remove-orphans' \
+    "$FOLLOW_DEV_COMPOSE" "$FOLLOW_DEV_COMPOSE"
+)"
+FOLLOW_EXPECT_LSOF_CALL="$(
+  printf '%s\t%s\t%s\t%s' '-nP' '-iTCP:5050' '-sTCP:LISTEN' '-t'
+)"
+FOLLOW_EXPECT_LSOF_TWICE="$(
+  printf '%s\n%s' "$FOLLOW_EXPECT_LSOF_CALL" "$FOLLOW_EXPECT_LSOF_CALL"
+)"
+FOLLOW_EXPECT_DOTNET_RUN="$(
+  printf '%s\t%s\t%s\t%s' 'watch' 'run' '--launch-profile' 'http'
+)"
+
+reset_command_test_logs
+command_exit=0
+run_command_test free supported --help || command_exit=$?
+assert_command_exit 0 "$command_exit" 'help'
+assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" 'help'
+
+reset_command_test_logs
+command_exit=0
+run_command_test free supported unknown || command_exit=$?
+assert_command_exit 2 "$command_exit" 'unknown command'
+assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" 'unknown command'
+
+reset_command_test_logs
+command_exit=0
+run_command_test free supported status || command_exit=$?
+assert_command_exit 0 "$command_exit" 'status'
+assert_log_equals "$FOLLOW_EXPECT_DOCKER_STATUS" "$FOLLOW_TEST_DOCKER_LOG" 'status'
+
+reset_command_test_logs
+command_exit=0
+run_command_test free supported down || command_exit=$?
+assert_command_exit 0 "$command_exit" 'down'
+assert_log_equals "$FOLLOW_EXPECT_DOCKER_DOWN" "$FOLLOW_TEST_DOCKER_LOG" 'down'
+
+reset_command_test_logs
+command_exit=0
+run_command_test free supported up || command_exit=$?
+assert_command_exit 0 "$command_exit" 'up'
+assert_log_equals "$FOLLOW_EXPECT_DOCKER_UP" "$FOLLOW_TEST_DOCKER_LOG" 'up'
+
+reset_command_test_logs
+command_exit=0
+run_command_test free unsupported up || command_exit=$?
+assert_command_exit 1 "$command_exit" 'up without --wait support'
+assert_log_equals "$FOLLOW_EXPECT_DOCKER_UP_WITHOUT_WAIT" "$FOLLOW_TEST_DOCKER_LOG" 'up without --wait support'
+rg -q 'Docker Compose up does not support --wait' "$FOLLOW_TEST_OUTPUT" ||
+  fail 'up without --wait support must explain the missing capability'
+
+assert_rejected_without_docker 'reset without confirmation' reset
+assert_rejected_without_docker 'reset with wrong confirmation' reset nope
+assert_rejected_without_docker 'reset with a trailing argument' reset --confirm extra
+assert_rejected_without_docker 'reset with a trailing help argument' reset --confirm --help
+
+reset_command_test_logs
+command_exit=0
+run_command_test free supported reset --confirm || command_exit=$?
+assert_command_exit 0 "$command_exit" 'confirmed reset'
+assert_log_equals "$FOLLOW_EXPECT_DOCKER_RESET" "$FOLLOW_TEST_DOCKER_LOG" 'confirmed reset'
+
+reset_command_test_logs
+command_exit=0
+run_command_test occupied supported run || command_exit=$?
+assert_command_exit 1 "$command_exit" 'run with an occupied API port'
+assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" 'run with an occupied API port'
+assert_log_equals '' "$FOLLOW_TEST_DOTNET_LOG" 'run with an occupied API port'
+assert_log_equals "$FOLLOW_EXPECT_LSOF_CALL" "$FOLLOW_TEST_LSOF_LOG" 'run with an occupied API port'
+
+for lsof_failure_mode in rc2 error-output; do
+  reset_command_test_logs
+  command_exit=0
+  run_command_test "$lsof_failure_mode" supported run || command_exit=$?
+  assert_command_exit 1 "$command_exit" "run with lsof failure $lsof_failure_mode"
+  assert_log_equals '' "$FOLLOW_TEST_DOCKER_LOG" "run with lsof failure $lsof_failure_mode"
+  assert_log_equals '' "$FOLLOW_TEST_DOTNET_LOG" "run with lsof failure $lsof_failure_mode"
+  rg -q 'could not determine whether 127\.0\.0\.1:5050 is available' "$FOLLOW_TEST_OUTPUT" ||
+    fail "run with lsof failure $lsof_failure_mode must explain the port probe failure"
+done
+
+reset_command_test_logs
+command_exit=0
+run_command_test free supported run || command_exit=$?
+assert_command_exit 0 "$command_exit" 'run with an available API port'
+assert_log_equals "$FOLLOW_EXPECT_DOCKER_UP" "$FOLLOW_TEST_DOCKER_LOG" 'run with an available API port'
+assert_log_equals "$FOLLOW_EXPECT_LSOF_TWICE" "$FOLLOW_TEST_LSOF_LOG" 'run with an available API port'
+assert_log_equals "$FOLLOW_EXPECT_DOTNET_RUN" "$FOLLOW_TEST_DOTNET_LOG" 'run with an available API port'
+
+reset_command_test_logs
+command_exit=0
+run_command_test free-then-occupied supported run || command_exit=$?
+assert_command_exit 1 "$command_exit" 'run when the API port becomes occupied'
+assert_log_equals "$FOLLOW_EXPECT_DOCKER_UP" "$FOLLOW_TEST_DOCKER_LOG" 'run when the API port becomes occupied'
+assert_log_equals "$FOLLOW_EXPECT_LSOF_TWICE" "$FOLLOW_TEST_LSOF_LOG" 'run when the API port becomes occupied'
+assert_log_equals '' "$FOLLOW_TEST_DOTNET_LOG" 'run when the API port becomes occupied'
+rg -q '127\.0\.0\.1:5050 is already in use' "$FOLLOW_TEST_OUTPUT" ||
+  fail 'run when the API port becomes occupied must report the conflict'
+
 echo 'Development API config checks passed.'
