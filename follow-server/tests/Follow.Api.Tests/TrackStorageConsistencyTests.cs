@@ -158,49 +158,6 @@ public class TrackStorageConsistencyTests
     }
 
     [Fact]
-    public async Task TrackUpload_DatabaseFailureDeletesNewAudioObject()
-    {
-        var interceptor = new FailNextSaveInterceptor { IsArmed = true };
-        await using var context = CreateContext(interceptor);
-        var storage = new RecordingStorageService("tracks/id/new.mp3");
-        var service = CreateTrackService(context, storage);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UploadTrackAsync(
-                new MemoryStream([1, 2, 3]),
-                "new.mp3",
-                "audio/mpeg"));
-
-        context.ChangeTracker.Clear();
-        Assert.Empty(await context.Tracks.ToListAsync());
-        Assert.Equal(["tracks/id/new.mp3"], storage.DeletedPaths);
-    }
-
-    [Fact]
-    public async Task TrackUpload_DatabaseFailureAndDeleteFailureQueuesNewAudioObject()
-    {
-        var interceptor = new FailNextSaveInterceptor { IsArmed = true };
-        await using var context = CreateContext(interceptor);
-        var storage = new RecordingStorageService(
-            "tracks/id/new.mp3",
-            deleteSucceeds: false);
-        var service = CreateTrackService(context, storage);
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UploadTrackAsync(
-                new MemoryStream([1, 2, 3]),
-                "new.mp3",
-                "audio/mpeg"));
-
-        context.ChangeTracker.Clear();
-        Assert.Empty(await context.Tracks.ToListAsync());
-        Assert.Equal(["tracks/id/new.mp3"], storage.DeletedPaths);
-        Assert.Equal(
-            "tracks/id/new.mp3",
-            (await context.StorageDeletionJobs.SingleAsync()).ObjectPath);
-    }
-
-    [Fact]
     public async Task MetadataHelpers_DoNotPersistBeforeTrackGraphCommit()
     {
         await using var context = CreateContext();
@@ -227,14 +184,14 @@ public class TrackStorageConsistencyTests
     }
 
     [Fact]
-    public void TrackUpload_UsesExplicitRelationalTransaction()
+    public void ConfirmedApply_UsesExplicitRelationalTransaction()
     {
         var serverRoot = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory,
             "../../../../../"));
         var source = File.ReadAllText(Path.Combine(
             serverRoot,
-            "src/Follow.Infrastructure/Services/TrackService.cs"));
+            "src/Follow.Infrastructure/Services/MusicImportApplyService.cs"));
 
         Assert.Contains("BeginTransactionAsync", source);
         Assert.Contains("CommitAsync", source);

@@ -26,7 +26,7 @@
             <el-input
               v-model="form.relativeDirectory"
               :disabled="!sourceReady || submitting"
-              placeholder="留空导入整个挂载目录，或填写：无损/古典"
+              placeholder="留空扫描整个挂载目录，或填写：无损/古典"
               autocomplete="off"
               @keyup.enter="createBatch"
             />
@@ -40,7 +40,7 @@
               v-model="form.autoStart"
               :disabled="!sourceReady || submitting"
             >
-              扫描完成后自动开始导入
+              扫描完成后自动开始相似分析
             </el-checkbox>
           </el-form-item>
 

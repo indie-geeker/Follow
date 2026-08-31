@@ -17,6 +17,16 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
         using var tagFile = TagLib.File.Create(new StreamFileAbstraction(source, fileName));
         cancellationToken.ThrowIfCancellationRequested();
 
+        var container = Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant();
+        var audioCodecs = tagFile.Properties.Codecs
+            .Where(codec => codec != null &&
+                (codec.MediaTypes & TagLib.MediaTypes.Audio) != 0)
+            .ToArray();
+        var codec = NormalizeCodec(
+            audioCodecs.FirstOrDefault()?.Description ?? tagFile.Properties.Description,
+            container);
+        var duration = tagFile.Properties.Duration;
+
         var metadata = new AudioMetadata(
             string.IsNullOrWhiteSpace(tagFile.Tag.Title)
                 ? Path.GetFileNameWithoutExtension(fileName)
@@ -27,8 +37,48 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
                 : tagFile.Tag.Album.Trim(),
             (int)Math.Ceiling(tagFile.Properties.Duration.TotalSeconds),
             tagFile.Properties.AudioBitrate,
-            Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant());
+            container,
+            Codec: codec,
+            Container: container,
+            IsLossless: InferLossless(audioCodecs, codec),
+            SampleRateHz: PositiveOrNull(tagFile.Properties.AudioSampleRate),
+            BitDepth: PositiveOrNull(tagFile.Properties.BitsPerSample),
+            Channels: PositiveOrNull(tagFile.Properties.AudioChannels),
+            BitRateKbps: PositiveOrNull(tagFile.Properties.AudioBitrate),
+            ExactDurationMilliseconds: checked((long)Math.Round(duration.TotalMilliseconds)));
         return Task.FromResult(metadata);
+    }
+
+    private static int? PositiveOrNull(int value) => value > 0 ? value : null;
+
+    private static bool? InferLossless(
+        IReadOnlyCollection<TagLib.ICodec> codecs,
+        string normalizedCodec)
+    {
+        if (codecs.Count > 0)
+            return codecs.Any(candidate => candidate is TagLib.ILosslessAudioCodec);
+        return normalizedCodec switch
+        {
+            "flac" or "alac" or "pcm" => true,
+            "aac" or "mp3" or "opus" or "vorbis" => false,
+            _ => null
+        };
+    }
+
+    private static string NormalizeCodec(string? description, string container)
+    {
+        var value = description?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (value.Contains("flac", StringComparison.Ordinal)) return "flac";
+        if (value.Contains("alac", StringComparison.Ordinal)) return "alac";
+        if (value.Contains("aac", StringComparison.Ordinal)) return "aac";
+        if (value.Contains("mp4a", StringComparison.Ordinal)) return "aac";
+        if (value.Contains("mpeg audio layer 3", StringComparison.Ordinal) ||
+            value.Contains("mp3", StringComparison.Ordinal)) return "mp3";
+        if (value.Contains("opus", StringComparison.Ordinal)) return "opus";
+        if (value.Contains("vorbis", StringComparison.Ordinal)) return "vorbis";
+        if (value.Contains("wave", StringComparison.Ordinal) ||
+            value.Contains("pcm", StringComparison.Ordinal)) return "pcm";
+        return container;
     }
 
     private sealed class StreamFileAbstraction : TagLib.File.IFileAbstraction

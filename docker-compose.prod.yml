@@ -1,0 +1,8 @@
+# Production composition intentionally includes the same digest-pinned services
+# and the opt-in, read-only music-library overlay. Required values must be
+# supplied through the deployment environment; no credentials or host paths are
+# stored in this file.
+include:
+  - path:
+      - docker-compose.yml
+      - docker-compose.import.yml

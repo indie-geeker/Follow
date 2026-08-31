@@ -9,11 +9,6 @@ namespace Follow.Core.Interfaces;
 public interface ITrackService
 {
     /// <summary>
-    /// Upload and process a new track
-    /// </summary>
-    Task<TrackDto> UploadTrackAsync(Stream fileStream, string fileName, string contentType);
-
-    /// <summary>
     /// Get all tracks with pagination
     /// </summary>
     Task<(List<TrackDto> Tracks, int TotalCount)> GetTracksAsync(int page = 1, int pageSize = 20, string? search = null, Guid? artistId = null, Guid? albumId = null);

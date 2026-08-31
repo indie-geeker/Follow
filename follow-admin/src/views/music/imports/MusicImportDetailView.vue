@@ -21,14 +21,21 @@
         <div class="batch-hero__main">
           <span class="eyebrow">IMPORT JOB {{ shortId(batch.id) }}</span>
           <div class="title-line">
-            <h2>{{ displayDirectory(batch.relativeDirectory) }}</h2>
+            <h2>{{ displayBatchSource(batch) }}</h2>
             <el-tag :type="musicImportBatchStatusTones[batch.status]" effect="dark">
               {{ musicImportBatchStatusLabels[batch.status] }}
             </el-tag>
           </div>
-          <p>源文件来自服务器只读挂载。取消任务只停止后续处理，已导入曲目会被保留。</p>
+          <p>{{ batchSourceDescription }}</p>
         </div>
         <div class="batch-actions">
+          <el-button
+            v-if="batch.status === 'awaitingReview'"
+            type="primary"
+            @click="router.push({ name: 'MusicImportReview', params: { jobId: batch.id } })"
+          >
+            进入人工复核
+          </el-button>
           <el-button
             v-for="action in availableActions"
             :key="action"
@@ -212,9 +219,9 @@ const batchRequestGate = createLatestRequestGate()
 const itemRequestGate = createLatestRequestGate()
 
 const actionLabels: Record<MusicImportAction, string> = {
-  start: '开始导入',
-  pause: '暂停',
-  resume: '继续导入',
+  start: '开始相似分析',
+  pause: '暂停分析',
+  resume: '继续分析',
   cancel: '取消任务',
   retryFailures: '重试失败项'
 }
@@ -233,6 +240,10 @@ const completedItems = computed(() => batch.value
 const availableActions = computed(() => batch.value
   ? getAvailableMusicImportActions(batch.value.status, batch.value.progress.retryableFailed)
   : [])
+
+const batchSourceDescription = computed(() => batch.value?.sourceKind === 'browserStaging'
+  ? '源文件来自浏览器上传暂存。应用决定前不会写入曲目库；取消任务会清理暂存文件。'
+  : '源文件来自服务器只读挂载。取消任务只停止后续处理，已导入曲目会被保留。')
 
 const pollingStatusText = computed(() => {
   if (pollingActive.value) return '每 3 秒同步服务器状态'
@@ -369,6 +380,12 @@ function shortId(value: string): string {
 
 function displayDirectory(relativeDirectory: string): string {
   return relativeDirectory || '挂载根目录'
+}
+
+function displayBatchSource(value: MusicImportBatchDetail): string {
+  return value.sourceKind === 'browserStaging'
+    ? '浏览器上传暂存'
+    : displayDirectory(value.relativeDirectory)
 }
 
 function itemStatusLabel(status: MusicImportItemStatus): string {

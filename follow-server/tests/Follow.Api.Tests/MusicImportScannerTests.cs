@@ -36,6 +36,9 @@ public class MusicImportScannerTests
                 Assert.Equal(".mp3", item.Extension);
                 Assert.Equal(3, item.SizeBytes);
                 Assert.NotEqual(default, item.SourceModifiedAt);
+                Assert.Equal(MusicImportSourceKind.MountedDirectory, item.SourceKind);
+                Assert.Equal(item.RelativePath, item.SourceReference);
+                Assert.Null(item.StagingObjectPath);
             },
             item =>
             {
@@ -47,6 +50,7 @@ public class MusicImportScannerTests
         Assert.Equal(1, batch.IgnoredFileCount);
         Assert.Equal(5, batch.TotalBytes);
         Assert.NotNull(batch.ScanCompletedAt);
+        Assert.Equal(MusicImportSourceKind.MountedDirectory, batch.SourceKind);
     }
 
     [Fact]

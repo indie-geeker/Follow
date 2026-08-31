@@ -23,6 +23,8 @@ public class FollowDbContext : DbContext
     public DbSet<StorageDeletionJob> StorageDeletionJobs => Set<StorageDeletionJob>();
     public DbSet<MusicImportBatch> MusicImportBatches => Set<MusicImportBatch>();
     public DbSet<MusicImportItem> MusicImportItems => Set<MusicImportItem>();
+    public DbSet<MusicImportReviewGroup> MusicImportReviewGroups => Set<MusicImportReviewGroup>();
+    public DbSet<TrackAudioRevision> TrackAudioRevisions => Set<TrackAudioRevision>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -69,6 +71,10 @@ public class FollowDbContext : DbContext
                 .OnDelete(DeleteBehavior.Restrict);
 
             entity.Property(e => e.ClientRequestId).HasMaxLength(64);
+            entity.Property(e => e.SourceKind)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .HasDefaultValue(MusicImportSourceKind.MountedDirectory);
             entity.Property(e => e.RelativeDirectory).HasMaxLength(1024);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(32);
             entity.Property(e => e.LeaseOwner).HasMaxLength(128);
@@ -93,12 +99,31 @@ public class FollowDbContext : DbContext
                 .HasForeignKey(e => e.TrackId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            entity.HasOne(e => e.ReviewGroup)
+                .WithMany(e => e.Items)
+                .HasForeignKey(e => e.ReviewGroupId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             entity.Property(e => e.RelativePath).HasMaxLength(1024);
+            entity.Property(e => e.SourceKind)
+                .HasConversion<string>()
+                .HasMaxLength(32)
+                .HasDefaultValue(MusicImportSourceKind.MountedDirectory);
+            entity.Property(e => e.SourceReference).HasMaxLength(1024);
+            entity.Property(e => e.StagingObjectPath).HasMaxLength(1024);
+            entity.Property(e => e.SourceETag).HasMaxLength(256);
             entity.Property(e => e.OriginalFileName).HasMaxLength(512);
             entity.Property(e => e.Extension).HasMaxLength(16);
+            entity.Property(e => e.Codec).HasMaxLength(32);
+            entity.Property(e => e.Container).HasMaxLength(32);
+            entity.Property(e => e.ExtractedTitle).HasMaxLength(512);
+            entity.Property(e => e.ExtractedArtist).HasMaxLength(512);
+            entity.Property(e => e.ExtractedAlbum).HasMaxLength(512);
             entity.Property(e => e.ContentSha256).HasMaxLength(32);
+            entity.Property(e => e.FingerprintVersion).HasMaxLength(64);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(32);
             entity.Property(e => e.Stage).HasConversion<string>().HasMaxLength(32);
+            entity.Property(e => e.Decision).HasConversion<string>().HasMaxLength(32);
             entity.Property(e => e.LeaseOwner).HasMaxLength(128);
             entity.Property(e => e.ObjectPath).HasMaxLength(1024);
             entity.Property(e => e.ErrorCode).HasMaxLength(64);
@@ -107,6 +132,41 @@ public class FollowDbContext : DbContext
             entity.HasIndex(e => new { e.BatchId, e.RelativePath }).IsUnique();
             entity.HasIndex(e => new { e.BatchId, e.Status });
             entity.HasIndex(e => new { e.Status, e.NextAttemptAt, e.LeaseExpiresAt });
+            entity.HasIndex(e => new { e.ReviewGroupId, e.Decision });
+        });
+
+        modelBuilder.Entity<MusicImportReviewGroup>(entity =>
+        {
+            entity.HasOne(e => e.Batch)
+                .WithMany(e => e.ReviewGroups)
+                .HasForeignKey(e => e.BatchId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.ExistingTrack)
+                .WithMany()
+                .HasForeignKey(e => e.ExistingTrackId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.RecommendedItem)
+                .WithMany()
+                .HasForeignKey(e => e.RecommendedItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.ConfirmedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.ConfirmedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(32);
+            entity.Property(e => e.MatchKind).HasConversion<string>().HasMaxLength(32);
+            entity.Property(e => e.RecommendationExplanation).HasMaxLength(2048);
+            entity.Property(e => e.FingerprintVersion).HasMaxLength(64);
+            entity.Property(e => e.ApplyErrorCode).HasMaxLength(64);
+            entity.Property(e => e.ApplyErrorMessage).HasMaxLength(2048);
+            entity.Property(e => e.Version).IsConcurrencyToken();
+            entity.HasIndex(e => new { e.BatchId, e.Status });
+            entity.HasIndex(e => e.ExistingTrackId);
+            entity.HasIndex(e => new { e.Status, e.Version });
         });
 
         // Track
@@ -124,10 +184,53 @@ public class FollowDbContext : DbContext
 
             entity.Property(e => e.ContentSha256).HasMaxLength(32);
             entity.Property(e => e.OriginalFileName).HasMaxLength(512);
+            entity.Property(e => e.Codec).HasMaxLength(32);
+            entity.Property(e => e.Container).HasMaxLength(32);
+            entity.Property(e => e.FingerprintVersion).HasMaxLength(64);
             entity.HasIndex(e => e.ContentSha256)
                 .IsUnique()
                 .HasDatabaseName("UX_Tracks_ContentSha256")
                 .HasFilter("\"ContentSha256\" IS NOT NULL");
+            entity.HasIndex(e => new { e.FingerprintVersion, e.FingerprintAlgorithm });
+        });
+
+        modelBuilder.Entity<TrackAudioRevision>(entity =>
+        {
+            entity.HasOne(e => e.Track)
+                .WithMany(e => e.AudioRevisions)
+                .HasForeignKey(e => e.TrackId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ReviewGroup)
+                .WithMany(e => e.AudioRevisions)
+                .HasForeignKey(e => e.ReviewGroupId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ActingUser)
+                .WithMany()
+                .HasForeignKey(e => e.ActingUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.StorageDeletionJob)
+                .WithMany()
+                .HasForeignKey(e => e.StorageDeletionJobId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.Property(e => e.PreviousObjectPath).HasMaxLength(1024);
+            entity.Property(e => e.ReplacementObjectPath).HasMaxLength(1024);
+            entity.Property(e => e.PreviousContentSha256).HasMaxLength(32);
+            entity.Property(e => e.ReplacementContentSha256).HasMaxLength(32);
+            entity.Property(e => e.PreviousCodec).HasMaxLength(32);
+            entity.Property(e => e.ReplacementCodec).HasMaxLength(32);
+            entity.Property(e => e.PreviousContainer).HasMaxLength(32);
+            entity.Property(e => e.ReplacementContainer).HasMaxLength(32);
+            entity.Property(e => e.PreviousFingerprintVersion).HasMaxLength(64);
+            entity.Property(e => e.ReplacementFingerprintVersion).HasMaxLength(64);
+            entity.Property(e => e.CleanupStatus).HasConversion<string>().HasMaxLength(32);
+            entity.Property(e => e.Version).IsConcurrencyToken();
+            entity.HasIndex(e => new { e.TrackId, e.CreatedAt });
+            entity.HasIndex(e => e.ReviewGroupId);
+            entity.HasIndex(e => e.StorageDeletionJobId);
         });
 
         // Album
@@ -285,6 +388,12 @@ public class FollowDbContext : DbContext
                         break;
                     case MusicImportItem item:
                         item.Version++;
+                        break;
+                    case MusicImportReviewGroup group:
+                        group.Version++;
+                        break;
+                    case TrackAudioRevision revision:
+                        revision.Version++;
                         break;
                 }
             }

@@ -126,20 +126,7 @@ public class MinioStorageService : IStorageService, IDisposable
 
     internal static void ValidateImportObjectPath(string objectPath)
     {
-        ArgumentNullException.ThrowIfNull(objectPath);
-        if (!objectPath.StartsWith("tracks/import/", StringComparison.Ordinal) ||
-            objectPath.Length > 1024 ||
-            objectPath.StartsWith('/') ||
-            objectPath.Contains('\\') ||
-            objectPath.Contains("//", StringComparison.Ordinal) ||
-            objectPath.Any(char.IsControl) ||
-            Uri.TryCreate(objectPath, UriKind.Absolute, out _) ||
-            objectPath.Split('/').Any(segment => segment is "" or "." or ".."))
-        {
-            throw new ArgumentException(
-                "Object path must be a relative managed key under tracks/import/.",
-                nameof(objectPath));
-        }
+        ImportObjectPath.Validate(objectPath);
     }
 
     public static string NormalizeFileName(string fileName)

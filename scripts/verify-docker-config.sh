@@ -39,6 +39,12 @@ FOLLOW_IMPORT_COMPOSE_JSON="$(
       config --format json
 )"
 
+FOLLOW_PROD_COMPOSE_JSON="$(
+  env "${FOLLOW_COMPOSE_ENV[@]}" \
+    "FOLLOW_IMPORT_SOURCE_PATH=$FOLLOW_TEST_IMPORT_SOURCE_PATH" \
+    docker compose -f docker-compose.prod.yml config --format json
+)"
+
 assert_compose() {
   local expression="$1"
   local message="$2"
@@ -55,6 +61,16 @@ assert_import_compose() {
 
   if ! jq -e "$expression" <<<"$FOLLOW_IMPORT_COMPOSE_JSON" >/dev/null; then
     echo "Docker import config check failed: $message" >&2
+    exit 1
+  fi
+}
+
+assert_prod_compose() {
+  local expression="$1"
+  local message="$2"
+
+  if ! jq -e "$expression" <<<"$FOLLOW_PROD_COMPOSE_JSON" >/dev/null; then
+    echo "Docker production config check failed: $message" >&2
     exit 1
   fi
 }
@@ -94,6 +110,29 @@ assert_import_compose \
      .bind.create_host_path == false
    ))' \
   'overlay must bind exactly one existing host library to /imports/library read-only without creating it'
+
+assert_prod_compose \
+  '(.services.api.volumes | any(
+     .source == "/contract-only/follow-music-library" and
+     .target == "/imports/library" and
+     .read_only == true and
+     .bind.create_host_path == false
+   ))' \
+  'production Compose must include the explicit read-only import overlay'
+
+assert_compose \
+  '.services.api.environment.AudioFingerprint__ExecutablePath == "/usr/local/bin/fpcalc" and
+   .services.api.environment.AudioFingerprint__RequiredVersionPrefix == "1.6.1" and
+   .services.api.environment.AudioFingerprint__Algorithm == "2" and
+   .services.api.environment.AudioFingerprint__MaximumLengthSeconds == "120" and
+   .services.api.environment.AudioFingerprint__TimeoutSeconds == "30" and
+   .services.api.environment.AudioFingerprint__MaximumStandardOutputBytes == "2097152" and
+   .services.api.environment.AudioFingerprint__MaximumStandardErrorBytes == "16384"' \
+  'API fingerprint executable, exact version, algorithm, and process bounds must be explicit'
+
+assert_compose \
+  '.services.api.healthcheck.test[-1] == "http://localhost:5000/health/ready"' \
+  'API container readiness must fail closed through the fingerprint-aware endpoint'
 
 assert_compose \
   '[.services.postgres.image, .services.redis.image, .services.minio.image] |
@@ -171,10 +210,20 @@ assert_compose \
   'admin must not embed a browser-visible API origin at build time'
 
 if ! rg -q '^FROM mcr\.microsoft\.com/dotnet/sdk:10\.0@sha256:[0-9a-f]{64} AS build$' follow-server/Dockerfile ||
-  ! rg -q '^FROM mcr\.microsoft\.com/dotnet/aspnet:10\.0@sha256:[0-9a-f]{64} AS runtime$' follow-server/Dockerfile ||
+  ! rg -q '^FROM mcr\.microsoft\.com/dotnet/aspnet:10\.0@sha256:[0-9a-f]{64} AS final$' follow-server/Dockerfile ||
   ! rg -q '^FROM node:20-alpine@sha256:[0-9a-f]{64} AS builder$' follow-admin/Dockerfile ||
   ! rg -q '^FROM nginx:alpine@sha256:[0-9a-f]{64} AS production$' follow-admin/Dockerfile; then
   echo 'Docker config check failed: build/runtime base images must use stable versions pinned by digest' >&2
+  exit 1
+fi
+
+if ! rg -q '^ARG CHROMAPRINT_VERSION=1\.6\.1$' follow-server/Dockerfile ||
+  ! rg -q '^ARG CHROMAPRINT_AMD64_SHA256=[0-9a-f]{64}$' follow-server/Dockerfile ||
+  ! rg -q '^ARG CHROMAPRINT_ARM64_SHA256=[0-9a-f]{64}$' follow-server/Dockerfile ||
+  ! rg -q 'sha256sum -c -' follow-server/Dockerfile ||
+  ! rg -q 'fpcalc -version' follow-server/Dockerfile ||
+  ! rg -q 'ffmpeg -version' follow-server/Dockerfile; then
+  echo 'Docker config check failed: fpcalc and FFmpeg runtimes must be pinned and build-verified' >&2
   exit 1
 fi
 

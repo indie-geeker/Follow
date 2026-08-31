@@ -114,6 +114,8 @@ StyleCop.Cache
 # ----------------
 Uploads/
 Storage/
+!src/Follow.Infrastructure/Storage/
+!src/Follow.Infrastructure/Storage/ImportObjectPath.cs
 wwwroot/uploads/
 
 # ----------------

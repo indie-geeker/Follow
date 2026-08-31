@@ -242,8 +242,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, VideoPlay, Close, Picture, Headset, FolderOpened } from '@element-plus/icons-vue'
 import api, { refreshSession } from '@/api'
-import { createApiUpload } from '@/api/upload'
+import { createApiUpload, createMusicImportUpload } from '@/api/upload'
 import AdminPagination from '@/components/AdminPagination.vue'
+import type { MusicImportUploadAccepted } from '@/types/musicImport'
 import { normalizeCoverObjectKey, toCoverProxyUrl } from '@/utils/coverUrl'
 
 const router = useRouter()
@@ -279,13 +280,11 @@ const lyricsLoading = ref(false)
 const allTags = ref<any[]>([])
 const loadingTags = ref(false)
 
-const uploadUrl = computed(() => '/api/tracks/upload')
-
 const coverUploadUrl = computed(() => `/api/tracks/${editForm.id}/cover`)
 
 const lyricsUploadUrl = computed(() => `/api/tracks/${editForm.id}/lyrics`)
 
-const uploadTrack = createApiUpload(() => uploadUrl.value)
+const uploadTrack = createMusicImportUpload()
 const uploadTrackCover = createApiUpload(() => coverUploadUrl.value)
 const uploadTrackLyrics = createApiUpload(() => lyricsUploadUrl.value)
 
@@ -310,13 +309,13 @@ async function loadTracks() {
   }
 }
 
-function handleUploadSuccess() {
-  ElMessage.success('上传成功')
-  loadTracks()
+function handleUploadSuccess(accepted: MusicImportUploadAccepted) {
+  ElMessage.success('已提交分析，尚未入库')
+  void router.push({ name: 'MusicImportDetail', params: { jobId: accepted.batchId } })
 }
 
 function handleUploadError() {
-  ElMessage.error('上传失败')
+  ElMessage.error('提交分析失败')
 }
 
 async function playTrack(track: any) {

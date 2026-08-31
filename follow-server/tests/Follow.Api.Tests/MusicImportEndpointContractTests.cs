@@ -20,7 +20,10 @@ public class MusicImportEndpointContractTests
         var builder = WebApplication.CreateBuilder();
         builder.Services.AddAuthorization();
         builder.Services.AddSingleton<IMusicImportService>(_ => null!);
+        builder.Services.AddSingleton<IMusicImportPreviewService>(_ => null!);
+        builder.Services.AddSingleton<IMusicImportReviewService>(_ => null!);
         builder.Services.AddSingleton(new MusicImportRuntimeSettings());
+        builder.Services.AddSingleton(new AudioFingerprintCapabilityState());
         var app = builder.Build();
 
         app.MapMusicImportEndpoints();
@@ -36,10 +39,17 @@ public class MusicImportEndpointContractTests
         var expected = new[]
         {
             "POST /api/admin/music-imports",
+            "POST /api/admin/music-imports/uploads",
             "GET /api/admin/music-imports",
             "GET /api/admin/music-imports/capabilities",
             "GET /api/admin/music-imports/{id:guid}",
             "GET /api/admin/music-imports/{id:guid}/items",
+            "GET /api/admin/music-imports/items/{itemId:guid}/preview",
+            "HEAD /api/admin/music-imports/items/{itemId:guid}/preview",
+            "GET /api/admin/music-imports/{id:guid}/review-groups",
+            "GET /api/admin/music-imports/review-groups/{groupId:guid}",
+            "PUT /api/admin/music-imports/review-groups/{groupId:guid}/decision",
+            "POST /api/admin/music-imports/{id:guid}/apply",
             "POST /api/admin/music-imports/{id:guid}/start",
             "POST /api/admin/music-imports/{id:guid}/pause",
             "POST /api/admin/music-imports/{id:guid}/resume",
@@ -70,9 +80,66 @@ public class MusicImportEndpointContractTests
         Assert.Contains(nameof(MusicImportItemDto.RelativePath), itemProperties);
         Assert.Contains(nameof(MusicImportProgressDto.RetryableFailed),
             typeof(MusicImportProgressDto).GetProperties().Select(property => property.Name));
+        Assert.Contains(nameof(MusicImportProgressDto.Phases),
+            typeof(MusicImportProgressDto).GetProperties().Select(property => property.Name));
+        Assert.Contains(nameof(MusicImportCapabilitiesDto.CanIngest), capabilityProperties);
+        Assert.Contains(nameof(MusicImportCapabilitiesDto.FingerprintAvailable), capabilityProperties);
+        Assert.Contains(nameof(MusicImportCapabilitiesDto.FingerprintVersion), capabilityProperties);
+        Assert.Contains(nameof(MusicImportCapabilitiesDto.FingerprintErrorCode), capabilityProperties);
         Assert.DoesNotContain("SourceRoot", batchProperties);
         Assert.DoesNotContain("FullPath", itemProperties);
         Assert.DoesNotContain("SourceRoot", capabilityProperties);
+        Assert.DoesNotContain("StorageEndpoint", capabilityProperties);
+        Assert.DoesNotContain("AccessKey", capabilityProperties);
+        Assert.DoesNotContain("SecretKey", capabilityProperties);
+    }
+
+    [Fact]
+    public void ReviewContracts_ExposeManualReviewFactsWithoutRecommendationAcceptanceFlag()
+    {
+        var pageProperties = typeof(MusicImportReviewBatchDto).GetProperties()
+            .Select(property => property.Name)
+            .ToArray();
+        var groupProperties = typeof(MusicImportReviewGroupDto).GetProperties()
+            .Select(property => property.Name)
+            .ToArray();
+        var candidateProperties = typeof(MusicImportReviewCandidateDto).GetProperties()
+            .Select(property => property.Name)
+            .ToArray();
+
+        Assert.Contains(nameof(MusicImportReviewBatchDto.TotalCount), pageProperties);
+        Assert.Contains(nameof(MusicImportReviewBatchDto.Page), pageProperties);
+        Assert.Contains(nameof(MusicImportReviewBatchDto.PageSize), pageProperties);
+        Assert.Contains(nameof(MusicImportReviewBatchDto.TotalPages), pageProperties);
+        Assert.Contains(nameof(MusicImportReviewBatchDto.Summary), pageProperties);
+        Assert.Contains(nameof(MusicImportReviewGroupDto.MatchExplanation), groupProperties);
+        Assert.Contains(nameof(MusicImportReviewGroupDto.DecisionKind), groupProperties);
+        Assert.Contains(nameof(MusicImportReviewGroupDto.SelectedItemIds), groupProperties);
+        Assert.Contains(nameof(MusicImportReviewGroupDto.ApplyErrorCode), groupProperties);
+        Assert.Contains(nameof(MusicImportReviewGroupDto.CleanupStatus), groupProperties);
+        Assert.Contains(nameof(MusicImportReviewGroupDto.CleanupErrorCode), groupProperties);
+        Assert.Contains(nameof(MusicImportReviewCandidateDto.SourceLabel), candidateProperties);
+        Assert.Contains(nameof(MusicImportReviewCandidateDto.PreviewAvailable), candidateProperties);
+        Assert.Contains(nameof(MusicImportReviewCandidateDto.Version), candidateProperties);
+
+        var recommendationBooleans = new[]
+        {
+            typeof(MusicImportReviewBatchDto),
+            typeof(MusicImportReviewGroupDto),
+            typeof(MusicImportReviewCandidateDto)
+        }
+            .SelectMany(type => type.GetProperties())
+            .Where(property => property.PropertyType == typeof(bool))
+            .Where(property => property.Name.Contains("Recommendation", StringComparison.OrdinalIgnoreCase) ||
+                property.Name.Contains("Accepted", StringComparison.OrdinalIgnoreCase) ||
+                property.Name.Contains("Approved", StringComparison.OrdinalIgnoreCase) ||
+                property.Name.Contains("Selected", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.Empty(recommendationBooleans);
+        Assert.DoesNotContain("SourceReference", candidateProperties);
+        Assert.DoesNotContain("StagingObjectPath", candidateProperties);
+        Assert.DoesNotContain("FullPath", candidateProperties);
     }
 
     [Fact]
@@ -83,12 +150,23 @@ public class MusicImportEndpointContractTests
             Guid.NewGuid(),
             "request",
             "relative/folder",
+            "mountedDirectory",
             false,
             "completedWithErrors",
             1,
             0,
             10,
-            new MusicImportProgressDto(0, 0, 0, 0, 0, 1, 1, 0, 10),
+            new MusicImportProgressDto(
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                1,
+                0,
+                10,
+                new MusicImportPhaseProgressDto(0, 0, 0, 0, 0, 0, 0, 0, 0)),
             "FAILED_ITEMS",
             "Some items failed.",
             DateTime.UtcNow,
@@ -101,6 +179,7 @@ public class MusicImportEndpointContractTests
         var json = JsonSerializer.Serialize(dto, new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
         Assert.Contains("\"status\":\"completedWithErrors\"", json);
+        Assert.Contains("\"sourceKind\":\"mountedDirectory\"", json);
         Assert.Contains("\"retryableFailed\":1", json);
         Assert.DoesNotContain("sourceRoot", json, StringComparison.OrdinalIgnoreCase);
     }

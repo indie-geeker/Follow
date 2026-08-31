@@ -4,6 +4,7 @@ import type {
   UploadRequestOptions
 } from 'element-plus/es/components/upload/src/upload'
 import api from './index'
+import musicImports from './musicImports'
 
 function appendUploadData(formData: FormData, data: UploadRequestOptions['data']): void {
   for (const [key, value] of Object.entries(data)) {
@@ -37,6 +38,33 @@ export function createApiUpload(getUrl: () => string): UploadRequestHandler {
       })
       options.onSuccess(response.data)
       return response.data
+    } catch (error) {
+      options.onError(error as Parameters<UploadRequestOptions['onError']>[0])
+      throw error
+    }
+  }
+}
+
+export function createMusicImportUpload(): UploadRequestHandler {
+  return async (options) => {
+    try {
+      const accepted = await musicImports.uploadBrowserFile(
+        options.file,
+        crypto.randomUUID(),
+        (loaded, total) => {
+          const progressEvent = new ProgressEvent('progress', {
+            lengthComputable: total !== undefined,
+            loaded,
+            total: total ?? 0
+          }) as UploadProgressEvent
+          progressEvent.percent = total
+            ? Math.min(100, Math.round((loaded * 100) / total))
+            : 0
+          options.onProgress(progressEvent)
+        }
+      )
+      options.onSuccess(accepted)
+      return accepted
     } catch (error) {
       options.onError(error as Parameters<UploadRequestOptions['onError']>[0])
       throw error

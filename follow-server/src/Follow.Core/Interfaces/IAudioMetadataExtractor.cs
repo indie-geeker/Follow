@@ -16,4 +16,12 @@ public sealed record AudioMetadata(
     int BitRate,
     string Format,
     byte[]? CoverData = null,
-    string? CoverContentType = null);
+    string? CoverContentType = null,
+    string? Codec = null,
+    string? Container = null,
+    bool? IsLossless = null,
+    int? SampleRateHz = null,
+    int? BitDepth = null,
+    int? Channels = null,
+    int? BitRateKbps = null,
+    long? ExactDurationMilliseconds = null);

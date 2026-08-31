@@ -31,6 +31,32 @@ public class MusicImportConfigurationTests
     }
 
     [Fact]
+    public void BaseConfiguration_DeclaresFailClosedFingerprintRuntimeContract()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(
+            ServerRoot,
+            "src/Follow.Api/appsettings.json")));
+
+        var fingerprint = document.RootElement.GetProperty("AudioFingerprint");
+
+        Assert.Equal("fpcalc", fingerprint.GetProperty("ExecutablePath").GetString());
+        Assert.Equal(2, fingerprint.GetProperty("Algorithm").GetInt32());
+        Assert.Equal(120, fingerprint.GetProperty("MaximumLengthSeconds").GetInt32());
+        Assert.True(fingerprint.GetProperty("TimeoutSeconds").GetInt32() > 0);
+        Assert.True(fingerprint.GetProperty("MaximumStandardOutputBytes").GetInt32() > 0);
+        Assert.True(fingerprint.GetProperty("MaximumStandardErrorBytes").GetInt32() > 0);
+        Assert.Equal("1.6.1", fingerprint.GetProperty("RequiredVersionPrefix").GetString());
+        Assert.Equal(0.85, fingerprint.GetProperty("CandidateSimilarityThreshold").GetDouble());
+        Assert.Equal(0.99, fingerprint.GetProperty("MatchSimilarityThreshold").GetDouble());
+        Assert.Equal(0.98, fingerprint.GetProperty("MinimumSegmentSimilarity").GetDouble());
+        Assert.Equal(0.85, fingerprint.GetProperty("MinimumCoverageFraction").GetDouble());
+        Assert.Equal(2, fingerprint.GetProperty("MaximumDurationDifferenceSeconds").GetInt32());
+        Assert.Equal(2, fingerprint.GetProperty("MaximumAlignmentOffsetFrames").GetInt32());
+        Assert.Equal(512, fingerprint.GetProperty("MaximumCandidateAlignmentOffsetFrames").GetInt32());
+        Assert.Equal(3, fingerprint.GetProperty("SegmentCount").GetInt32());
+    }
+
+    [Fact]
     public void ImportOverlay_RequiresReadOnlyExistingSourceBindOnApiService()
     {
         var overlayPath = Path.Combine(RepositoryRoot, "docker-compose.import.yml");

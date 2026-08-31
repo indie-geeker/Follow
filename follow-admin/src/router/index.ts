@@ -44,6 +44,12 @@ const router = createRouter({
           meta: { activeMenu: '/tracks', title: '导入任务详情' }
         },
         {
+          path: 'tracks/imports/:jobId/review',
+          name: 'MusicImportReview',
+          component: () => import('@/views/music/imports/MusicImportReviewView.vue'),
+          meta: { activeMenu: '/tracks', title: '重复曲目人工复核' }
+        },
+        {
           path: 'artists',
           name: 'Artists',
           component: () => import('@/views/music/ArtistsView.vue')

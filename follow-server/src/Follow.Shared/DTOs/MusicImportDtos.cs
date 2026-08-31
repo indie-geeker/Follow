@@ -5,6 +5,11 @@ public sealed record CreateMusicImportRequest(
     string RelativeDirectory,
     bool AutoStart = false);
 
+public sealed record MusicImportUploadAcceptedDto(
+    Guid BatchId,
+    Guid ItemId,
+    string Status);
+
 public sealed record MusicImportProgressDto(
     int Pending,
     int Processing,
@@ -14,13 +19,26 @@ public sealed record MusicImportProgressDto(
     int Failed,
     int RetryableFailed,
     int Cancelled,
-    long ProcessedBytes);
+    long ProcessedBytes,
+    MusicImportPhaseProgressDto Phases);
+
+public sealed record MusicImportPhaseProgressDto(
+    int SourceValidation,
+    int Hashing,
+    int Metadata,
+    int Fingerprinting,
+    int Analyzed,
+    int Grouped,
+    int AwaitingReview,
+    int Applying,
+    int Verified);
 
 public sealed record MusicImportBatchDto(
     Guid Id,
     Guid RequestedByUserId,
     string ClientRequestId,
     string RelativeDirectory,
+    string SourceKind,
     bool AutoStart,
     string Status,
     int DiscoveredFileCount,
@@ -70,6 +88,12 @@ public sealed record MusicImportItemPageDto(
 
 public sealed record MusicImportCapabilitiesDto(
     bool Enabled,
+    bool CanIngest,
     bool SourceAvailable,
     string SourceAlias,
-    int ProcessingConcurrency);
+    int ProcessingConcurrency,
+    bool FingerprintAvailable,
+    string? FingerprintVersion,
+    int FingerprintAlgorithm,
+    string? FingerprintErrorCode,
+    string? FingerprintErrorMessage);

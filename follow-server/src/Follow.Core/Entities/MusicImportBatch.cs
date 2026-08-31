@@ -5,6 +5,7 @@ namespace Follow.Core.Entities;
 /// </summary>
 public class MusicImportBatch : BaseEntity
 {
+    public MusicImportSourceKind SourceKind { get; set; } = MusicImportSourceKind.MountedDirectory;
     public Guid RequestedByUserId { get; set; }
     public required string ClientRequestId { get; set; }
     public string RelativeDirectory { get; set; } = string.Empty;
@@ -26,4 +27,5 @@ public class MusicImportBatch : BaseEntity
 
     public User? RequestedByUser { get; set; }
     public ICollection<MusicImportItem> Items { get; set; } = [];
+    public ICollection<MusicImportReviewGroup> ReviewGroups { get; set; } = [];
 }

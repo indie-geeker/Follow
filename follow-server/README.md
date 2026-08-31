@@ -30,6 +30,8 @@ docker compose up -d --build
 
 API 容器启动时会自动执行数据库迁移，并根据根目录 `.env` 中的 `ADMIN_USERNAME`、`ADMIN_EMAIL`、`ADMIN_PASSWORD` 创建或维护管理员账号。Docker 使用 Production 环境，不开放 Swagger。
 
+API 运行镜像固定使用官方 `fpcalc 1.6.1` 多架构发布包并校验 SHA-256，同时固定安装 FFmpeg 解码运行时。`AudioFingerprint` 的算法、最大分析长度、超时和输出上限在 Compose 中显式声明；`/health/ready` 会检查指纹运行时能力，版本不匹配或命令不可用时返回 `503`，目录初始化和浏览器上传也保持关闭。普通存活探针 `/health` 不承担该就绪判断。
+
 ## API 模块
 
 | 模块 | 路径 | 描述 |

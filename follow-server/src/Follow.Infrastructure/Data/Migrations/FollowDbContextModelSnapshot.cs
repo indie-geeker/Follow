@@ -167,6 +167,13 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<DateTime?>("ScanStartedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("MountedDirectory");
+
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -208,8 +215,25 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<Guid>("BatchId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("BitDepth")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("BitRateKbps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Channels")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Codec")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Container")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<byte[]>("ContentSha256")
                         .HasMaxLength(32)
@@ -217,6 +241,13 @@ namespace Follow.Infrastructure.Data.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Decision")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("DecisionTrackId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("ErrorCode")
                         .HasMaxLength(64)
@@ -226,10 +257,44 @@ namespace Follow.Infrastructure.Data.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<long?>("ExactDurationMilliseconds")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Extension")
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
+
+                    b.Property<string>("ExtractedAlbum")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ExtractedArtist")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("ExtractedTitle")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int?>("FingerprintAlgorithm")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("FingerprintDurationMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("FingerprintFrameCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("FingerprintPayload")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("FingerprintVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool?>("IsLossless")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("LeaseExpiresAt")
                         .HasColumnType("timestamp with time zone");
@@ -258,16 +323,41 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<bool>("Retryable")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("ReviewGroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("SampleRateHz")
+                        .HasColumnType("integer");
+
                     b.Property<long>("SizeBytes")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("SourceETag")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("MountedDirectory");
+
                     b.Property<DateTime>("SourceModifiedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SourceReference")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
 
                     b.Property<string>("Stage")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
+
+                    b.Property<string>("StagingObjectPath")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
 
                     b.Property<DateTime?>("StartedAt")
                         .HasColumnType("timestamp with time zone");
@@ -296,9 +386,98 @@ namespace Follow.Infrastructure.Data.Migrations
 
                     b.HasIndex("BatchId", "Status");
 
+                    b.HasIndex("ReviewGroupId", "Decision");
+
                     b.HasIndex("Status", "NextAttemptAt", "LeaseExpiresAt");
 
                     b.ToTable("MusicImportItems");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportReviewGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("AlignmentOffsetFrames")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ApplyErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ApplyErrorMessage")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConfirmedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<double?>("CoverageFraction")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ExistingTrackId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("FingerprintAlgorithm")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FingerprintVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("MatchKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<double?>("MinimumSegmentSimilarity")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("OverallSimilarity")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("RecommendationExplanation")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<Guid?>("RecommendedItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConfirmedByUserId");
+
+                    b.HasIndex("ExistingTrackId");
+
+                    b.HasIndex("RecommendedItemId");
+
+                    b.HasIndex("BatchId", "Status");
+
+                    b.HasIndex("Status", "Version");
+
+                    b.ToTable("MusicImportReviewGroups");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.PlayHistory", b =>
@@ -479,8 +658,25 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ArtistId")
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("BitDepth")
+                        .HasColumnType("integer");
+
                     b.Property<int>("BitRate")
                         .HasColumnType("integer");
+
+                    b.Property<int?>("BitRateKbps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Channels")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Codec")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Container")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<byte[]>("ContentSha256")
                         .HasMaxLength(32)
@@ -495,6 +691,9 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<int>("DurationSeconds")
                         .HasColumnType("integer");
 
+                    b.Property<long?>("ExactDurationMilliseconds")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("FilePath")
                         .IsRequired()
                         .HasColumnType("text");
@@ -502,8 +701,27 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<long?>("FileSizeBytes")
                         .HasColumnType("bigint");
 
+                    b.Property<int?>("FingerprintAlgorithm")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("FingerprintDurationMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("FingerprintFrameCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("FingerprintPayload")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("FingerprintVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Format")
                         .HasColumnType("text");
+
+                    b.Property<bool?>("IsLossless")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("LyricsUrl")
                         .HasColumnType("text");
@@ -511,6 +729,9 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Property<string>("OriginalFileName")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
+
+                    b.Property<int?>("SampleRateHz")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -530,7 +751,163 @@ namespace Follow.Infrastructure.Data.Migrations
                         .HasDatabaseName("UX_Tracks_ContentSha256")
                         .HasFilter("\"ContentSha256\" IS NOT NULL");
 
+                    b.HasIndex("FingerprintVersion", "FingerprintAlgorithm");
+
                     b.ToTable("Tracks");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.TrackAudioRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActingUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CleanupStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("PreviousBitDepth")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PreviousBitRateKbps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PreviousChannels")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PreviousCodec")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("PreviousContainer")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<byte[]>("PreviousContentSha256")
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<long?>("PreviousExactDurationMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("PreviousFileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("PreviousFingerprintAlgorithm")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("PreviousFingerprintDurationMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("PreviousFingerprintFrameCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("PreviousFingerprintPayload")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("PreviousFingerprintVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool?>("PreviousIsLossless")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("PreviousObjectPath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<int?>("PreviousSampleRateHz")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ReplacementBitDepth")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ReplacementBitRateKbps")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("ReplacementChannels")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReplacementCodec")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ReplacementContainer")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<byte[]>("ReplacementContentSha256")
+                        .HasMaxLength(32)
+                        .HasColumnType("bytea");
+
+                    b.Property<long?>("ReplacementExactDurationMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("ReplacementFileSizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("ReplacementFingerprintAlgorithm")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("ReplacementFingerprintDurationMilliseconds")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("ReplacementFingerprintFrameCount")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("ReplacementFingerprintPayload")
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("ReplacementFingerprintVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool?>("ReplacementIsLossless")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ReplacementObjectPath")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<int?>("ReplacementSampleRateHz")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ReviewGroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("StorageDeletionJobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActingUserId");
+
+                    b.HasIndex("ReviewGroupId");
+
+                    b.HasIndex("StorageDeletionJobId");
+
+                    b.HasIndex("TrackId", "CreatedAt");
+
+                    b.ToTable("TrackAudioRevisions");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.TrackTag", b =>
@@ -719,6 +1096,11 @@ namespace Follow.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Follow.Core.Entities.MusicImportReviewGroup", "ReviewGroup")
+                        .WithMany("Items")
+                        .HasForeignKey("ReviewGroupId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("Follow.Core.Entities.Track", "Track")
                         .WithMany()
                         .HasForeignKey("TrackId")
@@ -726,7 +1108,41 @@ namespace Follow.Infrastructure.Data.Migrations
 
                     b.Navigation("Batch");
 
+                    b.Navigation("ReviewGroup");
+
                     b.Navigation("Track");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportReviewGroup", b =>
+                {
+                    b.HasOne("Follow.Core.Entities.MusicImportBatch", "Batch")
+                        .WithMany("ReviewGroups")
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Follow.Core.Entities.User", "ConfirmedByUser")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Follow.Core.Entities.Track", "ExistingTrack")
+                        .WithMany()
+                        .HasForeignKey("ExistingTrackId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Follow.Core.Entities.MusicImportItem", "RecommendedItem")
+                        .WithMany()
+                        .HasForeignKey("RecommendedItemId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Batch");
+
+                    b.Navigation("ConfirmedByUser");
+
+                    b.Navigation("ExistingTrack");
+
+                    b.Navigation("RecommendedItem");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.PlayHistory", b =>
@@ -795,6 +1211,40 @@ namespace Follow.Infrastructure.Data.Migrations
                     b.Navigation("Artist");
                 });
 
+            modelBuilder.Entity("Follow.Core.Entities.TrackAudioRevision", b =>
+                {
+                    b.HasOne("Follow.Core.Entities.User", "ActingUser")
+                        .WithMany()
+                        .HasForeignKey("ActingUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Follow.Core.Entities.MusicImportReviewGroup", "ReviewGroup")
+                        .WithMany("AudioRevisions")
+                        .HasForeignKey("ReviewGroupId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Follow.Core.Entities.StorageDeletionJob", "StorageDeletionJob")
+                        .WithMany()
+                        .HasForeignKey("StorageDeletionJobId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Follow.Core.Entities.Track", "Track")
+                        .WithMany("AudioRevisions")
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ActingUser");
+
+                    b.Navigation("ReviewGroup");
+
+                    b.Navigation("StorageDeletionJob");
+
+                    b.Navigation("Track");
+                });
+
             modelBuilder.Entity("Follow.Core.Entities.TrackTag", b =>
                 {
                     b.HasOne("Follow.Core.Entities.Tag", "Tag")
@@ -840,6 +1290,15 @@ namespace Follow.Infrastructure.Data.Migrations
             modelBuilder.Entity("Follow.Core.Entities.MusicImportBatch", b =>
                 {
                     b.Navigation("Items");
+
+                    b.Navigation("ReviewGroups");
+                });
+
+            modelBuilder.Entity("Follow.Core.Entities.MusicImportReviewGroup", b =>
+                {
+                    b.Navigation("AudioRevisions");
+
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Follow.Core.Entities.Playlist", b =>
@@ -854,6 +1313,8 @@ namespace Follow.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Follow.Core.Entities.Track", b =>
                 {
+                    b.Navigation("AudioRevisions");
+
                     b.Navigation("Favorites");
 
                     b.Navigation("PlayHistories");
