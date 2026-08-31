@@ -15,6 +15,19 @@ public class Track : BaseEntity
     public byte[]? ContentSha256 { get; set; }
     public long? FileSizeBytes { get; set; }
     public string? OriginalFileName { get; set; }
+    public string? Codec { get; set; }
+    public string? Container { get; set; }
+    public bool? IsLossless { get; set; }
+    public int? SampleRateHz { get; set; }
+    public int? BitDepth { get; set; }
+    public int? Channels { get; set; }
+    public int? BitRateKbps { get; set; }
+    public long? ExactDurationMilliseconds { get; set; }
+    public string? FingerprintVersion { get; set; }
+    public int? FingerprintAlgorithm { get; set; }
+    public byte[]? FingerprintPayload { get; set; }
+    public int? FingerprintFrameCount { get; set; }
+    public long? FingerprintDurationMilliseconds { get; set; }
     
     // Foreign keys
     public Guid? ArtistId { get; set; }
@@ -27,4 +40,5 @@ public class Track : BaseEntity
     public ICollection<PlayHistory> PlayHistories { get; set; } = [];
     public ICollection<Favorite> Favorites { get; set; } = [];
     public ICollection<TrackTag> TrackTags { get; set; } = [];
+    public ICollection<TrackAudioRevision> AudioRevisions { get; set; } = [];
 }

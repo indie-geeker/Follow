@@ -1,3 +1,4 @@
+using Follow.Core.Entities;
 using Follow.Core.Interfaces;
 using Follow.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -65,6 +66,10 @@ public sealed class StorageDeletionWorker : BackgroundService
 
         foreach (var job in jobs)
         {
+            var revision = await context.TrackAudioRevisions
+                .FirstOrDefaultAsync(
+                    candidate => candidate.StorageDeletionJobId == job.Id,
+                    cancellationToken);
             try
             {
                 if (!StorageDeletionQueue.IsManagedObjectPath(job.ObjectPath))
@@ -75,6 +80,9 @@ public sealed class StorageDeletionWorker : BackgroundService
 
                 job.CompletedAt = now;
                 job.LastError = null;
+                if (revision != null)
+                    revision.CleanupStatus =
+                        TrackAudioRevisionCleanupStatus.Completed;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -86,6 +94,8 @@ public sealed class StorageDeletionWorker : BackgroundService
                 job.LastError = exception.Message;
                 var delaySeconds = Math.Min(3600, 5 * Math.Pow(2, job.AttemptCount - 1));
                 job.NextAttemptAt = now.AddSeconds(delaySeconds);
+                if (revision != null)
+                    revision.CleanupStatus = TrackAudioRevisionCleanupStatus.Failed;
                 logger.LogWarning(
                     exception,
                     "Storage deletion job {JobId} failed on attempt {Attempt}",

@@ -49,6 +49,63 @@ public class StorageDeletionWorkerTests
         Assert.NotNull((await context.StorageDeletionJobs.SingleAsync()).CompletedAt);
     }
 
+    [Fact]
+    public async Task Processor_UpdatesReplacementRevisionCleanupState()
+    {
+        await using var context = CreateContext();
+        var user = new User
+        {
+            Username = "cleanup-admin",
+            Email = "cleanup@example.test",
+            PasswordHash = "test"
+        };
+        var track = new Track { Title = "track", FilePath = "tracks/new/audio.flac" };
+        var batch = new MusicImportBatch
+        {
+            RequestedByUser = user,
+            RequestedByUserId = user.Id,
+            ClientRequestId = "cleanup",
+            Status = MusicImportBatchStatus.Completed
+        };
+        var group = new MusicImportReviewGroup
+        {
+            Batch = batch,
+            BatchId = batch.Id,
+            Status = MusicImportReviewStatus.Applied
+        };
+        var job = new StorageDeletionJob
+        {
+            ObjectPath = "tracks/old/audio.mp3",
+            NextAttemptAt = DateTime.UtcNow.AddMinutes(-1)
+        };
+        var revision = new TrackAudioRevision
+        {
+            Track = track,
+            TrackId = track.Id,
+            ReviewGroup = group,
+            ReviewGroupId = group.Id,
+            ActingUser = user,
+            ActingUserId = user.Id,
+            PreviousObjectPath = job.ObjectPath,
+            ReplacementObjectPath = track.FilePath,
+            StorageDeletionJob = job,
+            StorageDeletionJobId = job.Id,
+            CleanupStatus = TrackAudioRevisionCleanupStatus.Pending
+        };
+        context.AddRange(user, track, batch, group, job, revision);
+        await context.SaveChangesAsync();
+
+        await StorageDeletionWorker.ProcessPendingAsync(
+            context,
+            new SequencedDeleteStorageService(true),
+            DateTime.UtcNow,
+            NullLogger.Instance);
+
+        Assert.Equal(
+            TrackAudioRevisionCleanupStatus.Completed,
+            (await context.TrackAudioRevisions.SingleAsync()).CleanupStatus);
+    }
+
     private static FollowDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<FollowDbContext>()

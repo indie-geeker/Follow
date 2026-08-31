@@ -2,6 +2,11 @@ export type MusicImportBatchStatus =
   | 'pending'
   | 'scanning'
   | 'ready'
+  | 'analyzing'
+  | 'grouping'
+  | 'awaitingReview'
+  | 'readyToApply'
+  | 'applying'
   | 'running'
   | 'pauseRequested'
   | 'paused'
@@ -23,7 +28,15 @@ export type MusicImportItemStatus =
 
 export type MusicImportItemStage =
   | 'none'
+  | 'sourceValidation'
   | 'hashing'
+  | 'metadata'
+  | 'fingerprinting'
+  | 'analyzed'
+  | 'grouped'
+  | 'awaitingReview'
+  | 'applying'
+  | 'verified'
   | 'parsing'
   | 'uploading'
   | 'persisting'
@@ -37,9 +50,27 @@ export type MusicImportAction =
 
 export interface MusicImportCapabilities {
   enabled: boolean
+  canIngest: boolean
   sourceAvailable: boolean
   sourceAlias: string
   processingConcurrency: number
+  fingerprintAvailable: boolean
+  fingerprintVersion: string | null
+  fingerprintAlgorithm: number
+  fingerprintErrorCode: string | null
+  fingerprintErrorMessage: string | null
+}
+
+export interface MusicImportPhaseProgress {
+  sourceValidation: number
+  hashing: number
+  metadata: number
+  fingerprinting: number
+  analyzed: number
+  grouped: number
+  awaitingReview: number
+  applying: number
+  verified: number
 }
 
 export interface MusicImportProgress {
@@ -52,6 +83,149 @@ export interface MusicImportProgress {
   retryableFailed: number
   cancelled: number
   processedBytes: number
+  phases: MusicImportPhaseProgress
+}
+
+export type MusicImportReviewStatus =
+  | 'open'
+  | 'confirmed'
+  | 'locked'
+  | 'applied'
+  | 'deferred'
+  | 'conflict'
+  | 'failed'
+
+export type MusicImportDecisionKind =
+  | 'createTrack'
+  | 'replaceExistingTrack'
+  | 'keepExistingTrack'
+  | 'treatAsSeparateRecording'
+  | 'rejectDuplicate'
+  | 'defer'
+
+export type MusicImportMatchKind =
+  | 'none'
+  | 'exactSha256'
+  | 'acousticFingerprint'
+  | 'userSeparated'
+
+export type MusicImportSourceKind = 'mountedDirectory' | 'browserStaging'
+
+export interface MusicImportReviewSummary {
+  open: number
+  confirmed: number
+  locked: number
+  applied: number
+  deferred: number
+  conflict: number
+  failed: number
+}
+
+export interface MusicImportExistingTrack {
+  id: string
+  title: string
+  originalFileName: string | null
+  codec: string | null
+  container: string | null
+  isLossless: boolean | null
+  sampleRateHz: number | null
+  bitDepth: number | null
+  channels: number | null
+  bitRateKbps: number | null
+  fileSizeBytes: number | null
+  exactDurationMilliseconds: number | null
+}
+
+export interface MusicImportReviewCandidate {
+  id: string
+  version: number
+  relativePath: string
+  sourceLabel: string
+  originalFileName: string
+  sourceKind: MusicImportSourceKind
+  extractedTitle: string | null
+  extractedArtist: string | null
+  extractedAlbum: string | null
+  codec: string | null
+  container: string | null
+  isLossless: boolean | null
+  sampleRateHz: number | null
+  bitDepth: number | null
+  channels: number | null
+  bitRateKbps: number | null
+  sizeBytes: number
+  exactDurationMilliseconds: number | null
+  decision: MusicImportDecisionKind | null
+  decisionTrackId: string | null
+  previewAvailable: boolean
+  previewUrl: string | null
+}
+
+export interface MusicImportReviewGroup {
+  id: string
+  batchId: string
+  status: MusicImportReviewStatus
+  matchKind: MusicImportMatchKind
+  matchExplanation: string
+  version: number
+  existingTrackId: string | null
+  existingTrack: MusicImportExistingTrack | null
+  recommendedItemId: string | null
+  recommendationExplanation: string | null
+  fingerprintVersion: string | null
+  fingerprintAlgorithm: number | null
+  overallSimilarity: number | null
+  minimumSegmentSimilarity: number | null
+  coverageFraction: number | null
+  alignmentOffsetFrames: number | null
+  confirmedByUserId: string | null
+  confirmedAt: string | null
+  decisionKind: MusicImportDecisionKind | null
+  selectedItemIds: string[]
+  applyErrorCode: string | null
+  applyErrorMessage: string | null
+  cleanupStatus: string | null
+  cleanupErrorCode: string | null
+  cleanupErrorMessage: string | null
+  candidates: MusicImportReviewCandidate[]
+}
+
+export interface MusicImportReviewPage {
+  batchId: string
+  status: MusicImportBatchStatus
+  version: number
+  summary: MusicImportReviewSummary
+  groups: MusicImportReviewGroup[]
+  totalCount: number
+  page: number
+  pageSize: number
+  totalPages: number
+}
+
+export interface MusicImportReviewPageParams {
+  page: number
+  pageSize: number
+}
+
+export interface MusicImportReviewDecisionRequest {
+  expectedVersion: number
+  decisionKind: MusicImportDecisionKind
+  selectedItemIds: string[]
+}
+
+export interface MusicImportReviewVersionRequest {
+  groupId: string
+  expectedVersion: number
+}
+
+export interface MusicImportLockRequest {
+  groups: MusicImportReviewVersionRequest[]
+}
+
+export interface MusicImportReviewBatchState {
+  id: string
+  status: MusicImportBatchStatus
+  version: number
 }
 
 export interface MusicImportBatchSummary {
@@ -59,6 +233,7 @@ export interface MusicImportBatchSummary {
   requestedByUserId: string
   clientRequestId: string
   relativeDirectory: string
+  sourceKind: MusicImportSourceKind
   autoStart: boolean
   status: MusicImportBatchStatus
   discoveredFileCount: number
@@ -118,6 +293,12 @@ export interface CreateMusicImportRequest {
   autoStart?: boolean
 }
 
+export interface MusicImportUploadAccepted {
+  batchId: string
+  itemId: string
+  status: MusicImportBatchStatus
+}
+
 export interface MusicImportBatchListParams {
   page: number
   pageSize: number
@@ -134,6 +315,11 @@ export const musicImportBatchStatusLabels: Record<MusicImportBatchStatus, string
   pending: '等待扫描',
   scanning: '正在扫描',
   ready: '等待开始',
+  analyzing: '正在分析',
+  grouping: '正在分组',
+  awaitingReview: '等待人工复核',
+  readyToApply: '等待应用决定',
+  applying: '正在应用决定',
   running: '正在导入',
   pauseRequested: '正在暂停',
   paused: '已暂停',
@@ -162,6 +348,11 @@ export const musicImportBatchStatusTones: Record<
   pending: 'info',
   scanning: 'primary',
   ready: 'warning',
+  analyzing: 'primary',
+  grouping: 'primary',
+  awaitingReview: 'warning',
+  readyToApply: 'warning',
+  applying: 'primary',
   running: 'primary',
   pauseRequested: 'warning',
   paused: 'warning',

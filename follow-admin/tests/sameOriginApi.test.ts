@@ -42,8 +42,10 @@ test('admin media and upload URLs are relative to the current origin', () => {
   }
 
   const tracks = readProjectFile('src/views/music/TracksView.vue')
+  const musicImports = readProjectFile('src/api/musicImportClient.ts')
   const coverUrl = readProjectFile('src/utils/coverUrl.ts')
-  assert.match(tracks, /\/api\/tracks\/upload/)
+  assert.match(musicImports, /\/api\/admin\/music-imports|BASE_PATH.*music-imports/)
+  assert.match(musicImports, /`\$\{BASE_PATH\}\/uploads`/)
   assert.match(tracks, /toCoverProxyUrl/)
   assert.match(coverUrl, /\/api\/tracks\/cover\//)
 })

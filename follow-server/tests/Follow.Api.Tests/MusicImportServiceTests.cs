@@ -1,4 +1,6 @@
 using Follow.Core.Entities;
+using Follow.Core.Interfaces;
+using Follow.Core.Models;
 using Follow.Infrastructure.Data;
 using Follow.Infrastructure.Services;
 using Follow.Shared.DTOs;
@@ -94,6 +96,40 @@ public class MusicImportServiceTests
     }
 
     [Fact]
+    public async Task CreateAndBrowserUpload_WhenFingerprintUnavailableFailClosed()
+    {
+        using var source = new TemporaryDirectory();
+        await using var context = MusicImportScannerTests.CreateContext();
+        var storage = new RecordingImportStorageService();
+        var capability = new AudioFingerprintCapabilityState();
+        var service = new MusicImportService(
+            context,
+            MusicImportScannerTests.EnabledSettings(source.Path),
+            storage,
+            capability);
+
+        var directoryError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateBatchAsync(
+                Guid.NewGuid(),
+                new CreateMusicImportRequest("fingerprint-gate-directory", "", false)));
+        await using var upload = new MemoryStream([1, 2, 3]);
+        var uploadError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateBrowserUploadAsync(
+                Guid.NewGuid(),
+                new BrowserMusicImportUpload(
+                    upload,
+                    "song.mp3",
+                    "audio/mpeg",
+                    upload.Length,
+                    "fingerprint-gate-upload")));
+
+        Assert.Contains("fingerprint", directoryError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("fingerprint", uploadError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await context.MusicImportBatches.ToListAsync());
+        Assert.Empty(storage.Objects);
+    }
+
+    [Fact]
     public async Task StartPauseResumeAndCancel_EnforceExplicitStates()
     {
         using var source = new TemporaryDirectory();
@@ -114,12 +150,12 @@ public class MusicImportServiceTests
 
         batch.Status = MusicImportBatchStatus.Ready;
         await context.SaveChangesAsync();
-        Assert.Equal("running", (await service.StartAsync(batch.Id))!.Status);
+        Assert.Equal("analyzing", (await service.StartAsync(batch.Id))!.Status);
         Assert.Equal("pauseRequested", (await service.PauseAsync(batch.Id))!.Status);
 
         batch.Status = MusicImportBatchStatus.Paused;
         await context.SaveChangesAsync();
-        Assert.Equal("running", (await service.ResumeAsync(batch.Id))!.Status);
+        Assert.Equal("analyzing", (await service.ResumeAsync(batch.Id))!.Status);
         Assert.Equal("cancelRequested", (await service.CancelAsync(batch.Id))!.Status);
         Assert.NotNull(batch.CancelRequestedAt);
     }
@@ -284,6 +320,158 @@ public class MusicImportServiceTests
         Assert.Equal(10, Assert.Single(page.Batches).Progress.Imported);
         Assert.Equal(15, detail!.Progress.Pending);
         Assert.Empty(context.ChangeTracker.Entries<MusicImportItem>());
+    }
+
+    [Fact]
+    public async Task BatchReadModels_AggregateEveryReviewPipelinePhase()
+    {
+        using var source = new TemporaryDirectory();
+        await using var context = MusicImportScannerTests.CreateContext();
+        var batch = Batch(Guid.NewGuid(), "phase-counts", MusicImportBatchStatus.Analyzing);
+        context.MusicImportBatches.Add(batch);
+        var stages = new[]
+        {
+            MusicImportItemStage.SourceValidation,
+            MusicImportItemStage.Hashing,
+            MusicImportItemStage.Metadata,
+            MusicImportItemStage.Fingerprinting,
+            MusicImportItemStage.Analyzed,
+            MusicImportItemStage.Grouped,
+            MusicImportItemStage.AwaitingReview,
+            MusicImportItemStage.Applying,
+            MusicImportItemStage.Verified
+        };
+        foreach (var stage in stages)
+        {
+            var item = Item(batch, $"{stage}.flac", MusicImportItemStatus.Processing, false);
+            item.Stage = stage;
+            context.MusicImportItems.Add(item);
+        }
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+        var service = new MusicImportService(
+            context,
+            MusicImportScannerTests.EnabledSettings(source.Path));
+
+        var result = await service.GetBatchAsync(batch.Id);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.Progress.Phases.SourceValidation);
+        Assert.Equal(1, result.Progress.Phases.Hashing);
+        Assert.Equal(1, result.Progress.Phases.Metadata);
+        Assert.Equal(1, result.Progress.Phases.Fingerprinting);
+        Assert.Equal(1, result.Progress.Phases.Analyzed);
+        Assert.Equal(1, result.Progress.Phases.Grouped);
+        Assert.Equal(1, result.Progress.Phases.AwaitingReview);
+        Assert.Equal(1, result.Progress.Phases.Applying);
+        Assert.Equal(1, result.Progress.Phases.Verified);
+    }
+
+    [Fact]
+    public async Task ReviewReadModel_IsPagedAndExposesOnlySafeCompleteFacts()
+    {
+        await using var context = MusicImportScannerTests.CreateContext();
+        var batch = Batch(Guid.NewGuid(), "review-page", MusicImportBatchStatus.AwaitingReview);
+        var track = new Track
+        {
+            Title = "Existing",
+            FilePath = "tracks/existing.flac",
+            OriginalFileName = "existing.flac",
+            Codec = "flac",
+            Container = "flac",
+            IsLossless = true,
+            SampleRateHz = 96_000,
+            BitDepth = 24,
+            Channels = 2,
+            BitRateKbps = 2_400,
+            FileSizeBytes = 3_000,
+            ExactDurationMilliseconds = 180_000
+        };
+        context.AddRange(batch, track);
+        MusicImportReviewGroup? firstGroup = null;
+        for (var index = 0; index < 3; index++)
+        {
+            var group = new MusicImportReviewGroup
+            {
+                Batch = batch,
+                BatchId = batch.Id,
+                ExistingTrack = index == 0 ? track : null,
+                ExistingTrackId = index == 0 ? track.Id : null,
+                Status = MusicImportReviewStatus.Open,
+                MatchKind = MusicImportMatchKind.AcousticFingerprint,
+                OverallSimilarity = .987,
+                MinimumSegmentSimilarity = .95,
+                CoverageFraction = .91,
+                AlignmentOffsetFrames = 2,
+                RecommendationExplanation = "无损格式且采样率更高",
+                ApplyErrorCode = index == 0 ? "APPLY_RETRY" : null,
+                ApplyErrorMessage = index == 0 ? "retry later" : null,
+                CreatedAt = DateTime.UtcNow.AddMinutes(index)
+            };
+            var item = Item(batch, $"safe/candidate-{index}.flac", MusicImportItemStatus.Processing, false);
+            item.SourceKind = MusicImportSourceKind.MountedDirectory;
+            item.SourceReference = $"/private/source/candidate-{index}.flac";
+            item.ReviewGroup = group;
+            item.ReviewGroupId = group.Id;
+            item.Codec = "flac";
+            item.Container = "flac";
+            item.IsLossless = true;
+            item.SampleRateHz = 96_000;
+            item.BitDepth = 24;
+            item.Channels = 2;
+            item.BitRateKbps = 2_400;
+            item.ExactDurationMilliseconds = 180_000;
+            group.RecommendedItemId = item.Id;
+            context.AddRange(group, item);
+            firstGroup ??= group;
+        }
+        var deletion = new StorageDeletionJob
+        {
+            ObjectPath = "tracks/old.flac",
+            LastError = "storage timeout"
+        };
+        context.Add(deletion);
+        context.Add(new TrackAudioRevision
+        {
+            Track = track,
+            TrackId = track.Id,
+            ReviewGroup = firstGroup!,
+            ReviewGroupId = firstGroup!.Id,
+            ActingUserId = Guid.NewGuid(),
+            PreviousObjectPath = "tracks/old.flac",
+            ReplacementObjectPath = "tracks/new.flac",
+            StorageDeletionJob = deletion,
+            StorageDeletionJobId = deletion.Id,
+            CleanupStatus = TrackAudioRevisionCleanupStatus.Failed
+        });
+        await context.SaveChangesAsync();
+        context.ChangeTracker.Clear();
+
+        var page = await new MusicImportReviewService(context)
+            .GetBatchReviewAsync(batch.Id, 1, 1);
+
+        Assert.NotNull(page);
+        Assert.Equal(3, page.TotalCount);
+        Assert.Equal(3, page.TotalPages);
+        Assert.Equal(3, page.Summary.Open);
+        var groupDto = Assert.Single(page.Groups);
+        Assert.Equal("acousticFingerprint", groupDto.MatchKind);
+        Assert.False(string.IsNullOrWhiteSpace(groupDto.MatchExplanation));
+        Assert.Equal("APPLY_RETRY", groupDto.ApplyErrorCode);
+        Assert.Equal("failed", groupDto.CleanupStatus);
+        Assert.Equal("STORAGE_CLEANUP_FAILED", groupDto.CleanupErrorCode);
+        Assert.Equal("storage timeout", groupDto.CleanupErrorMessage);
+        Assert.NotNull(groupDto.ExistingTrack);
+        var candidate = Assert.Single(groupDto.Candidates);
+        Assert.Equal("safe/candidate-0.flac", candidate.SourceLabel);
+        Assert.True(candidate.PreviewAvailable);
+        Assert.StartsWith("/api/admin/music-imports/items/", candidate.PreviewUrl);
+        Assert.Null(groupDto.DecisionKind);
+        Assert.Empty(groupDto.SelectedItemIds);
+        var json = System.Text.Json.JsonSerializer.Serialize(page);
+        Assert.DoesNotContain("/private/source", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("tracks/old.flac", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("tracks/new.flac", json, StringComparison.Ordinal);
     }
 
     private static MusicImportBatch Batch(

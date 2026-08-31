@@ -13,7 +13,11 @@ public class MusicImportStateMachineTests
             MusicImportBatchStatus.Pending,
             MusicImportBatchStatus.Scanning,
             MusicImportBatchStatus.Ready,
-            MusicImportBatchStatus.Running,
+            MusicImportBatchStatus.Analyzing,
+            MusicImportBatchStatus.Grouping,
+            MusicImportBatchStatus.AwaitingReview,
+            MusicImportBatchStatus.ReadyToApply,
+            MusicImportBatchStatus.Applying,
             MusicImportBatchStatus.Verifying,
             MusicImportBatchStatus.Completed
         };
@@ -29,15 +33,30 @@ public class MusicImportStateMachineTests
     [Fact]
     public void Batch_PauseResumeAndCancel_AreExplicitTransitions()
     {
-        Assert.True(MusicImportStateMachine.CanTransition(
-            MusicImportBatchStatus.Running,
-            MusicImportBatchStatus.PauseRequested));
+        var resumableStatuses = new[]
+        {
+            MusicImportBatchStatus.Analyzing,
+            MusicImportBatchStatus.Grouping,
+            MusicImportBatchStatus.AwaitingReview,
+            MusicImportBatchStatus.Applying
+        };
+
+        foreach (var resumableStatus in resumableStatuses)
+        {
+            Assert.True(MusicImportStateMachine.CanTransition(
+                resumableStatus,
+                MusicImportBatchStatus.PauseRequested));
+            Assert.True(MusicImportStateMachine.CanTransition(
+                MusicImportBatchStatus.Paused,
+                resumableStatus));
+            Assert.True(MusicImportStateMachine.CanTransition(
+                resumableStatus,
+                MusicImportBatchStatus.CancelRequested));
+        }
+
         Assert.True(MusicImportStateMachine.CanTransition(
             MusicImportBatchStatus.PauseRequested,
             MusicImportBatchStatus.Paused));
-        Assert.True(MusicImportStateMachine.CanTransition(
-            MusicImportBatchStatus.Paused,
-            MusicImportBatchStatus.Running));
         Assert.True(MusicImportStateMachine.CanTransition(
             MusicImportBatchStatus.Paused,
             MusicImportBatchStatus.CancelRequested));

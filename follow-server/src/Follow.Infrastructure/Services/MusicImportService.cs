@@ -1,5 +1,6 @@
 using Follow.Core.Entities;
 using Follow.Core.Interfaces;
+using Follow.Core.Models;
 using Follow.Core.Services;
 using Follow.Infrastructure.Data;
 using Follow.Shared.DTOs;
@@ -15,13 +16,148 @@ public sealed class MusicImportService : IMusicImportService
 
     private readonly FollowDbContext _context;
     private readonly MusicImportRuntimeSettings _settings;
+    private readonly IStorageService? _storage;
+    private readonly AudioFingerprintCapabilityState? _fingerprintCapability;
 
     public MusicImportService(
         FollowDbContext context,
-        MusicImportRuntimeSettings settings)
+        MusicImportRuntimeSettings settings,
+        IStorageService? storage = null,
+        AudioFingerprintCapabilityState? fingerprintCapability = null)
     {
         _context = context;
         _settings = settings;
+        _storage = storage;
+        _fingerprintCapability = fingerprintCapability;
+    }
+
+    public async Task<MusicImportUploadAcceptedDto> CreateBrowserUploadAsync(
+        Guid requestedByUserId,
+        BrowserMusicImportUpload upload,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureEnabled();
+        ArgumentNullException.ThrowIfNull(upload);
+        ArgumentNullException.ThrowIfNull(upload.Content);
+        if (!upload.Content.CanRead)
+            throw new ArgumentException("Browser upload stream must be readable.", nameof(upload));
+
+        var clientRequestId = upload.ClientRequestId?.Trim();
+        if (string.IsNullOrEmpty(clientRequestId) || clientRequestId.Length > 64)
+            throw new ArgumentException("Client request ID must contain 1 to 64 characters.", nameof(upload));
+        var originalFileName = NormalizeBrowserFileName(upload.FileName);
+        AudioFilePolicy.ValidateCandidate(
+            originalFileName,
+            upload.Length,
+            _settings.MaximumFileBytes,
+            _settings.MaximumRelativePathLength);
+        if (!AudioFilePolicy.TryGetCanonicalContentType(originalFileName, out var contentType))
+            throw new ArgumentException("Unsupported audio format.", nameof(upload));
+
+        var existing = await _context.MusicImportBatches
+            .AsNoTracking()
+            .SingleOrDefaultAsync(batch =>
+                batch.RequestedByUserId == requestedByUserId &&
+                batch.ClientRequestId == clientRequestId,
+                cancellationToken);
+        if (existing != null)
+        {
+            if (existing.SourceKind != MusicImportSourceKind.BrowserStaging)
+                throw new InvalidOperationException("The idempotency key belongs to another source type.");
+            var existingItem = await _context.MusicImportItems
+                .AsNoTracking()
+                .SingleAsync(item => item.BatchId == existing.Id, cancellationToken);
+            if (existingItem.SizeBytes != upload.Length ||
+                !string.Equals(existingItem.OriginalFileName, originalFileName, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The idempotency key already belongs to a different upload payload.");
+            }
+            return new MusicImportUploadAcceptedDto(
+                existing.Id,
+                existingItem.Id,
+                ContractName(existing.Status));
+        }
+
+        var storage = _storage
+            ?? throw new InvalidOperationException("Browser staging storage is unavailable.");
+        var now = DateTime.UtcNow;
+        var itemId = Guid.NewGuid();
+        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+        var objectPath = ImportObjectPath.BuildStaging(itemId, extension);
+        var writeAttempted = false;
+        try
+        {
+            writeAttempted = true;
+            await storage.WriteObjectAsync(
+                objectPath,
+                upload.Content,
+                upload.Length,
+                contentType,
+                cancellationToken);
+            var stored = await storage.GetObjectMetadataAsync(objectPath, cancellationToken);
+            if (stored == null ||
+                stored.Length != upload.Length ||
+                string.IsNullOrWhiteSpace(stored.ETag))
+            {
+                throw new IOException("The staged browser object could not be verified.");
+            }
+
+            var batch = new MusicImportBatch
+            {
+                SourceKind = MusicImportSourceKind.BrowserStaging,
+                RequestedByUserId = requestedByUserId,
+                ClientRequestId = clientRequestId,
+                RelativeDirectory = string.Empty,
+                AutoStart = true,
+                Status = MusicImportBatchStatus.Analyzing,
+                DiscoveredFileCount = 1,
+                TotalBytes = upload.Length,
+                ScanStartedAt = now,
+                ScanCompletedAt = now,
+                StartedAt = now
+            };
+            var item = new MusicImportItem
+            {
+                Id = itemId,
+                Batch = batch,
+                BatchId = batch.Id,
+                SourceKind = MusicImportSourceKind.BrowserStaging,
+                SourceReference = objectPath,
+                StagingObjectPath = objectPath,
+                SourceETag = stored.ETag,
+                RelativePath = $"browser/{itemId:N}/{originalFileName}",
+                OriginalFileName = originalFileName,
+                Extension = extension,
+                SizeBytes = upload.Length,
+                SourceModifiedAt = MusicImportScanner.NormalizeDatabaseTimestamp(now),
+                Status = MusicImportItemStatus.Pending,
+                Stage = MusicImportItemStage.None
+            };
+            _context.MusicImportBatches.Add(batch);
+            _context.MusicImportItems.Add(item);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return new MusicImportUploadAcceptedDto(
+                batch.Id,
+                item.Id,
+                ContractName(batch.Status));
+        }
+        catch
+        {
+            if (writeAttempted)
+            {
+                try
+                {
+                    await storage.DeleteFileAsync(objectPath);
+                }
+                catch
+                {
+                    // Preserve the ingestion failure. Durable orphan reconciliation is handled separately.
+                }
+            }
+            throw;
+        }
     }
 
     public async Task<MusicImportBatchDto> CreateBatchAsync(
@@ -156,7 +292,7 @@ public sealed class MusicImportService : IMusicImportService
         TransitionAsync(
             batchId,
             MusicImportBatchStatus.Ready,
-            MusicImportBatchStatus.Running,
+            MusicImportBatchStatus.Analyzing,
             batch =>
             {
                 batch.StartedAt ??= DateTime.UtcNow;
@@ -169,7 +305,7 @@ public sealed class MusicImportService : IMusicImportService
         CancellationToken cancellationToken = default) =>
         TransitionAsync(
             batchId,
-            MusicImportBatchStatus.Running,
+            MusicImportBatchStatus.Analyzing,
             MusicImportBatchStatus.PauseRequested,
             null,
             cancellationToken);
@@ -180,7 +316,7 @@ public sealed class MusicImportService : IMusicImportService
         TransitionAsync(
             batchId,
             MusicImportBatchStatus.Paused,
-            MusicImportBatchStatus.Running,
+            MusicImportBatchStatus.Analyzing,
             null,
             cancellationToken);
 
@@ -352,6 +488,7 @@ public sealed class MusicImportService : IMusicImportService
             batch.RequestedByUserId,
             batch.ClientRequestId,
             batch.RelativeDirectory,
+            ContractName(batch.SourceKind),
             batch.AutoStart,
             ContractName(batch.Status),
             batch.DiscoveredFileCount,
@@ -397,6 +534,15 @@ public sealed class MusicImportService : IMusicImportService
                 group.Count(item => item.Status == MusicImportItemStatus.Failed),
                 group.Count(item => item.Status == MusicImportItemStatus.Failed && item.Retryable),
                 group.Count(item => item.Status == MusicImportItemStatus.Cancelled),
+                group.Count(item => item.Stage == MusicImportItemStage.SourceValidation),
+                group.Count(item => item.Stage == MusicImportItemStage.Hashing),
+                group.Count(item => item.Stage == MusicImportItemStage.Metadata),
+                group.Count(item => item.Stage == MusicImportItemStage.Fingerprinting),
+                group.Count(item => item.Stage == MusicImportItemStage.Analyzed),
+                group.Count(item => item.Stage == MusicImportItemStage.Grouped),
+                group.Count(item => item.Stage == MusicImportItemStage.AwaitingReview),
+                group.Count(item => item.Stage == MusicImportItemStage.Applying),
+                group.Count(item => item.Stage == MusicImportItemStage.Verified),
                 group.Where(item => item.Status == MusicImportItemStatus.Imported ||
                         item.Status == MusicImportItemStatus.Duplicate ||
                         item.Status == MusicImportItemStatus.Skipped ||
@@ -416,7 +562,17 @@ public sealed class MusicImportService : IMusicImportService
                 aggregate.Failed,
                 aggregate.RetryableFailed,
                 aggregate.Cancelled,
-                aggregate.ProcessedBytes));
+                aggregate.ProcessedBytes,
+                new MusicImportPhaseProgressDto(
+                    aggregate.SourceValidation,
+                    aggregate.Hashing,
+                    aggregate.Metadata,
+                    aggregate.Fingerprinting,
+                    aggregate.Analyzed,
+                    aggregate.Grouped,
+                    aggregate.AwaitingReview,
+                    aggregate.Applying,
+                    aggregate.Verified)));
     }
 
     private static MusicImportItemDto ToDto(MusicImportItem item) => new(
@@ -450,6 +606,13 @@ public sealed class MusicImportService : IMusicImportService
     {
         if (!_settings.Enabled)
             throw new InvalidOperationException("Music library import is disabled.");
+        if (_fingerprintCapability != null &&
+            !_fingerprintCapability.CanIngest(_settings.Enabled))
+        {
+            var code = _fingerprintCapability.Current.ErrorCode ?? "FINGERPRINT_UNAVAILABLE";
+            throw new InvalidOperationException(
+                $"Acoustic fingerprint analysis is unavailable ({code}); ingestion is disabled.");
+        }
     }
 
     private static void ValidatePage(int page, int pageSize)
@@ -460,6 +623,14 @@ public sealed class MusicImportService : IMusicImportService
 
     private static int TotalPages(int totalCount, int pageSize) =>
         totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize);
+
+    private static string NormalizeBrowserFileName(string fileName)
+    {
+        var normalized = MinioStorageService.NormalizeFileName(fileName);
+        if (normalized.Length > 512)
+            throw new ArgumentException("Browser upload file name is too long.", nameof(fileName));
+        return normalized;
+    }
 
     internal static bool IsBatchRequestUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException
@@ -485,7 +656,16 @@ public sealed class MusicImportService : IMusicImportService
     }
 
     private static readonly MusicImportProgressDto EmptyProgress = new(
-        0, 0, 0, 0, 0, 0, 0, 0, 0);
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        new MusicImportPhaseProgressDto(0, 0, 0, 0, 0, 0, 0, 0, 0));
 
     private sealed record ProgressAggregate(
         Guid BatchId,
@@ -497,5 +677,14 @@ public sealed class MusicImportService : IMusicImportService
         int Failed,
         int RetryableFailed,
         int Cancelled,
+        int SourceValidation,
+        int Hashing,
+        int Metadata,
+        int Fingerprinting,
+        int Analyzed,
+        int Grouped,
+        int AwaitingReview,
+        int Applying,
+        int Verified,
         long ProcessedBytes);
 }

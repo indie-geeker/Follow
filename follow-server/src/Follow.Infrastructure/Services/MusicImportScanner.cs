@@ -106,6 +106,8 @@ public sealed class MusicImportScanner
 
                 pendingItems.Add(new MusicImportItem
                 {
+                    SourceKind = MusicImportSourceKind.MountedDirectory,
+                    SourceReference = relativePath,
                     BatchId = batch.Id,
                     RelativePath = relativePath,
                     OriginalFileName = NormalizeOriginalFileName(file.Name),
@@ -138,6 +140,7 @@ public sealed class MusicImportScanner
             .Where(item => item.BatchId == batch.Id)
             .SumAsync(item => item.SizeBytes, cancellationToken);
         batch.IgnoredFileCount = ignoredCount;
+        batch.SourceKind = MusicImportSourceKind.MountedDirectory;
         batch.ScanCompletedAt = DateTime.UtcNow;
         MusicImportStateMachine.EnsureTransition(batch.Status, MusicImportBatchStatus.Ready);
         batch.Status = MusicImportBatchStatus.Ready;

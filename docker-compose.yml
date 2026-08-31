@@ -21,6 +21,13 @@ services:
       MinioSettings__BucketName: follow-music
       MinioSettings__UseSSL: "false"
       RedisSettings__ConnectionString: redis:6379
+      AudioFingerprint__ExecutablePath: /usr/local/bin/fpcalc
+      AudioFingerprint__RequiredVersionPrefix: "1.6.1"
+      AudioFingerprint__Algorithm: "2"
+      AudioFingerprint__MaximumLengthSeconds: "120"
+      AudioFingerprint__TimeoutSeconds: "30"
+      AudioFingerprint__MaximumStandardOutputBytes: "2097152"
+      AudioFingerprint__MaximumStandardErrorBytes: "16384"
     ports:
       - "127.0.0.1:5050:5000"
     depends_on:
@@ -36,7 +43,7 @@ services:
       - web
       - data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 5

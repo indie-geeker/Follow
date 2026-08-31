@@ -2,6 +2,8 @@ using System.Security.Claims;
 using Follow.Api.RateLimiting;
 using Follow.Api.Media;
 using Follow.Core.Interfaces;
+using Follow.Core.Models;
+using Follow.Infrastructure.Services;
 using Follow.Shared.Constants;
 
 namespace Follow.Api.Endpoints;
@@ -123,10 +125,31 @@ public static class TrackEndpoints
             storedObject.ContentType);
     }
 
-    private static async Task<IResult> UploadTrack(
+    public static async Task<IResult> UploadTrack(
         IFormFile file,
-        ITrackService trackService)
+        string? clientRequestId,
+        ClaimsPrincipal principal,
+        IMusicImportService importService,
+        MusicImportRuntimeSettings settings,
+        AudioFingerprintCapabilityState fingerprintCapability,
+        CancellationToken cancellationToken)
     {
+        if (!fingerprintCapability.CanIngest(settings.Enabled))
+        {
+            return Results.Json(
+                new
+                {
+                    code = fingerprintCapability.Current.ErrorCode ?? "FINGERPRINT_UNAVAILABLE",
+                    message = "Acoustic fingerprint analysis is unavailable; upload was not accepted."
+                },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        if (!Guid.TryParse(
+                principal.FindFirstValue(ClaimTypes.NameIdentifier),
+                out var userId))
+        {
+            return Results.Unauthorized();
+        }
         if (file.Length == 0)
             return Results.BadRequest(new { error = "No file uploaded" });
 
@@ -137,9 +160,20 @@ public static class TrackEndpoints
             return Results.BadRequest(new { error = "Unsupported audio format" });
 
         await using var stream = file.OpenReadStream();
-        var track = await trackService.UploadTrackAsync(stream, file.FileName, file.ContentType);
-        
-        return Results.Created($"/api/tracks/{track.Id}", track);
+        var accepted = await importService.CreateBrowserUploadAsync(
+            userId,
+            new BrowserMusicImportUpload(
+                stream,
+                file.FileName,
+                file.ContentType,
+                file.Length,
+                string.IsNullOrWhiteSpace(clientRequestId)
+                    ? Guid.NewGuid().ToString("N")
+                    : clientRequestId),
+            cancellationToken);
+        return Results.Accepted(
+            $"/api/admin/music-imports/{accepted.BatchId}",
+            accepted);
     }
 
     private static async Task<IResult> UpdateTrack(

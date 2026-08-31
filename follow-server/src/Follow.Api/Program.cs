@@ -9,6 +9,7 @@ using Follow.Api.Security;
 using Follow.Api.Uploads;
 using Follow.Core.Interfaces;
 using Follow.Infrastructure.Data;
+using Follow.Infrastructure.Options;
 using Follow.Infrastructure.Services;
 using Follow.Shared.Constants;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -36,6 +37,11 @@ builder.Services.AddSingleton<AuthCookieManager>();
 builder.Services.AddFollowRateLimiting(builder.Configuration);
 builder.Services.AddScoped<StorageDeletionQueue>();
 builder.Services.AddHostedService<StorageDeletionWorker>();
+builder.Services.Configure<AudioFingerprintOptions>(
+    builder.Configuration.GetSection(AudioFingerprintOptions.SectionName));
+builder.Services.AddSingleton<IAudioFingerprintService, FpcalcAudioFingerprintService>();
+builder.Services.AddSingleton<AudioFingerprintCapabilityState>();
+builder.Services.AddHostedService<AudioFingerprintCapabilityInitializer>();
 builder.Services.Configure<MusicImportOptions>(
     builder.Configuration.GetSection(MusicImportOptions.SectionName));
 var musicImportOptions = builder.Configuration
@@ -44,7 +50,12 @@ var musicImportOptions = builder.Configuration
 var musicImportSettings = musicImportOptions.ToRuntimeSettings();
 builder.Services.AddSingleton(musicImportSettings);
 builder.Services.AddScoped<MusicImportScanner>();
-builder.Services.AddScoped<MusicImportProcessor>();
+builder.Services.AddScoped<IMusicImportSourceReader, MusicImportSourceReader>();
+builder.Services.AddScoped<MusicImportAnalysisProcessor>();
+builder.Services.AddScoped<MusicImportGroupingService>();
+builder.Services.AddScoped<IMusicImportPreviewService, MusicImportPreviewService>();
+builder.Services.AddScoped<IMusicImportReviewService, MusicImportReviewService>();
+builder.Services.AddScoped<IMusicImportApplyService, MusicImportApplyService>();
 builder.Services.AddScoped<IMusicImportService, MusicImportService>();
 builder.Services.AddSingleton<IAudioMetadataExtractor, TagLibAudioMetadataExtractor>();
 builder.Services.AddHostedService<MusicImportWorker>();
@@ -168,6 +179,23 @@ app.MapMusicImportEndpoints();
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
+    .WithTags("Health");
+
+app.MapGet("/health/ready", (AudioFingerprintCapabilityState fingerprintCapability) =>
+    fingerprintCapability.Current.IsAvailable
+        ? Results.Ok(new
+        {
+            status = "ready",
+            fingerprintVersion = fingerprintCapability.Current.Version,
+            fingerprintAlgorithm = fingerprintCapability.Current.Algorithm,
+            timestamp = DateTime.UtcNow
+        })
+        : Results.Json(new
+        {
+            status = "not-ready",
+            errorCode = fingerprintCapability.Current.ErrorCode,
+            timestamp = DateTime.UtcNow
+        }, statusCode: StatusCodes.Status503ServiceUnavailable))
     .WithTags("Health");
 
 // API info endpoint

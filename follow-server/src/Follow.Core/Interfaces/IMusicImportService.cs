@@ -1,4 +1,5 @@
 using Follow.Core.Entities;
+using Follow.Core.Models;
 using Follow.Shared.DTOs;
 
 namespace Follow.Core.Interfaces;
@@ -8,6 +9,11 @@ public interface IMusicImportService
     Task<MusicImportBatchDto> CreateBatchAsync(
         Guid requestedByUserId,
         CreateMusicImportRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<MusicImportUploadAcceptedDto> CreateBrowserUploadAsync(
+        Guid requestedByUserId,
+        BrowserMusicImportUpload upload,
         CancellationToken cancellationToken = default);
 
     Task<MusicImportBatchPageDto> GetBatchesAsync(

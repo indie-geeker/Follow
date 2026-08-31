@@ -1,15 +1,171 @@
 using Follow.Core.Entities;
 using Follow.Core.Interfaces;
+using Follow.Core.Models;
 using Follow.Infrastructure.Data;
+using Follow.Infrastructure.Options;
 using Follow.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Follow.Api.Tests;
 
 public class MusicImportWorkerTests
 {
+    [Fact]
+    public async Task ReadyToApplyBatch_TransitionsThenDispatchesOnlyLockedGroup()
+    {
+        using var source = new TemporaryDirectory();
+        var settings = MusicImportScannerTests.EnabledSettings(source.Path);
+        var apply = new RecordingApplyService();
+        await using var provider = CreateProvider(settings, applyService: apply);
+        Guid batchId;
+        Guid groupId;
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
+            var batch = Batch(MusicImportBatchStatus.ReadyToApply);
+            var group = new MusicImportReviewGroup
+            {
+                Batch = batch,
+                BatchId = batch.Id,
+                Status = MusicImportReviewStatus.Locked
+            };
+            context.AddRange(batch, group);
+            await context.SaveChangesAsync();
+            batchId = batch.Id;
+            groupId = group.Id;
+        }
+        var worker = CreateWorker(provider, settings, "apply-worker");
+
+        Assert.True(await worker.RunIterationAsync());
+        Assert.Equal(MusicImportBatchStatus.Applying,
+            await GetBatchStatusAsync(provider, batchId));
+        Assert.True(await worker.RunIterationAsync());
+
+        Assert.Equal([(groupId, 0)], apply.Calls);
+    }
+
+    [Fact]
+    public async Task PermanentApplyFailure_ReturnsGroupToReviewAndDoesNotRetryForever()
+    {
+        using var source = new TemporaryDirectory();
+        var settings = MusicImportScannerTests.EnabledSettings(source.Path);
+        var apply = new ThrowingApplyService(
+            new MusicImportApplyValidationException("Selected source SHA-256 changed."));
+        await using var provider = CreateProvider(settings, applyService: apply);
+        Guid batchId;
+        Guid groupId;
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
+            var batch = Batch(MusicImportBatchStatus.Applying);
+            var group = new MusicImportReviewGroup
+            {
+                Batch = batch,
+                BatchId = batch.Id,
+                Status = MusicImportReviewStatus.Locked
+            };
+            context.AddRange(batch, group);
+            await context.SaveChangesAsync();
+            batchId = batch.Id;
+            groupId = group.Id;
+        }
+        var worker = CreateWorker(provider, settings, "failed-apply-worker");
+
+        Assert.True(await worker.RunIterationAsync());
+        Assert.False(await worker.RunIterationAsync());
+
+        await using var verifyScope = provider.CreateAsyncScope();
+        var verify = verifyScope.ServiceProvider.GetRequiredService<FollowDbContext>();
+        var batchResult = await verify.MusicImportBatches.SingleAsync(batch => batch.Id == batchId);
+        var groupResult = await verify.MusicImportReviewGroups.SingleAsync(group => group.Id == groupId);
+        Assert.Equal(1, apply.CallCount);
+        Assert.Equal(MusicImportBatchStatus.AwaitingReview, batchResult.Status);
+        Assert.Equal("APPLY_VALIDATION_FAILED", batchResult.LastErrorCode);
+        Assert.Equal(MusicImportReviewStatus.Open, groupResult.Status);
+        Assert.Equal("APPLY_VALIDATION_FAILED", groupResult.ApplyErrorCode);
+        Assert.Equal("Selected source SHA-256 changed.", groupResult.ApplyErrorMessage);
+    }
+
+    [Fact]
+    public async Task TransientApplyFailure_PreservesDecisionForExplicitReapply()
+    {
+        using var source = new TemporaryDirectory();
+        var settings = MusicImportScannerTests.EnabledSettings(source.Path);
+        var apply = new ThrowingApplyService(new IOException("storage unavailable"));
+        await using var provider = CreateProvider(settings, applyService: apply);
+        Guid groupId;
+        await using (var scope = provider.CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
+            var batch = Batch(MusicImportBatchStatus.Applying);
+            var group = new MusicImportReviewGroup
+            {
+                Batch = batch,
+                BatchId = batch.Id,
+                Status = MusicImportReviewStatus.Locked
+            };
+            context.AddRange(batch, group);
+            await context.SaveChangesAsync();
+            groupId = group.Id;
+        }
+        var worker = CreateWorker(provider, settings, "retryable-apply-worker");
+
+        Assert.True(await worker.RunIterationAsync());
+
+        await using var verifyScope = provider.CreateAsyncScope();
+        var verify = verifyScope.ServiceProvider.GetRequiredService<FollowDbContext>();
+        var groupResult = await verify.MusicImportReviewGroups.SingleAsync(group => group.Id == groupId);
+        Assert.Equal(MusicImportReviewStatus.Confirmed, groupResult.Status);
+        Assert.Equal("APPLY_IO_FAILED", groupResult.ApplyErrorCode);
+        Assert.Equal("The selected audio could not be applied; confirm to retry.", groupResult.ApplyErrorMessage);
+    }
+
+    [Fact]
+    public async Task AnalyzingBatch_CompletesEveryItemBeforeGroupingAndNeverCreatesTrack()
+    {
+        using var source = new TemporaryDirectory();
+        await File.WriteAllBytesAsync(Path.Combine(source.Path, "one.mp3"), [1, 1, 1]);
+        await File.WriteAllBytesAsync(Path.Combine(source.Path, "two.mp3"), [2, 2, 2]);
+        var settings = MusicImportScannerTests.EnabledSettings(source.Path);
+        var storage = new RecordingImportStorageService();
+        await using var provider = CreateProvider(settings, storage);
+        var batchId = await SeedBatchWithPendingItemsAsync(
+            provider,
+            source.Path,
+            "one.mp3",
+            "two.mp3",
+            MusicImportBatchStatus.Analyzing);
+        var worker = CreateWorker(provider, settings, "analysis-worker");
+
+        Assert.True(await worker.RunIterationAsync());
+        await using (var firstScope = provider.CreateAsyncScope())
+        {
+            var context = firstScope.ServiceProvider.GetRequiredService<FollowDbContext>();
+            Assert.Single(await context.MusicImportItems.ToListAsync(),
+                item => item.Stage == MusicImportItemStage.Analyzed);
+            Assert.Empty(await context.MusicImportReviewGroups.ToListAsync());
+            Assert.Empty(await context.Tracks.ToListAsync());
+            Assert.Empty(storage.Writes);
+        }
+
+        Assert.True(await worker.RunIterationAsync());
+        Assert.True(await worker.RunIterationAsync());
+        Assert.True(await worker.RunIterationAsync());
+
+        await using var scope = provider.CreateAsyncScope();
+        var verify = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
+        Assert.Equal(MusicImportBatchStatus.AwaitingReview,
+            (await verify.MusicImportBatches.SingleAsync(batch => batch.Id == batchId)).Status);
+        Assert.All(await verify.MusicImportItems.ToListAsync(),
+            item => Assert.Equal(MusicImportItemStage.Grouped, item.Stage));
+        Assert.Equal(2, await verify.MusicImportReviewGroups.CountAsync());
+        Assert.Empty(await verify.Tracks.ToListAsync());
+        Assert.Empty(storage.Writes);
+    }
+
     [Fact]
     public async Task DisabledIteration_DoesNotInspectConfiguredSource()
     {
@@ -69,58 +225,6 @@ public class MusicImportWorkerTests
             await GetBatchStatusAsync(provider, batchId));
     }
 
-    [Fact]
-    public async Task RunningBatch_AtomicallyClaimsAndProcessesOnlyOneItemPerIteration()
-    {
-        using var source = new TemporaryDirectory();
-        await File.WriteAllBytesAsync(Path.Combine(source.Path, "one.mp3"), [1]);
-        await File.WriteAllBytesAsync(Path.Combine(source.Path, "two.mp3"), [2]);
-        var settings = MusicImportScannerTests.EnabledSettings(source.Path);
-        var storage = new RecordingImportStorageService();
-        await using var provider = CreateProvider(settings, storage);
-        var batchId = await SeedBatchWithPendingItemsAsync(
-            provider,
-            source.Path,
-            "one.mp3",
-            "two.mp3");
-        var worker = CreateWorker(provider, settings, "processor-worker");
-
-        Assert.True(await worker.RunIterationAsync());
-
-        await using var scope = provider.CreateAsyncScope();
-        var context = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
-        var items = await context.MusicImportItems
-            .Where(item => item.BatchId == batchId)
-            .ToListAsync();
-        Assert.Single(items, item => item.Status == MusicImportItemStatus.Imported);
-        Assert.Single(items, item => item.Status == MusicImportItemStatus.Pending);
-        Assert.Single(storage.Writes);
-    }
-
-    [Fact]
-    public async Task ConcurrentWorkers_CannotBothProcessTheSameClaim()
-    {
-        using var source = new TemporaryDirectory();
-        await File.WriteAllBytesAsync(Path.Combine(source.Path, "atomic.mp3"), [3]);
-        var settings = MusicImportScannerTests.EnabledSettings(source.Path);
-        var storage = new RecordingImportStorageService();
-        await using var provider = CreateProvider(settings, storage);
-        await SeedBatchWithPendingItemsAsync(provider, source.Path, "atomic.mp3");
-        var first = CreateWorker(provider, settings, "worker-a");
-        var second = CreateWorker(provider, settings, "worker-b");
-
-        await Task.WhenAll(
-            first.RunIterationAsync(),
-            second.RunIterationAsync());
-
-        await using var scope = provider.CreateAsyncScope();
-        var context = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
-        Assert.Single(await context.Tracks.ToListAsync());
-        Assert.Single(storage.Writes);
-        var item = Assert.Single(await context.MusicImportItems.ToListAsync());
-        Assert.Equal(MusicImportItemStatus.Imported, item.Status);
-        Assert.Equal(1, item.AttemptCount);
-    }
 
     [Fact]
     public async Task ExpiredProcessingLease_ReturnsItemToPendingForRestart()
@@ -133,7 +237,7 @@ public class MusicImportWorkerTests
         await using (var scope = provider.CreateAsyncScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
-            var batch = Batch(MusicImportBatchStatus.Running);
+            var batch = Batch(MusicImportBatchStatus.Analyzing);
             var item = PendingItem(batch, source.Path, "expired.mp3");
             item.Status = MusicImportItemStatus.Processing;
             item.LeaseOwner = "dead-worker";
@@ -489,38 +593,6 @@ public class MusicImportWorkerTests
             MusicImportBatchStatus.Cancelled,
             (await verify.MusicImportBatches.SingleAsync()).Status);
     }
-
-    [Fact]
-    public async Task TerminalCounts_MoveRunningBatchToCompletedWithErrors()
-    {
-        using var source = new TemporaryDirectory();
-        var settings = MusicImportScannerTests.EnabledSettings(source.Path);
-        await using var provider = CreateProvider(settings);
-        Guid batchId;
-        await using (var scope = provider.CreateAsyncScope())
-        {
-            var context = scope.ServiceProvider.GetRequiredService<FollowDbContext>();
-            var batch = Batch(MusicImportBatchStatus.Running);
-            var imported = PendingItem(batch, source.Path, "imported.mp3");
-            imported.Status = MusicImportItemStatus.Imported;
-            imported.CompletedAt = DateTime.UtcNow;
-            var failed = PendingItem(batch, source.Path, "failed.mp3");
-            failed.Status = MusicImportItemStatus.Failed;
-            failed.ErrorCode = "INVALID_METADATA";
-            failed.CompletedAt = DateTime.UtcNow;
-            batchId = batch.Id;
-            context.AddRange(batch, imported, failed);
-            await context.SaveChangesAsync();
-        }
-
-        var worker = CreateWorker(provider, settings, "verify-worker");
-        Assert.True(await worker.RunIterationAsync());
-
-        Assert.Equal(
-            MusicImportBatchStatus.CompletedWithErrors,
-            await GetBatchStatusAsync(provider, batchId));
-    }
-
     [Fact]
     public async Task VerifyingBatch_AfterRestartResumesTerminalization()
     {
@@ -548,7 +620,8 @@ public class MusicImportWorkerTests
 
     private static ServiceProvider CreateProvider(
         MusicImportRuntimeSettings settings,
-        RecordingImportStorageService? storage = null)
+        RecordingImportStorageService? storage = null,
+        IMusicImportApplyService? applyService = null)
     {
         var services = new ServiceCollection();
         var databaseName = Guid.NewGuid().ToString();
@@ -558,9 +631,22 @@ public class MusicImportWorkerTests
         services.AddSingleton(settings);
         services.AddSingleton<IStorageService>(storage ?? new RecordingImportStorageService());
         services.AddSingleton<IAudioMetadataExtractor>(new RecordingMetadataExtractor(
-            new AudioMetadata("Worker title", null, null, 60, 192, "mp3")));
+            new AudioMetadata(
+                "Worker title", null, null, 60, 192, "mp3",
+                Codec: "mp3", Container: "mp3", IsLossless: false,
+                SampleRateHz: 44_100, Channels: 2, BitRateKbps: 192,
+                ExactDurationMilliseconds: 60_000)));
+        services.AddSingleton<IAudioFingerprintService, WorkerFingerprintService>();
+        services.AddScoped<IMusicImportSourceReader, MusicImportSourceReader>();
+        services.AddSingleton(Options.Create(new AudioFingerprintOptions()));
         services.AddScoped<MusicImportScanner>();
-        services.AddScoped<MusicImportProcessor>();
+        services.AddScoped<MusicImportAnalysisProcessor>();
+        services.AddScoped<MusicImportGroupingService>();
+        services.AddScoped<StorageDeletionQueue>();
+        if (applyService == null)
+            services.AddScoped<IMusicImportApplyService, MusicImportApplyService>();
+        else
+            services.AddSingleton(applyService);
         return services.BuildServiceProvider();
     }
 
@@ -611,6 +697,8 @@ public class MusicImportWorkerTests
         {
             Batch = batch,
             BatchId = batch.Id,
+            SourceKind = MusicImportSourceKind.MountedDirectory,
+            SourceReference = relativePath,
             RelativePath = relativePath,
             OriginalFileName = Path.GetFileName(relativePath),
             Extension = Path.GetExtension(relativePath),
@@ -633,5 +721,56 @@ public class MusicImportWorkerTests
             .Where(batch => batch.Id == batchId)
             .Select(batch => batch.Status)
             .SingleAsync();
+    }
+}
+
+internal sealed class RecordingApplyService : IMusicImportApplyService
+{
+    public List<(Guid GroupId, int ExpectedVersion)> Calls { get; } = [];
+
+    public Task<MusicImportApplyResult> ApplyGroupAsync(
+        Guid groupId,
+        int expectedVersion,
+        CancellationToken cancellationToken = default)
+    {
+        Calls.Add((groupId, expectedVersion));
+        return Task.FromResult(new MusicImportApplyResult(
+            groupId,
+            Guid.NewGuid(),
+            false));
+    }
+}
+
+internal sealed class ThrowingApplyService(Exception failure) : IMusicImportApplyService
+{
+    public int CallCount { get; private set; }
+
+    public Task<MusicImportApplyResult> ApplyGroupAsync(
+        Guid groupId,
+        int expectedVersion,
+        CancellationToken cancellationToken = default)
+    {
+        CallCount++;
+        return Task.FromException<MusicImportApplyResult>(failure);
+    }
+}
+
+internal sealed class WorkerFingerprintService : IAudioFingerprintService
+{
+    public Task<AudioFingerprintCapability> CheckCapabilityAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new AudioFingerprintCapability(true, "1.6.1", 2, null, null));
+
+    public async Task<AudioFingerprint> ExtractAsync(
+        Stream source,
+        TimeSpan sourceDuration,
+        CancellationToken cancellationToken = default)
+    {
+        var first = source.ReadByte();
+        await Task.CompletedTask;
+        return new AudioFingerprint(
+            2,
+            "1.6.1",
+            sourceDuration,
+            Enumerable.Repeat(unchecked((uint)first), 80).ToArray());
     }
 }

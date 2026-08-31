@@ -71,6 +71,49 @@ public sealed class MusicImportWorker : BackgroundService
         if (await HandleControlRequestsAsync(context, storage, now, cancellationToken)) return true;
         if (await RecoverExpiredItemAsync(context, now, cancellationToken)) return true;
         if (await CompleteVerifyingBatchAsync(context, cancellationToken)) return true;
+        if (await StartReadyToApplyBatchAsync(context, cancellationToken)) return true;
+
+        var applyGroup = await context.MusicImportReviewGroups
+            .AsNoTracking()
+            .Where(group => group.Status == MusicImportReviewStatus.Locked &&
+                group.Batch.Status == MusicImportBatchStatus.Applying)
+            .OrderBy(group => group.CreatedAt)
+            .ThenBy(group => group.Id)
+            .Select(group => new { group.Id, group.Version })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (applyGroup != null)
+        {
+            var applyService = scope.ServiceProvider
+                .GetRequiredService<IMusicImportApplyService>();
+            try
+            {
+                await applyService.ApplyGroupAsync(
+                    applyGroup.Id,
+                    applyGroup.Version,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                var failure = ClassifyApplyFailure(exception);
+                await ReturnApplyFailureToReviewAsync(
+                    context,
+                    applyGroup.Id,
+                    failure,
+                    cancellationToken);
+                _logger.LogWarning(
+                    "Music import apply failed for group {GroupId}: {ErrorCode} ({ExceptionType})",
+                    applyGroup.Id,
+                    failure.ErrorCode,
+                    exception.GetType().Name);
+            }
+            return true;
+        }
+
+        if (await CompleteApplyingBatchAsync(context, cancellationToken)) return true;
 
         var scanBatchId = await TryClaimScanBatchAsync(context, now, cancellationToken);
         if (scanBatchId.HasValue)
@@ -89,8 +132,8 @@ public sealed class MusicImportWorker : BackgroundService
                     {
                         MusicImportStateMachine.EnsureTransition(
                             batch.Status,
-                            MusicImportBatchStatus.Running);
-                        batch.Status = MusicImportBatchStatus.Running;
+                            MusicImportBatchStatus.Analyzing);
+                        batch.Status = MusicImportBatchStatus.Analyzing;
                         batch.StartedAt ??= DateTime.UtcNow;
                     }
                     await context.SaveChangesAsync(cancellationToken);
@@ -117,30 +160,50 @@ public sealed class MusicImportWorker : BackgroundService
 
         if (await StartAutoReadyBatchAsync(context, cancellationToken)) return true;
 
-        var itemId = await TryClaimItemAsync(context, now, cancellationToken);
-        if (itemId.HasValue)
+        var analysisItemId = await TryClaimAnalysisItemAsync(context, now, cancellationToken);
+        if (analysisItemId.HasValue)
         {
             try
             {
-                var processor = scope.ServiceProvider.GetRequiredService<MusicImportProcessor>();
-                await processor.ProcessAsync(itemId.Value, _workerId, cancellationToken);
+                var processor = scope.ServiceProvider
+                    .GetRequiredService<MusicImportAnalysisProcessor>();
+                await processor.AnalyzeAsync(
+                    analysisItemId.Value,
+                    _workerId,
+                    cancellationToken);
             }
             catch (DbUpdateConcurrencyException)
             {
                 _logger.LogWarning(
-                    "Music import item {ItemId} lease changed during processing",
-                    itemId.Value);
+                    "Music import analysis item {ItemId} lease changed during processing",
+                    analysisItemId.Value);
             }
             catch (InvalidOperationException)
             {
                 _logger.LogWarning(
-                    "Music import item {ItemId} is no longer owned by this worker",
-                    itemId.Value);
+                    "Music import analysis item {ItemId} is no longer owned by this worker",
+                    analysisItemId.Value);
             }
             return true;
         }
 
-        return await FinalizeBatchAsync(context, cancellationToken);
+        if (await TryStartGroupingAsync(context, cancellationToken)) return true;
+
+        var groupingBatchId = await context.MusicImportBatches
+            .Where(batch => batch.Status == MusicImportBatchStatus.Grouping)
+            .OrderBy(batch => batch.CreatedAt)
+            .ThenBy(batch => batch.Id)
+            .Select(batch => (Guid?)batch.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (groupingBatchId.HasValue)
+        {
+            var grouping = scope.ServiceProvider
+                .GetRequiredService<MusicImportGroupingService>();
+            await grouping.GroupBatchAsync(groupingBatchId.Value, cancellationToken);
+            return true;
+        }
+
+        return false;
     }
 
     private async Task<bool> HandleControlRequestsAsync(
@@ -159,7 +222,13 @@ public sealed class MusicImportWorker : BackgroundService
             if (cancelBatch.LeaseOwner != null && cancelBatch.LeaseExpiresAt > now)
                 return false;
 
-            var cleanupAttempted = await TryCleanupCancelledObjectAsync(
+            var stagingCleanupAttempted = await TryCleanupCancelledStagingAsync(
+                context,
+                storage,
+                cancelBatch.Id,
+                now,
+                cancellationToken);
+            var cleanupAttempted = stagingCleanupAttempted || await TryCleanupCancelledObjectAsync(
                 context,
                 storage,
                 cancelBatch.Id,
@@ -171,7 +240,10 @@ public sealed class MusicImportWorker : BackgroundService
             {
                 cancelledCount = await context.MusicImportItems
                     .Where(item => item.BatchId == cancelBatch.Id &&
-                        !(item.TrackId == null && item.ObjectPath != null) &&
+                        !(item.TrackId == null &&
+                          (item.ObjectPath != null ||
+                           (item.SourceKind == MusicImportSourceKind.BrowserStaging &&
+                            item.StagingObjectPath != null))) &&
                         (item.Status == MusicImportItemStatus.Pending ||
                          (item.Status == MusicImportItemStatus.Processing &&
                           (item.LeaseExpiresAt == null || item.LeaseExpiresAt <= now))))
@@ -192,7 +264,10 @@ public sealed class MusicImportWorker : BackgroundService
             {
                 var pendingItems = await context.MusicImportItems
                     .Where(item => item.BatchId == cancelBatch.Id &&
-                        !(item.TrackId == null && item.ObjectPath != null) &&
+                        !(item.TrackId == null &&
+                          (item.ObjectPath != null ||
+                           (item.SourceKind == MusicImportSourceKind.BrowserStaging &&
+                            item.StagingObjectPath != null))) &&
                         (item.Status == MusicImportItemStatus.Pending ||
                          (item.Status == MusicImportItemStatus.Processing &&
                           (item.LeaseExpiresAt == null || item.LeaseExpiresAt <= now))))
@@ -221,7 +296,9 @@ public sealed class MusicImportWorker : BackgroundService
             var hasCleanupPending = await context.MusicImportItems.AnyAsync(
                 item => item.BatchId == cancelBatch.Id &&
                     item.TrackId == null &&
-                    item.ObjectPath != null &&
+                    (item.ObjectPath != null ||
+                     (item.SourceKind == MusicImportSourceKind.BrowserStaging &&
+                      item.StagingObjectPath != null)) &&
                     (item.Status == MusicImportItemStatus.Pending ||
                      item.Status == MusicImportItemStatus.Processing),
                 cancellationToken);
@@ -259,6 +336,84 @@ public sealed class MusicImportWorker : BackgroundService
         pauseBatch.Status = MusicImportBatchStatus.Paused;
         await context.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private async Task<bool> TryCleanupCancelledStagingAsync(
+        FollowDbContext context,
+        IStorageService storage,
+        Guid batchId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var item = await context.MusicImportItems
+            .OrderBy(candidate => candidate.NextAttemptAt)
+            .ThenBy(candidate => candidate.CreatedAt)
+            .ThenBy(candidate => candidate.Id)
+            .FirstOrDefaultAsync(candidate =>
+                candidate.BatchId == batchId &&
+                candidate.SourceKind == MusicImportSourceKind.BrowserStaging &&
+                candidate.TrackId == null &&
+                candidate.StagingObjectPath != null &&
+                ((candidate.Status == MusicImportItemStatus.Pending &&
+                  candidate.NextAttemptAt <= now) ||
+                 (candidate.Status == MusicImportItemStatus.Processing &&
+                  (candidate.LeaseExpiresAt == null || candidate.LeaseExpiresAt <= now))),
+                cancellationToken);
+        if (item == null) return false;
+
+        var stagingPath = item.StagingObjectPath!;
+        try
+        {
+            ImportObjectPath.Validate(stagingPath);
+            if (!ImportObjectPath.IsStaging(stagingPath) ||
+                !string.Equals(item.SourceReference, stagingPath, StringComparison.Ordinal))
+            {
+                throw new ArgumentException("Browser staging references do not match.");
+            }
+
+            if (!await storage.DeleteFileAsync(stagingPath))
+            {
+                MarkCleanupRetry(
+                    item,
+                    now,
+                    "STAGING_CLEANUP_PENDING",
+                    "The browser staging object could not be deleted and cleanup will be retried.");
+                await context.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            item.SourceReference = null;
+            item.StagingObjectPath = null;
+            item.SourceETag = null;
+            item.Status = MusicImportItemStatus.Cancelled;
+            item.Stage = MusicImportItemStage.None;
+            item.Retryable = false;
+            item.LeaseOwner = null;
+            item.LeaseExpiresAt = null;
+            item.ErrorCode = null;
+            item.ErrorMessage = null;
+            item.CompletedAt = now;
+            await context.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                "Browser staging cleanup failed for item {ItemId}: {ExceptionType}",
+                item.Id,
+                exception.GetType().Name);
+            MarkCleanupRetry(
+                item,
+                now,
+                "STAGING_CLEANUP_PENDING",
+                "The browser staging object could not be deleted and cleanup will be retried.");
+            await context.SaveChangesAsync(CancellationToken.None);
+            return true;
+        }
     }
 
     private async Task<bool> TryCleanupCancelledObjectAsync(
@@ -516,6 +671,7 @@ public sealed class MusicImportWorker : BackgroundService
                 candidate.Status == MusicImportItemStatus.Processing &&
                 (candidate.LeaseExpiresAt == null || candidate.LeaseExpiresAt <= now) &&
                 (candidate.Batch.Status == MusicImportBatchStatus.Running ||
+                 candidate.Batch.Status == MusicImportBatchStatus.Analyzing ||
                  candidate.Batch.Status == MusicImportBatchStatus.PauseRequested),
                 cancellationToken);
         if (item == null) return false;
@@ -623,14 +779,137 @@ public sealed class MusicImportWorker : BackgroundService
                 cancellationToken);
         if (batch == null) return false;
 
-        MusicImportStateMachine.EnsureTransition(batch.Status, MusicImportBatchStatus.Running);
-        batch.Status = MusicImportBatchStatus.Running;
+        MusicImportStateMachine.EnsureTransition(batch.Status, MusicImportBatchStatus.Analyzing);
+        batch.Status = MusicImportBatchStatus.Analyzing;
         batch.StartedAt ??= DateTime.UtcNow;
         await context.SaveChangesAsync(cancellationToken);
         return true;
     }
 
-    private async Task<Guid?> TryClaimItemAsync(
+    private static async Task<bool> StartReadyToApplyBatchAsync(
+        FollowDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var batch = await context.MusicImportBatches
+            .OrderBy(candidate => candidate.CreatedAt)
+            .ThenBy(candidate => candidate.Id)
+            .FirstOrDefaultAsync(
+                candidate => candidate.Status == MusicImportBatchStatus.ReadyToApply,
+                cancellationToken);
+        if (batch == null) return false;
+
+        MusicImportStateMachine.EnsureTransition(
+            batch.Status,
+            MusicImportBatchStatus.Applying);
+        batch.Status = MusicImportBatchStatus.Applying;
+        await context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    private static async Task ReturnApplyFailureToReviewAsync(
+        FollowDbContext context,
+        Guid failedGroupId,
+        ApplyFailure failure,
+        CancellationToken cancellationToken)
+    {
+        context.ChangeTracker.Clear();
+        var failedGroup = await context.MusicImportReviewGroups
+            .Include(group => group.Batch)
+                .ThenInclude(batch => batch.ReviewGroups)
+            .SingleAsync(group => group.Id == failedGroupId, cancellationToken);
+        var batch = failedGroup.Batch;
+        if (batch.Status != MusicImportBatchStatus.Applying ||
+            failedGroup.Status != MusicImportReviewStatus.Locked)
+        {
+            return;
+        }
+
+        foreach (var group in batch.ReviewGroups)
+        {
+            if (group.Id == failedGroupId)
+            {
+                group.Status = failure.RequiresNewDecision
+                    ? MusicImportReviewStatus.Open
+                    : MusicImportReviewStatus.Confirmed;
+                group.ApplyErrorCode = failure.ErrorCode;
+                group.ApplyErrorMessage = failure.Message;
+            }
+            else if (group.Status == MusicImportReviewStatus.Locked)
+            {
+                group.Status = MusicImportReviewStatus.Confirmed;
+            }
+        }
+
+        MusicImportStateMachine.EnsureTransition(
+            batch.Status,
+            MusicImportBatchStatus.AwaitingReview);
+        batch.Status = MusicImportBatchStatus.AwaitingReview;
+        batch.LastErrorCode = failure.ErrorCode;
+        batch.LastError = failure.Message;
+        await context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static ApplyFailure ClassifyApplyFailure(Exception exception)
+    {
+        if (exception is MusicImportApplyValidationException)
+        {
+            return new ApplyFailure(
+                "APPLY_VALIDATION_FAILED",
+                TruncateError(exception.Message),
+                RequiresNewDecision: true);
+        }
+        if (exception is MusicImportApplyConflictException)
+        {
+            return new ApplyFailure(
+                "APPLY_VERSION_CONFLICT",
+                "The review group changed before it could be applied; review it again.",
+                RequiresNewDecision: true);
+        }
+        if (exception is IOException or DbUpdateException)
+        {
+            return new ApplyFailure(
+                "APPLY_IO_FAILED",
+                "The selected audio could not be applied; confirm to retry.",
+                RequiresNewDecision: false);
+        }
+        return new ApplyFailure(
+            "APPLY_FAILED",
+            "The selected audio could not be applied; review the decision and retry.",
+            RequiresNewDecision: true);
+    }
+
+    private static string TruncateError(string message) =>
+        message.Length <= 2048 ? message : message[..2048];
+
+    private sealed record ApplyFailure(
+        string ErrorCode,
+        string Message,
+        bool RequiresNewDecision);
+
+    private static async Task<bool> CompleteApplyingBatchAsync(
+        FollowDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var batch = await context.MusicImportBatches
+            .OrderBy(candidate => candidate.CreatedAt)
+            .ThenBy(candidate => candidate.Id)
+            .FirstOrDefaultAsync(candidate =>
+                candidate.Status == MusicImportBatchStatus.Applying &&
+                candidate.ReviewGroups.Count > 0 &&
+                candidate.ReviewGroups.All(group =>
+                    group.Status == MusicImportReviewStatus.Applied),
+                cancellationToken);
+        if (batch == null) return false;
+
+        MusicImportStateMachine.EnsureTransition(
+            batch.Status,
+            MusicImportBatchStatus.Verifying);
+        batch.Status = MusicImportBatchStatus.Verifying;
+        await context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    private async Task<Guid?> TryClaimAnalysisItemAsync(
         FollowDbContext context,
         DateTime now,
         CancellationToken cancellationToken)
@@ -639,7 +918,10 @@ public sealed class MusicImportWorker : BackgroundService
             .AsNoTracking()
             .Where(item => item.Status == MusicImportItemStatus.Pending &&
                 item.NextAttemptAt <= now &&
-                item.Batch.Status == MusicImportBatchStatus.Running)
+                item.Stage != MusicImportItemStage.Analyzed &&
+                item.Stage != MusicImportItemStage.Grouped &&
+                item.Stage != MusicImportItemStage.AwaitingReview &&
+                item.Batch.Status == MusicImportBatchStatus.Analyzing)
             .OrderBy(item => item.NextAttemptAt)
             .ThenBy(item => item.CreatedAt)
             .ThenBy(item => item.Id)
@@ -655,10 +937,12 @@ public sealed class MusicImportWorker : BackgroundService
                     item.Version == candidate.Version &&
                     item.Status == MusicImportItemStatus.Pending &&
                     item.NextAttemptAt <= now &&
-                    item.Batch.Status == MusicImportBatchStatus.Running)
+                    item.Stage != MusicImportItemStage.Analyzed &&
+                    item.Stage != MusicImportItemStage.Grouped &&
+                    item.Stage != MusicImportItemStage.AwaitingReview &&
+                    item.Batch.Status == MusicImportBatchStatus.Analyzing)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(item => item.Status, MusicImportItemStatus.Processing)
-                    .SetProperty(item => item.Stage, MusicImportItemStage.None)
                     .SetProperty(item => item.AttemptCount, item => item.AttemptCount + 1)
                     .SetProperty(item => item.Retryable, false)
                     .SetProperty(item => item.LeaseOwner, _workerId)
@@ -679,11 +963,15 @@ public sealed class MusicImportWorker : BackgroundService
         if (tracked.Version != candidate.Version ||
             tracked.Status != MusicImportItemStatus.Pending ||
             tracked.NextAttemptAt > now ||
-            tracked.Batch.Status != MusicImportBatchStatus.Running)
+            tracked.Stage is MusicImportItemStage.Analyzed or
+                MusicImportItemStage.Grouped or
+                MusicImportItemStage.AwaitingReview ||
+            tracked.Batch.Status != MusicImportBatchStatus.Analyzing)
+        {
             return null;
+        }
 
         tracked.Status = MusicImportItemStatus.Processing;
-        tracked.Stage = MusicImportItemStage.None;
         tracked.AttemptCount++;
         tracked.Retryable = false;
         tracked.LeaseOwner = _workerId;
@@ -703,28 +991,32 @@ public sealed class MusicImportWorker : BackgroundService
         }
     }
 
-    private static async Task<bool> FinalizeBatchAsync(
+    private static async Task<bool> TryStartGroupingAsync(
         FollowDbContext context,
         CancellationToken cancellationToken)
     {
         var batch = await context.MusicImportBatches
             .OrderBy(candidate => candidate.CreatedAt)
+            .ThenBy(candidate => candidate.Id)
             .FirstOrDefaultAsync(candidate =>
-                candidate.Status == MusicImportBatchStatus.Running &&
+                candidate.Status == MusicImportBatchStatus.Analyzing &&
                 !candidate.Items.Any(item =>
-                    item.Status == MusicImportItemStatus.Pending ||
-                    item.Status == MusicImportItemStatus.Processing),
+                    (item.Status == MusicImportItemStatus.Pending ||
+                     item.Status == MusicImportItemStatus.Processing) &&
+                    item.Stage != MusicImportItemStage.Analyzed &&
+                    item.Stage != MusicImportItemStage.Grouped &&
+                    item.Stage != MusicImportItemStage.AwaitingReview),
                 cancellationToken);
         if (batch == null) return false;
 
         MusicImportStateMachine.EnsureTransition(
             batch.Status,
-            MusicImportBatchStatus.Verifying);
-        batch.Status = MusicImportBatchStatus.Verifying;
+            MusicImportBatchStatus.Grouping);
+        batch.Status = MusicImportBatchStatus.Grouping;
         await context.SaveChangesAsync(cancellationToken);
-
-        return await CompleteVerifyingBatchAsync(context, cancellationToken);
+        return true;
     }
+
 
     private static async Task<bool> CompleteVerifyingBatchAsync(
         FollowDbContext context,

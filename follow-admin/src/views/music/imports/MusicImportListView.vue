@@ -55,7 +55,7 @@
         <el-table-column label="目录 / 任务" min-width="230">
           <template #default="{ row }">
             <button class="batch-link" type="button" @click="openDetail(row.id)">
-              <strong>{{ displayDirectory(row.relativeDirectory) }}</strong>
+              <strong>{{ displayBatchSource(row) }}</strong>
               <span>{{ shortId(row.id) }} · {{ formatDate(row.createdAt) }}</span>
             </button>
           </template>
@@ -77,7 +77,7 @@
               <progress
                 :value="calculateMusicImportProgress(row)"
                 max="100"
-                :aria-label="`${displayDirectory(row.relativeDirectory)} 导入进度`"
+                :aria-label="`${displayBatchSource(row)} 导入进度`"
               ></progress>
             </div>
           </template>
@@ -98,9 +98,15 @@
             <span class="mono-value">{{ formatMusicImportBytes(row.totalBytes) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row.id)">查看</el-button>
+            <el-button
+              v-if="row.status === 'awaitingReview'"
+              link
+              type="warning"
+              @click="openReview(row.id)"
+            >人工复核</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -147,12 +153,15 @@ const statusOptions = (Object.entries(musicImportBatchStatusLabels) as [MusicImp
   .map(([value, label]) => ({ value, label }))
 
 const sourceReady = computed(() => Boolean(
-  capabilities.value?.enabled && capabilities.value.sourceAvailable
+  capabilities.value?.enabled &&
+  capabilities.value?.canIngest &&
+  capabilities.value.sourceAvailable
 ))
 
 const sourceStatusTitle = computed(() => {
   if (!capabilities.value) return '正在检查导入能力'
   if (!capabilities.value.enabled) return '音乐库初始化功能未启用'
+  if (!capabilities.value.fingerprintAvailable) return '声学指纹服务未就绪'
   if (!capabilities.value.sourceAvailable) return '服务器尚未配置音乐目录'
   return capabilities.value.sourceAlias
     ? `已连接：${capabilities.value.sourceAlias}`
@@ -160,6 +169,9 @@ const sourceStatusTitle = computed(() => {
 })
 
 const sourceStatusDescription = computed(() => {
+  if (capabilities.value && !capabilities.value.fingerprintAvailable) {
+    return `声学指纹不可用时禁止新建导入任务：${capabilities.value.fingerprintErrorCode || 'FINGERPRINT_UNAVAILABLE'}。`
+  }
   if (!sourceReady.value) {
     return '需要运维人员启用功能，并以只读方式挂载服务器目录后才能创建任务。'
   }
@@ -201,12 +213,22 @@ function openDetail(batchId: string) {
   void router.push({ name: 'MusicImportDetail', params: { jobId: batchId } })
 }
 
+function openReview(batchId: string) {
+  void router.push({ name: 'MusicImportReview', params: { jobId: batchId } })
+}
+
 function shortId(batchId: string): string {
   return batchId.slice(0, 8).toUpperCase()
 }
 
 function displayDirectory(relativeDirectory: string): string {
   return relativeDirectory || '挂载根目录'
+}
+
+function displayBatchSource(value: MusicImportBatchSummary): string {
+  return value.sourceKind === 'browserStaging'
+    ? '浏览器上传暂存'
+    : displayDirectory(value.relativeDirectory)
 }
 
 function batchStatusLabel(status: MusicImportBatchStatus): string {
