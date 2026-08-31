@@ -6,11 +6,11 @@ import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/utils/duration_utils.dart';
+import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
 import 'package:follow/shared/widgets/player/player_cover_art.dart';
 import 'package:follow/shared/widgets/player/player_main_controls.dart';
 import 'package:follow/shared/widgets/player/player_volume_control.dart';
 import 'package:follow/shared/widgets/player/page_indicator_dot.dart';
-import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
 
 @RoutePage()
 class PlayerPage extends ConsumerStatefulWidget {
@@ -22,13 +22,11 @@ class PlayerPage extends ConsumerStatefulWidget {
 
 class _PlayerPageState extends ConsumerState<PlayerPage> {
   final PageController _pageController = PageController();
-  final ScrollController _lyricsScrollController = ScrollController();
   int _currentPage = 0;
 
   @override
   void dispose() {
     _pageController.dispose();
-    _lyricsScrollController.dispose();
     super.dispose();
   }
 
@@ -81,10 +79,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       leading: Icon(icon, color: _foregroundColor(context, alpha: 0.8)),
       title: Text(
         label,
-        style: TextStyle(
-          fontSize: 16,
-          color: _foregroundColor(context),
-        ),
+        style: TextStyle(fontSize: 16, color: _foregroundColor(context)),
       ),
       onTap: () {
         Navigator.pop(context);
@@ -102,7 +97,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     final positionAsync = ref.watch(playerPositionProvider);
     final durationAsync = ref.watch(playerDurationProvider);
     final audioService = ref.watch(audioPlayerServiceProvider);
-    
+
     // Lyrics providers
     final lyricsAsync = ref.watch(currentTrackLyricsProvider);
     final currentLyricIdx = ref.watch(currentLyricIndexProvider);
@@ -124,11 +119,15 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               end: Alignment.bottomCenter,
               colors: isDark
                   ? [LoginColors.gradientEnd, LoginColors.gradientStart]
-                  : [theme.colorScheme.primaryContainer, theme.colorScheme.surface],
+                  : [
+                      theme.colorScheme.primaryContainer,
+                      theme.colorScheme.surface,
+                    ],
             ),
           ),
           child: Center(
-            child: Text('暂无播放', 
+            child: Text(
+              '暂无播放',
               style: TextStyle(color: _foregroundColor(context, alpha: 0.7)),
             ),
           ),
@@ -162,22 +161,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       error: (_, __) => fallbackDuration,
     );
 
-    // Auto-scroll lyrics logic
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_currentPage == 1 && currentLyricIdx >= 0 && _lyricsScrollController.hasClients) {
-        final targetOffset = (currentLyricIdx * 48.0) - MediaQuery.of(context).size.height * 0.2;
-        final maxScroll = _lyricsScrollController.position.maxScrollExtent;
-        if (targetOffset > 0 && maxScroll > 0) {
-          final clampedOffset = targetOffset.clamp(0.0, maxScroll);
-          _lyricsScrollController.animateTo(
-            clampedOffset,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      }
-    });
-
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -197,11 +180,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
           ),
           onPressed: () => context.router.maybePop(),
         ),
-        title: _currentPage == 1 
+        title: _currentPage == 1
             ? Text(
                 currentTrack.title,
-                style: TextStyle(color: _foregroundColor(context), fontSize: 16),
-              ) 
+                style: TextStyle(
+                  color: _foregroundColor(context),
+                  fontSize: 16,
+                ),
+              )
             : null,
         centerTitle: true,
         actions: [
@@ -212,10 +198,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 color: _foregroundColor(context, alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                Icons.more_horiz,
-                color: _foregroundColor(context),
-              ),
+              child: Icon(Icons.more_horiz, color: _foregroundColor(context)),
             ),
             onPressed: () => _showMoreMenu(context),
           ),
@@ -247,7 +230,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
 
               // PageView for Cover and Lyrics
               SizedBox(
-                height: MediaQuery.of(context).size.width - 40, // Square-ish area
+                height:
+                    MediaQuery.of(context).size.width - 40, // Square-ish area
                 child: PageView(
                   controller: _pageController,
                   onPageChanged: (index) {
@@ -259,11 +243,16 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                     // Page 0: Cover Art
                     Center(child: PlayerCoverArt(track: currentTrack)),
                     // Page 1: Lyrics
-                    _buildLyricsPage(lyricsAsync, currentLyricIdx, audioService),
+                    _buildLyricsPage(
+                      trackId: currentTrack.id,
+                      lyricsAsync: lyricsAsync,
+                      currentLyricIdx: currentLyricIdx,
+                      audioService: audioService,
+                    ),
                   ],
                 ),
               ),
-              
+
               // Page Indicators
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -278,7 +267,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
 
               // Track info
               if (_currentPage == 0) ...[
-                 Padding(
+                Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 40),
                   child: Column(
                     children: [
@@ -288,12 +277,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: _foregroundColor(context),
-                          shadows: isDark ? const [
-                            Shadow(
-                              color: Colors.black26,
-                              blurRadius: 10,
-                            ),
-                          ] : [],
+                          shadows: isDark
+                              ? const [
+                                  Shadow(color: Colors.black26, blurRadius: 10),
+                                ]
+                              : [],
                         ),
                         textAlign: TextAlign.center,
                         maxLines: 2,
@@ -311,7 +299,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                   ),
                 ),
               ] else ...[
-                 const SizedBox(height: 60), 
+                const SizedBox(height: 60),
               ],
 
               const SizedBox(height: 20),
@@ -325,11 +313,22 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                     SliderTheme(
                       data: SliderThemeData(
                         trackHeight: 4,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                        overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-                        activeTrackColor: isDark ? LoginColors.accentPink : theme.colorScheme.primary, 
-                        inactiveTrackColor: _foregroundColor(context, alpha: 0.2),
-                        thumbColor: isDark ? Colors.white : theme.colorScheme.primary,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 16,
+                        ),
+                        activeTrackColor: isDark
+                            ? LoginColors.accentPink
+                            : theme.colorScheme.primary,
+                        inactiveTrackColor: _foregroundColor(
+                          context,
+                          alpha: 0.2,
+                        ),
+                        thumbColor: isDark
+                            ? Colors.white
+                            : theme.colorScheme.primary,
                         trackShape: const RoundedRectSliderTrackShape(),
                       ),
                       child: Slider(
@@ -340,7 +339,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                         min: 0,
                         max: duration.inMilliseconds.toDouble(),
                         onChanged: (value) {
-                          audioService.seek(Duration(milliseconds: value.toInt()));
+                          audioService.seek(
+                            Duration(milliseconds: value.toInt()),
+                          );
                         },
                       ),
                     ),
@@ -401,64 +402,18 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     );
   }
 
-  Widget _buildLyricsPage(AsyncValue<List<LyricLine>> lyricsAsync, int currentLyricIdx, dynamic audioService) {
-    return lyricsAsync.when(
-      data: (lyrics) {
-        if (lyrics.isEmpty) {
-          return Center(
-            child: Text(
-              '暂无歌词',
-              style: TextStyle(
-                fontSize: 16,
-                color: _foregroundColor(context, alpha: 0.6),
-              ),
-            ),
-          );
-        }
-        return ShaderMask(
-          shaderCallback: (Rect bounds) {
-            return const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.transparent, Colors.white, Colors.white, Colors.transparent],
-              stops: [0.0, 0.1, 0.9, 1.0],
-            ).createShader(bounds);
-          },
-          blendMode: BlendMode.dstIn,
-          child: ListView.builder(
-            controller: _lyricsScrollController,
-            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
-            itemCount: lyrics.length,
-            itemBuilder: (context, index) {
-              final lyric = lyrics[index];
-              final isCurrent = index == currentLyricIdx;
-              return GestureDetector(
-                onTap: () => audioService.seek(lyric.timestamp),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    lyric.text,
-                    style: TextStyle(
-                      fontSize: isCurrent ? 20 : 16,
-                      fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                      color: isCurrent
-                          ? _foregroundColor(context)
-                          : _foregroundColor(context, alpha: 0.4),
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              );
-            },
-          ),
-        );
-      },
-      loading: () => Center(
-        child: CircularProgressIndicator(color: _foregroundColor(context)),
-      ),
-      error: (_, __) => LyricsFailureView(
-        foregroundColor: _foregroundColor(context, alpha: 0.6),
-      ),
+  Widget _buildLyricsPage({
+    required String trackId,
+    required AsyncValue<List<LyricLine>> lyricsAsync,
+    required int currentLyricIdx,
+    required AudioPlayerService audioService,
+  }) {
+    return InteractiveLyricsView(
+      key: ValueKey('mobile-lyrics-$trackId'),
+      lyrics: lyricsAsync,
+      currentIndex: currentLyricIdx,
+      foregroundColor: _foregroundColor(context),
+      onSeek: audioService.seek,
     );
   }
 }
