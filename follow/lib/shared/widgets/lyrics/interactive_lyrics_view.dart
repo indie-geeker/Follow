@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
+import 'package:follow/shared/widgets/lyrics/lyrics_scroll_geometry.dart';
 
 const lyricsViewportKey = Key('interactive-lyrics-viewport');
 const lyricsCenterPlayKey = Key('interactive-lyrics-center-play');
@@ -44,11 +46,12 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   final List<GlobalKey> _rowKeys = [];
 
   Timer? _inactivityTimer;
-  // Browse mode is intentionally activated by a later implementation task.
-  // ignore: prefer_final_fields
   bool _isBrowsing = false;
   int? _selectedIndex;
   bool _isProgrammaticScroll = false;
+  bool _selectionUpdateScheduled = false;
+  double? _lastScrollPixels;
+  int _scrollDirection = 1;
   int _operationToken = 0;
 
   @override
@@ -102,23 +105,27 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     });
   }
 
-  bool _isCurrentOperation(int operationToken) {
-    return mounted && operationToken == _operationToken && !_isBrowsing;
+  bool _isCurrentOperation(int operationToken, {bool allowBrowsing = false}) {
+    return mounted &&
+        operationToken == _operationToken &&
+        (allowBrowsing || !_isBrowsing);
   }
 
-  Future<void> _followCurrentLyric({
+  Future<bool> _followCurrentLyric({
     required bool animate,
     required int operationToken,
+    bool allowBrowsing = false,
+    Duration? duration,
   }) async {
     final lyrics = widget.lyrics.value;
     final index = widget.currentIndex;
 
-    if (!_isCurrentOperation(operationToken) ||
+    if (!_isCurrentOperation(operationToken, allowBrowsing: allowBrowsing) ||
         lyrics == null ||
         index < 0 ||
         index >= lyrics.length ||
         !_scrollController.hasClients) {
-      return;
+      return false;
     }
 
     _ensureRowKeys(lyrics.length);
@@ -141,13 +148,17 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
       );
       await _waitForLayout();
 
-      if (!_isCurrentOperation(operationToken)) return;
+      if (!_isCurrentOperation(operationToken, allowBrowsing: allowBrowsing)) {
+        return false;
+      }
       row = _rowKeys[index].currentContext?.findRenderObject();
     }
 
-    if (row == null || !row.attached || !_isCurrentOperation(operationToken)) {
+    if (row == null ||
+        !row.attached ||
+        !_isCurrentOperation(operationToken, allowBrowsing: allowBrowsing)) {
       _isProgrammaticScroll = false;
-      return;
+      return false;
     }
 
     final viewport = RenderAbstractViewport.of(row);
@@ -159,19 +170,148 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
         .toDouble();
 
     _isProgrammaticScroll = true;
-    if (animate && widget.followDuration > Duration.zero) {
+    final animationDuration = duration ?? widget.followDuration;
+    if (animate && animationDuration > Duration.zero) {
       await _scrollController.animateTo(
         targetOffset,
-        duration: widget.followDuration,
+        duration: animationDuration,
         curve: Curves.easeOutCubic,
       );
     } else {
       _scrollController.jumpTo(targetOffset);
     }
 
-    if (_isProgrammaticScroll && _isCurrentOperation(operationToken)) {
+    final completed = _isCurrentOperation(
+      operationToken,
+      allowBrowsing: allowBrowsing,
+    );
+    if (_isProgrammaticScroll && completed) {
       _isProgrammaticScroll = false;
     }
+    return completed;
+  }
+
+  void _beginBrowsing() {
+    _inactivityTimer?.cancel();
+    _operationToken++;
+
+    if (_isProgrammaticScroll && _scrollController.hasClients) {
+      final currentOffset = _scrollController.offset;
+      _scrollController.jumpTo(currentOffset);
+    }
+    _isProgrammaticScroll = false;
+
+    if (!_isBrowsing) {
+      setState(() => _isBrowsing = true);
+    }
+    _scheduleCenterSelection();
+  }
+
+  void _restartInactivityTimer() {
+    if (!_isBrowsing) return;
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(
+      widget.inactivityDelay,
+      () => unawaited(_returnToPlayback()),
+    );
+  }
+
+  Future<void> _returnToPlayback() async {
+    if (!_isBrowsing) return;
+
+    final operationToken = ++_operationToken;
+    final completed = await _followCurrentLyric(
+      animate: true,
+      operationToken: operationToken,
+      allowBrowsing: true,
+      duration: widget.returnDuration,
+    );
+    if (!completed ||
+        !_isCurrentOperation(operationToken, allowBrowsing: true)) {
+      return;
+    }
+
+    setState(() {
+      _isBrowsing = false;
+      _selectedIndex = null;
+    });
+  }
+
+  void _scheduleCenterSelection() {
+    if (_selectionUpdateScheduled) return;
+    _selectionUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _selectionUpdateScheduled = false;
+      if (mounted && _isBrowsing) _updateCenterSelection();
+    });
+  }
+
+  void _updateCenterSelection() {
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    if (viewport is! RenderBox || !viewport.attached) return;
+
+    final viewportTop = viewport.localToGlobal(Offset.zero).dy;
+    final viewportBottom = viewportTop + viewport.size.height;
+    final rows = <VisibleLyricGeometry>[];
+    for (var index = 0; index < _rowKeys.length; index++) {
+      final row = _rowKeys[index].currentContext?.findRenderObject();
+      if (row is! RenderBox || !row.attached) continue;
+
+      final rowTop = row.localToGlobal(Offset.zero).dy;
+      final rowBottom = rowTop + row.size.height;
+      if (rowBottom < viewportTop || rowTop > viewportBottom) continue;
+      rows.add(
+        VisibleLyricGeometry(
+          index: index,
+          center: rowTop + row.size.height / 2,
+        ),
+      );
+    }
+
+    final selectedIndex = findNearestLyricIndex(
+      rows: rows,
+      viewportCenter: viewportTop + viewport.size.height / 2,
+      scrollDirection: _scrollDirection,
+    );
+    if (selectedIndex != null && selectedIndex != _selectedIndex) {
+      setState(() => _selectedIndex = selectedIndex);
+    }
+  }
+
+  void _handlePointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    _beginBrowsing();
+    _restartInactivityTimer();
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (_isProgrammaticScroll) return false;
+
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null &&
+        !_isBrowsing) {
+      _beginBrowsing();
+    }
+
+    if (notification is ScrollUpdateNotification && _isBrowsing) {
+      final previousPixels = _lastScrollPixels;
+      final pixels = notification.metrics.pixels;
+      if (previousPixels != null && pixels != previousPixels) {
+        _scrollDirection = pixels > previousPixels ? 1 : -1;
+      } else if (notification.scrollDelta case final delta? when delta != 0) {
+        _scrollDirection = delta > 0 ? 1 : -1;
+      }
+      _lastScrollPixels = pixels;
+      _scheduleCenterSelection();
+    }
+
+    if (_isBrowsing &&
+        (notification is ScrollEndNotification ||
+            notification is UserScrollNotification &&
+                notification.direction == ScrollDirection.idle)) {
+      _restartInactivityTimer();
+    }
+    return false;
   }
 
   @override
@@ -198,52 +338,78 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
               key: _viewportKey,
               fit: StackFit.expand,
               children: [
-                ListView.builder(
-                  key: lyricsViewportKey,
-                  controller: _scrollController,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: boundarySpace,
-                  ),
-                  itemCount: lyrics.length,
-                  itemBuilder: (context, index) {
-                    final lyric = lyrics[index];
-                    final isCurrent = index == widget.currentIndex;
-                    final isSelected = _isBrowsing && _selectedIndex == index;
-                    final isEmphasized = isCurrent || isSelected;
+                Listener(
+                  onPointerDown: (_) => _beginBrowsing(),
+                  onPointerSignal: _handlePointerSignal,
+                  onPointerPanZoomStart: (_) {
+                    _beginBrowsing();
+                    _restartInactivityTimer();
+                  },
+                  onPointerPanZoomUpdate: (_) => _restartInactivityTimer(),
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _handleScrollNotification,
+                    child: ListView.builder(
+                      key: lyricsViewportKey,
+                      controller: _scrollController,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: boundarySpace,
+                      ),
+                      itemCount: lyrics.length,
+                      itemBuilder: (context, index) {
+                        final lyric = lyrics[index];
+                        final isCurrent = index == widget.currentIndex;
+                        final isSelected =
+                            _isBrowsing && _selectedIndex == index;
+                        final isEmphasized = isCurrent || isSelected;
 
-                    return KeyedSubtree(
-                      key: ValueKey('lyric-row-$index'),
-                      child: ConstrainedBox(
-                        key: _rowKeys[index],
-                        constraints: const BoxConstraints(
-                          minHeight: _minimumRowHeight,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Align(
-                            alignment: Alignment.center,
-                            child: Text(
-                              lyric.text,
-                              style: TextStyle(
-                                fontSize: isEmphasized ? 18 : 15,
-                                fontWeight: isEmphasized
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                color: isEmphasized
-                                    ? widget.foregroundColor
-                                    : widget.foregroundColor.withValues(
-                                        alpha: 0.4,
-                                      ),
+                        return KeyedSubtree(
+                          key: ValueKey('lyric-row-$index'),
+                          child: ConstrainedBox(
+                            key: _rowKeys[index],
+                            constraints: const BoxConstraints(
+                              minHeight: _minimumRowHeight,
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Align(
+                                alignment: Alignment.center,
+                                child: Text(
+                                  lyric.text,
+                                  style: TextStyle(
+                                    fontSize: isEmphasized ? 18 : 15,
+                                    fontWeight: isEmphasized
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: isEmphasized
+                                        ? widget.foregroundColor
+                                        : widget.foregroundColor.withValues(
+                                            alpha: 0.4,
+                                          ),
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
                               ),
-                              textAlign: TextAlign.center,
                             ),
                           ),
-                        ),
-                      ),
-                    );
-                  },
+                        );
+                      },
+                    ),
+                  ),
                 ),
+                if (_isBrowsing)
+                  Positioned(
+                    left: 12,
+                    top: boundarySpace - 12,
+                    child: IgnorePointer(
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        key: lyricsCenterPlayKey,
+                        size: 24,
+                        color: widget.foregroundColor,
+                      ),
+                    ),
+                  ),
               ],
             );
           },

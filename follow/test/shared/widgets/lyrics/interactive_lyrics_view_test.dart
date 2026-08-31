@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,14 @@ const _lyrics = [
   LyricLine(timestamp: Duration(seconds: 20), text: 'Lyric 4'),
   LyricLine(timestamp: Duration(seconds: 25), text: 'Lyric 5'),
 ];
+
+final _manyLyrics = List.generate(
+  12,
+  (index) => LyricLine(
+    timestamp: Duration(seconds: index * 5),
+    text: 'Lyric $index',
+  ),
+);
 
 class _LyricsHarness extends StatelessWidget {
   const _LyricsHarness({
@@ -64,6 +73,14 @@ class _LyricsHarness extends StatelessWidget {
 
 double _verticalCenter(WidgetTester tester, Finder finder) {
   return tester.getRect(finder).center.dy;
+}
+
+double _scrollOffset(WidgetTester tester) {
+  return tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels;
+}
+
+Offset _viewportCenter(WidgetTester tester) {
+  return tester.getCenter(find.byKey(lyricsViewportKey));
 }
 
 void main() {
@@ -235,5 +252,175 @@ void main() {
       _verticalCenter(tester, find.byKey(targetKey)),
       closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
     );
+  });
+
+  testWidgets(
+    'dragging pauses playback follow and returns to the latest lyric after 3s',
+    (tester) async {
+      final currentIndex = ValueNotifier(2);
+      addTearDown(currentIndex.dispose);
+
+      await tester.pumpWidget(
+        _LyricsHarness(
+          currentIndex: currentIndex,
+          lyrics: AsyncData(_manyLyrics),
+          seekCalls: [],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+      await tester.pump();
+
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+      final browsedOffset = _scrollOffset(tester);
+
+      currentIndex.value = 7;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(_scrollOffset(tester), closeTo(browsedOffset, 0.01));
+      await tester.pump(const Duration(milliseconds: 2400));
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(microseconds: 1));
+
+      expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+      expect(
+        _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-7'))),
+        closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+      );
+    },
+  );
+
+  testWidgets('a second drag restarts the full inactivity delay', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -48));
+    await tester.pump(const Duration(milliseconds: 2900));
+
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(microseconds: 1));
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets(
+    'pointer scroll enters browse mode and each signal resets delay',
+    (tester) async {
+      final currentIndex = ValueNotifier(2);
+      addTearDown(currentIndex.dispose);
+
+      await tester.pumpWidget(
+        _LyricsHarness(
+          currentIndex: currentIndex,
+          lyrics: AsyncData(_manyLyrics),
+          seekCalls: [],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: _viewportCenter(tester),
+          scrollDelta: const Offset(0, 80),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 2900));
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: _viewportCenter(tester),
+          scrollDelta: const Offset(0, 80),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 2900));
+
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(microseconds: 1));
+      expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    },
+  );
+
+  testWidgets('user input during return animation cancels the return', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+    currentIndex.value = 9;
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    final gesture = await tester.startGesture(_viewportCenter(tester));
+    await tester.pump();
+    final interruptedOffset = _scrollOffset(tester);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(_scrollOffset(tester), closeTo(interruptedOffset, 0.01));
+    await gesture.up();
+  });
+
+  testWidgets('programmatic follow notifications never enter browse mode', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    currentIndex.value = 9;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 140));
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 }
