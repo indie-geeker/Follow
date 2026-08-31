@@ -40,6 +40,7 @@ class InteractiveLyricsView extends StatefulWidget {
 class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   static const _minimumRowHeight = 48.0;
   static const _maxRevealAttempts = 4;
+  static const _horizontalContentGutter = 56.0;
 
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _viewportKey = GlobalKey();
@@ -52,6 +53,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   bool _selectionUpdateScheduled = false;
   bool _gestureHadScrollActivity = false;
   bool _isSeeking = false;
+  int? _seekOperationToken;
+  bool _isReturningToPlayback = false;
+  int? _returnOperationToken;
   double? _lastScrollPixels;
   int _scrollDirection = 1;
   int _operationToken = 0;
@@ -91,6 +95,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void dispose() {
     _operationToken++;
     _isSeeking = false;
+    _seekOperationToken = null;
+    _isReturningToPlayback = false;
+    _returnOperationToken = null;
     _inactivityTimer?.cancel();
     _inactivityTimer = null;
     _scrollController.dispose();
@@ -141,6 +148,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     _selectionUpdateScheduled = false;
     _gestureHadScrollActivity = false;
     _isSeeking = false;
+    _seekOperationToken = null;
+    _isReturningToPlayback = false;
+    _returnOperationToken = null;
     _lastScrollPixels = null;
     _scrollDirection = 1;
   }
@@ -269,6 +279,8 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void _beginBrowsing() {
     if (!_canBrowse) return;
     _inactivityTimer?.cancel();
+    _isReturningToPlayback = false;
+    _returnOperationToken = null;
     _operationToken++;
     _lastScrollPixels = _scrollController.hasClients
         ? _scrollController.offset
@@ -307,6 +319,8 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     if (!_isBrowsing || !_canBrowse) return;
 
     final operationToken = ++_operationToken;
+    _isReturningToPlayback = true;
+    _returnOperationToken = operationToken;
     while (_isCurrentOperation(operationToken, allowBrowsing: true)) {
       final targetIndex = widget.currentIndex;
       final completed = await _followCurrentLyric(
@@ -318,16 +332,26 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
       );
       if (!completed ||
           !_isCurrentOperation(operationToken, allowBrowsing: true)) {
+        _clearReturnOwnership(operationToken);
         return;
       }
       if (widget.currentIndex != targetIndex) continue;
 
       setState(() {
+        _isReturningToPlayback = false;
+        _returnOperationToken = null;
         _isBrowsing = false;
         _selectedIndex = null;
       });
       return;
     }
+    _clearReturnOwnership(operationToken);
+  }
+
+  void _clearReturnOwnership(int operationToken) {
+    if (_returnOperationToken != operationToken) return;
+    _isReturningToPlayback = false;
+    _returnOperationToken = null;
   }
 
   void _scheduleCenterSelection() {
@@ -382,6 +406,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void _handlePointerDown(PointerDownEvent event) {
     if (_isSeeking) return;
     _gestureHadScrollActivity = false;
+    if (_isReturningToPlayback) _beginBrowsing();
   }
 
   void _handleLyricTap(int index) {
@@ -404,17 +429,25 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     final operationToken = ++_operationToken;
     _inactivityTimer?.cancel();
     setState(() {
+      _isReturningToPlayback = false;
+      _returnOperationToken = null;
       _isSeeking = true;
+      _seekOperationToken = operationToken;
       _selectedIndex = index;
     });
 
     try {
       await widget.onSeek(lyrics[index].timestamp);
     } catch (_) {
-      if (!mounted || operationToken != _operationToken || !_isSeeking) {
+      if (!mounted ||
+          !_ownsSeek(operationToken) ||
+          operationToken != _operationToken) {
         return;
       }
-      setState(() => _isSeeking = false);
+      setState(() {
+        _isSeeking = false;
+        _seekOperationToken = null;
+      });
       ScaffoldMessenger.maybeOf(
         context,
       )?.showSnackBar(const SnackBar(content: Text('无法跳转播放位置，请重试')));
@@ -424,12 +457,12 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
 
     if (!_isCurrentOperation(operationToken, allowBrowsing: true) ||
         (!isSingleLyric && !_isBrowsing)) {
-      if (mounted) setState(() => _isSeeking = false);
+      _releaseSeekOwnership(operationToken);
       return;
     }
 
     if (isSingleLyric) {
-      if (mounted) setState(() => _isSeeking = false);
+      _releaseSeekOwnership(operationToken);
       return;
     }
 
@@ -443,14 +476,28 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     );
     if (!completed ||
         !_isCurrentOperation(operationToken, allowBrowsing: true)) {
-      if (mounted) setState(() => _isSeeking = false);
+      _releaseSeekOwnership(operationToken);
       return;
     }
 
+    if (!_ownsSeek(operationToken)) return;
     setState(() {
       _isSeeking = false;
+      _seekOperationToken = null;
       _isBrowsing = false;
       _selectedIndex = null;
+    });
+  }
+
+  bool _ownsSeek(int operationToken) {
+    return mounted && _isSeeking && _seekOperationToken == operationToken;
+  }
+
+  void _releaseSeekOwnership(int operationToken) {
+    if (!_ownsSeek(operationToken)) return;
+    setState(() {
+      _isSeeking = false;
+      _seekOperationToken = null;
     });
   }
 
@@ -464,6 +511,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void _handlePanZoomStart(PointerPanZoomStartEvent event) {
     if (_isSeeking) return;
     _gestureHadScrollActivity = false;
+    if (_isReturningToPlayback) _beginBrowsing();
   }
 
   void _handlePanZoomUpdate(PointerPanZoomUpdateEvent event) {
@@ -558,7 +606,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                           ? const NeverScrollableScrollPhysics()
                           : null,
                       padding: EdgeInsets.symmetric(
-                        horizontal: 24,
+                        horizontal: _horizontalContentGutter,
                         vertical: boundarySpace,
                       ),
                       itemCount: lyrics.length,

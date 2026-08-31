@@ -1153,6 +1153,50 @@ void main() {
     await gesture.up();
   });
 
+  testWidgets('pointer down immediately interrupts an active return', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+    currentIndex.value = 9;
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    final gesture = await tester.startGesture(
+      _viewportCenter(tester) + const Offset(0, 80),
+    );
+    await tester.pump();
+    final interruptedOffset = _scrollOffset(tester);
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(_scrollOffset(tester), closeTo(interruptedOffset, 0.01));
+
+    await gesture.cancel();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(microseconds: 1));
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
   testWidgets('programmatic follow notifications never enter browse mode', (
     tester,
   ) async {
@@ -1248,6 +1292,54 @@ void main() {
     );
   });
 
+  testWidgets('390dp wrapped lyric does not overlap center play control', (
+    tester,
+  ) async {
+    const longText = '这是一段用于验证窄屏歌词布局的很长中文歌词内容需要自动换行并且不能遮挡中心播放按钮';
+    const wrappedLyrics = [
+      LyricLine(timestamp: Duration.zero, text: 'Lyric 0'),
+      LyricLine(timestamp: Duration(seconds: 5), text: 'Lyric 1'),
+      LyricLine(timestamp: Duration(seconds: 10), text: longText),
+      LyricLine(timestamp: Duration(seconds: 15), text: 'Lyric 3'),
+      LyricLine(timestamp: Duration(seconds: 20), text: 'Lyric 4'),
+    ];
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: const AsyncData(wrappedLyrics),
+        seekCalls: [],
+        width: 390,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final listContext = tester.element(find.byKey(lyricsViewportKey));
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    ScrollUpdateNotification(
+      metrics: position,
+      context: listContext,
+      scrollDelta: 1,
+    ).dispatch(listContext);
+    await tester.pump();
+    await tester.pump();
+
+    final viewportRect = tester.getRect(find.byKey(lyricsViewportKey));
+    final controlRect = tester.getRect(find.byKey(lyricsCenterPlayKey));
+    final textRect = tester.getRect(find.text(longText));
+    expect(controlRect.shortestSide, greaterThanOrEqualTo(44));
+    expect(controlRect.overlaps(textRect), isFalse);
+    expect(textRect.center.dx, closeTo(viewportRect.center.dx, 1));
+    expect(
+      textRect.left - viewportRect.left,
+      closeTo(viewportRect.right - textRect.right, 1),
+    );
+  });
+
   testWidgets(
     'lyrics replacement resets browsing and follows unchanged index',
     (tester) async {
@@ -1335,6 +1427,74 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('stale seek success cannot unlock a newer pending seek', (
+    tester,
+  ) async {
+    final replacement = List.generate(
+      8,
+      (index) => LyricLine(
+        timestamp: Duration(seconds: index * 10),
+        text: 'Replacement lyric $index',
+      ),
+    );
+    final currentIndex = ValueNotifier(2);
+    final lyricsNotifier = ValueNotifier<AsyncValue<List<LyricLine>>>(
+      AsyncData(_manyLyrics),
+    );
+    final seekCalls = <Duration>[];
+    final seekCompleters = List.generate(3, (_) => Completer<void>());
+    addTearDown(currentIndex.dispose);
+    addTearDown(lyricsNotifier.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyricsNotifier: lyricsNotifier,
+        seekCalls: seekCalls,
+        onSeek: (position) {
+          seekCalls.add(position);
+          return seekCompleters[seekCalls.length - 1].future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+    expect(seekCalls, [const Duration(seconds: 20)]);
+
+    lyricsNotifier.value = AsyncData(replacement);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+    expect(seekCalls, [
+      const Duration(seconds: 20),
+      const Duration(seconds: 40),
+    ]);
+
+    seekCompleters[0].complete();
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-3')));
+    await tester.pump();
+    expect(seekCalls, [
+      const Duration(seconds: 20),
+      const Duration(seconds: 40),
+    ]);
+
+    seekCompleters[1].complete();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-5')));
+    await tester.pump();
+    expect(seekCalls, [
+      const Duration(seconds: 20),
+      const Duration(seconds: 40),
+      const Duration(seconds: 50),
+    ]);
+
+    seekCompleters[2].complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('replaced lyrics ignore a stale pending seek failure', (
