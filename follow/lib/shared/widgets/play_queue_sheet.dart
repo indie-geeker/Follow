@@ -81,58 +81,61 @@ class PlayQueueSheet extends ConsumerWidget {
                 final track = tracks[index];
                 final isCurrent = track.id == currentTrack?.id;
 
-                return ListTile(
-                  leading: TrackCoverImage(
-                    track: track,
-                    size: 40,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  title: Text(
-                    track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isCurrent ? theme.colorScheme.primary : null,
-                      fontWeight: isCurrent ? FontWeight.bold : null,
+                return Material(
+                  type: MaterialType.transparency,
+                  child: ListTile(
+                    leading: TrackCoverImage(
+                      track: track,
+                      size: 40,
+                      borderRadius: BorderRadius.circular(4),
                     ),
-                  ),
-                  subtitle: Text(
-                    track.artist?.name ?? 'Unknown',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isCurrent
-                          ? theme.colorScheme.primary.withValues(alpha: 0.8)
-                          : theme.textTheme.bodySmall?.color,
-                    ),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isCurrent)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8.0),
-                          child: Icon(
-                            Icons.graphic_eq_rounded,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                      IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                        onPressed: () {
-                          ref
-                              .read(audioPlayerServiceProvider)
-                              .removeQueueItemAt(index);
-                        },
+                    title: Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isCurrent ? theme.colorScheme.primary : null,
+                        fontWeight: isCurrent ? FontWeight.bold : null,
                       ),
-                    ],
+                    ),
+                    subtitle: Text(
+                      track.artist?.name ?? 'Unknown',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isCurrent
+                            ? theme.colorScheme.primary.withValues(alpha: 0.8)
+                            : theme.textTheme.bodySmall?.color,
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isCurrent)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: Icon(
+                              Icons.graphic_eq_rounded,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                          onPressed: () {
+                            ref
+                                .read(audioPlayerServiceProvider)
+                                .removeQueueItemAt(index);
+                          },
+                        ),
+                      ],
+                    ),
+                    onTap: () {
+                      ref
+                          .read(audioPlayerServiceProvider)
+                          .playAll(tracks, startIndex: index);
+                    },
                   ),
-                  onTap: () {
-                    ref
-                        .read(audioPlayerServiceProvider)
-                        .playAll(tracks, startIndex: index);
-                  },
                 );
               },
             ),

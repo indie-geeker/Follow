@@ -196,8 +196,9 @@ if rg -q '^RUN npm (ci|run build)$' follow-admin/Dockerfile ||
 fi
 
 if ! rg -q 'client_max_body_size 500M;' follow-admin/nginx.conf ||
+  ! rg -q 'location \^~ /api/ \{' follow-admin/nginx.conf ||
   ! rg -q 'proxy_pass http://api:5000' follow-admin/nginx.conf; then
-  echo 'Docker config check failed: admin Nginx must proxy same-origin API requests and allow 500M uploads' >&2
+  echo 'Docker config check failed: admin Nginx must prioritize same-origin API proxying and allow 500M uploads' >&2
   exit 1
 fi
 

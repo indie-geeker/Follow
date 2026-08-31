@@ -5,7 +5,6 @@ using Follow.Infrastructure.Data;
 using Follow.Shared.DTOs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using TagLib;
 
 namespace Follow.Infrastructure.Services;
 
@@ -18,6 +17,8 @@ public class TrackService : ITrackService
     private readonly IStorageService _storageService;
     private readonly IArtistService _artistService;
     private readonly IAlbumService _albumService;
+    private readonly IAudioMetadataExtractor _metadataExtractor;
+    private readonly EmbeddedTrackAssetWriter _assetWriter;
     private readonly StorageDeletionQueue _deletionQueue;
     private readonly ILogger<TrackService> _logger;
 
@@ -26,6 +27,8 @@ public class TrackService : ITrackService
         IStorageService storageService,
         IArtistService artistService,
         IAlbumService albumService,
+        IAudioMetadataExtractor metadataExtractor,
+        EmbeddedTrackAssetWriter assetWriter,
         StorageDeletionQueue deletionQueue,
         ILogger<TrackService> logger)
     {
@@ -33,121 +36,81 @@ public class TrackService : ITrackService
         _storageService = storageService;
         _artistService = artistService;
         _albumService = albumService;
+        _metadataExtractor = metadataExtractor;
+        _assetWriter = assetWriter;
         _deletionQueue = deletionQueue;
         _logger = logger;
     }
 
     public async Task<TrackDto> UploadTrackAsync(Stream fileStream, string fileName, string contentType)
     {
-        // Save to temporary file for TagLib processing
         var tempPath = Path.GetTempFileName();
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
         var tempFile = Path.ChangeExtension(tempPath, extension);
-        
-        string? uploadedFilePath = null;
-        var trackSaved = false;
+
+        string? uploadedAudioPath = null;
+        IReadOnlyList<string> embeddedAssetPaths = [];
+        var trackCommitted = false;
         try
         {
-            // Copy stream to temp file
             await using (var fileWriter = System.IO.File.Create(tempFile))
             {
                 await fileStream.CopyToAsync(fileWriter);
             }
 
-            // Extract metadata using TagLib
-            string title = Path.GetFileNameWithoutExtension(fileName);
-            string? artistName = null;
-            string? albumName = null;
-            int durationSeconds = 0;
-            int bitRate = 0;
-            string? format = extension.TrimStart('.');
-            byte[]? coverData = null;
-            string? coverExtension = null;
-            string? coverContentType = null;
+            await using var metadataStream = System.IO.File.OpenRead(tempFile);
+            var metadata = await _metadataExtractor.ExtractAsync(metadataStream, fileName);
 
-            try
-            {
-                using var tagFile = TagLib.File.Create(tempFile);
-                if (!string.IsNullOrWhiteSpace(tagFile.Tag.Title))
-                    title = tagFile.Tag.Title;
-                
-                if (tagFile.Tag.Performers?.Length > 0)
-                    artistName = tagFile.Tag.Performers[0];
-                
-                if (!string.IsNullOrWhiteSpace(tagFile.Tag.Album))
-                    albumName = tagFile.Tag.Album;
-                
-                durationSeconds = (int)tagFile.Properties.Duration.TotalSeconds;
-                bitRate = tagFile.Properties.AudioBitrate;
-
-                if (tagFile.Tag.Pictures.Length > 0)
-                {
-                    try 
-                    {
-                        var pic = tagFile.Tag.Pictures[0];
-                        coverData = pic.Data.Data;
-                        coverContentType = pic.MimeType;
-                        coverExtension = coverContentType switch 
-                        {
-                            "image/jpeg" => ".jpg",
-                            "image/png" => ".png",
-                            "image/webp" => ".webp",
-                            "image/gif" => ".gif",
-                            _ => null
-                        };
-                    }
-                    catch (Exception ex)
-                    {
-                         _logger.LogWarning(ex, "Could not extract cover art from {FileName}", fileName);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not extract metadata from {FileName}", fileName);
-            }
-
-            // Upload to MinIO
             await using var uploadStream = System.IO.File.OpenRead(tempFile);
-            var filePath = await _storageService.UploadFileAsync(uploadStream, fileName, contentType, "tracks");
-            uploadedFilePath = filePath;
+            uploadedAudioPath = await _storageService.UploadFileAsync(
+                uploadStream,
+                fileName,
+                contentType,
+                "tracks");
+
+            var track = new Track
+            {
+                Title = metadata.Title.Trim(),
+                FilePath = uploadedAudioPath,
+                DurationSeconds = metadata.DurationSeconds,
+                BitRate = metadata.BitRate,
+                Format = metadata.Format.Trim().ToLowerInvariant(),
+                FileSizeBytes = new FileInfo(tempFile).Length,
+                OriginalFileName = fileName
+            };
+            var embeddedAssets = await _assetWriter.WriteAsync(
+                track.Id,
+                metadata.CoverData,
+                metadata.CoverContentType,
+                metadata.TimedLyrics);
+            embeddedAssetPaths = embeddedAssets.NewObjectPaths;
+            track.CoverUrl = embeddedAssets.CoverUrl;
+            track.LyricsUrl = embeddedAssets.LyricsUrl;
 
             Artist? artist = null;
             Album? album = null;
-            Track track;
             await using var transaction = _context.Database.IsRelational()
                 ? await _context.Database.BeginTransactionAsync()
                 : null;
             try
             {
-                // Artist, album, and track are one database graph. The helpers
-                // only stage new entities; this is the single commit point.
-                if (!string.IsNullOrWhiteSpace(artistName))
+                if (!string.IsNullOrWhiteSpace(metadata.Artist))
                 {
-                    artist = await _artistService.GetOrCreateArtistByNameAsync(artistName);
+                    artist = await _artistService.GetOrCreateArtistByNameAsync(metadata.Artist);
                 }
 
-                if (!string.IsNullOrWhiteSpace(albumName))
+                if (!string.IsNullOrWhiteSpace(metadata.Album))
                 {
-                    album = await _albumService.GetOrCreateAlbumAsync(albumName, artist?.Id);
+                    album = await _albumService.GetOrCreateAlbumAsync(metadata.Album, artist?.Id);
                 }
 
-                track = new Track
-                {
-                    Title = title,
-                    FilePath = filePath,
-                    DurationSeconds = durationSeconds,
-                    BitRate = bitRate,
-                    Format = format,
-                    ArtistId = artist?.Id,
-                    AlbumId = album?.Id
-                };
-
+                track.ArtistId = artist?.Id;
+                track.AlbumId = album?.Id;
                 _context.Tracks.Add(track);
                 await _context.SaveChangesAsync();
                 if (transaction != null)
                     await transaction.CommitAsync();
-                trackSaved = true;
+                trackCommitted = true;
             }
             catch
             {
@@ -168,36 +131,35 @@ public class TrackService : ITrackService
                 throw;
             }
 
-            // Upload cover if extracted
-            if (coverData != null && coverExtension != null && coverContentType != null)
-            {
-                try 
-                {
-                    using var coverStream = new MemoryStream(coverData);
-                    var coverPath = await _storageService.UploadFileAsync(coverStream, $"cover{coverExtension}", coverContentType, $"covers/{track.Id}");
-                    await PersistExtractedCoverReferenceAsync(track, coverPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to upload extracted cover for track {TrackId}", track.Id);
-                }
-            }
-
-            _logger.LogInformation("Uploaded track: {Title} by {Artist}", title, artistName ?? "Unknown");
+            _logger.LogInformation(
+                "Uploaded track: {Title} by {Artist}",
+                metadata.Title,
+                metadata.Artist ?? "Unknown");
 
             return MapToDto(track, artist, album);
         }
         catch
         {
-            if (uploadedFilePath != null && !trackSaved)
-                await _deletionQueue.CompensateUploadAsync(
-                    _storageService,
-                    uploadedFilePath);
+            if (!trackCommitted)
+            {
+                foreach (var embeddedAssetPath in embeddedAssetPaths)
+                {
+                    await _deletionQueue.CompensateUploadAsync(
+                        _storageService,
+                        embeddedAssetPath);
+                }
+
+                if (uploadedAudioPath != null)
+                {
+                    await _deletionQueue.CompensateUploadAsync(
+                        _storageService,
+                        uploadedAudioPath);
+                }
+            }
             throw;
         }
         finally
         {
-            // Cleanup temp files
             if (System.IO.File.Exists(tempFile))
                 System.IO.File.Delete(tempFile);
             if (System.IO.File.Exists(tempPath))

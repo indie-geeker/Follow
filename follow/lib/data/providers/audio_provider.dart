@@ -83,6 +83,16 @@ String playbackFailureMessage(Object _) {
   return '无法播放此歌曲，请检查网络后重试';
 }
 
+(double, double) nextMuteVolume({
+  required double current,
+  required double lastAudible,
+}) {
+  if (current > 0) return (0.0, current);
+
+  final restored = lastAudible > 0 ? lastAudible : 1.0;
+  return (restored, restored);
+}
+
 @Riverpod(keepAlive: true)
 class PlaybackFailure extends _$PlaybackFailure {
   @override
@@ -213,6 +223,13 @@ class AudioPlayerService {
 
   Future<void> setVolume(double volume) async {
     await _player.setVolume(volume);
+  }
+
+  Future<void> applyPlayMode(PlayMode mode) async {
+    await _player.setShuffleModeEnabled(false);
+    await _player.setLoopMode(
+      mode == PlayMode.single ? LoopMode.one : LoopMode.off,
+    );
   }
 
   Future<void> playNext() async {
@@ -414,34 +431,16 @@ class PlayerMode extends _$PlayerMode {
     state = mode;
     final service = ref.read(audioPlayerServiceProvider);
 
+    await service.applyPlayMode(mode);
+
     switch (mode) {
       case PlayMode.sequence:
-        // Shuffle off, Loop off (we handle loop manually)
-        await service.player.setShuffleModeEnabled(false);
-        await service.player.setLoopMode(LoopMode.off);
         break;
       case PlayMode.shuffle:
-        // Shuffle off (we handle shuffle manually), Loop off
-        // Note: JustAudio's shuffle is different from our manual shuffle logic implementation detail
-        // But to rely on our manual plays, we turn native shuffle off to avoid confusion,
-        // or we keep it off and just use our index logic.
-        // Actually, if we use setShuffleModeEnabled(true), JustAudio might change indices internally?
-        // No, JustAudio's shuffle just changes the order if we use a ConcatenatingAudioSource.
-        // Since we seem to be playing single tracks via setUrl/setFilePath, JustAudio's queue is size 1.
-        // So LoopMode.all will just loop this one track.
-        // So we MUST use LoopMode.off and handle "next" manually.
-        await service.player.setShuffleModeEnabled(false);
-        await service.player.setLoopMode(LoopMode.off);
-
-        // Generate new shuffle order
         final queue = ref.read(playQueueProvider);
         ref.read(shuffledIndicesProvider.notifier).reshuffle(queue.length);
         break;
       case PlayMode.single:
-        // Loop one
-        // Keep shuffle state or disable? usually disable for single loop
-        await service.player.setShuffleModeEnabled(false);
-        await service.player.setLoopMode(LoopMode.one);
         break;
     }
   }

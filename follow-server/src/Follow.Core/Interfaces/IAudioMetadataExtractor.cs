@@ -16,4 +16,5 @@ public sealed record AudioMetadata(
     int BitRate,
     string Format,
     byte[]? CoverData = null,
-    string? CoverContentType = null);
+    string? CoverContentType = null,
+    string? TimedLyrics = null);

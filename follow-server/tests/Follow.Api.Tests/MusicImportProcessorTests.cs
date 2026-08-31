@@ -41,6 +41,7 @@ public class MusicImportProcessorTests
         Assert.Equal(existing.Id, item.TrackId);
         Assert.Equal(SHA256.HashData(bytes), item.ContentSha256);
         Assert.Empty(storage.Writes);
+        Assert.Empty(storage.Uploads);
         Assert.Single(await context.Tracks.ToListAsync());
     }
 
@@ -79,6 +80,88 @@ public class MusicImportProcessorTests
         Assert.Equal(expectedPath, item.ObjectPath);
         Assert.Null(item.LeaseOwner);
         Assert.NotNull(item.CompletedAt);
+    }
+
+    [Fact]
+    public async Task NewItem_PersistsEmbeddedCoverAndLyricsWithTrack()
+    {
+        using var source = new TemporaryDirectory();
+        await File.WriteAllBytesAsync(Path.Combine(source.Path, "assets.mp3"), [7, 8, 9]);
+        await using var context = CreateContext();
+        var item = await SeedClaimedItemAsync(context, source.Path, "assets.mp3");
+        var storage = new RecordingImportStorageService();
+        var metadata = new RecordingMetadataExtractor(ValidMetadata with
+        {
+            CoverData = [1, 2],
+            CoverContentType = "image/jpeg",
+            TimedLyrics = "[00:01.20]line"
+        });
+        var processor = CreateProcessor(context, storage, source.Path, metadata);
+
+        await processor.ProcessAsync(item.Id, LeaseOwner);
+
+        var track = await context.Tracks.SingleAsync();
+        var coverUrl = Assert.IsType<string>(track.CoverUrl);
+        var lyricsUrl = Assert.IsType<string>(track.LyricsUrl);
+        Assert.Equal($"covers/{track.Id}/cover.jpg", coverUrl);
+        Assert.Equal($"lyrics/{track.Id}/lyrics.lrc", lyricsUrl);
+        Assert.Equal([coverUrl, lyricsUrl], storage.Uploads);
+    }
+
+    [Fact]
+    public async Task EmbeddedAssetFailure_CleansAssetsAndAudioWithoutTrackReferences()
+    {
+        using var source = new TemporaryDirectory();
+        await File.WriteAllBytesAsync(Path.Combine(source.Path, "asset-failure.mp3"), [7]);
+        await using var context = CreateContext();
+        var item = await SeedClaimedItemAsync(context, source.Path, "asset-failure.mp3");
+        var storage = new RecordingImportStorageService { FailUploadNumber = 2 };
+        var metadata = new RecordingMetadataExtractor(ValidMetadata with
+        {
+            CoverData = [1],
+            CoverContentType = "image/jpeg",
+            TimedLyrics = "[00:01.20]line"
+        });
+        var processor = CreateProcessor(context, storage, source.Path, metadata);
+
+        await processor.ProcessAsync(item.Id, LeaseOwner);
+
+        Assert.Equal(MusicImportItemStatus.Failed, item.Status);
+        Assert.Equal("STORAGE_ERROR", item.ErrorCode);
+        Assert.Empty(await context.Tracks.ToListAsync());
+        Assert.Empty(storage.Objects);
+        Assert.Contains(storage.Uploads.Single(path => path.StartsWith("covers/")), storage.Deletes);
+        Assert.Contains($"tracks/import/{item.Id}/audio.mp3", storage.Deletes);
+    }
+
+    [Fact]
+    public async Task DatabaseFailure_CleansEmbeddedAssetsAndAudio()
+    {
+        using var source = new TemporaryDirectory();
+        await File.WriteAllBytesAsync(Path.Combine(source.Path, "asset-database.mp3"), [7]);
+        var options = NewOptions();
+        await using var context = new FailNextTrackSaveContext(options);
+        var item = await SeedClaimedItemAsync(context, source.Path, "asset-database.mp3");
+        context.FailNextTrackSave = true;
+        var storage = new RecordingImportStorageService();
+        var metadata = new RecordingMetadataExtractor(ValidMetadata with
+        {
+            CoverData = [1],
+            CoverContentType = "image/png",
+            TimedLyrics = "[00:01.20]line"
+        });
+        var processor = CreateProcessor(context, storage, source.Path, metadata);
+
+        await processor.ProcessAsync(item.Id, LeaseOwner);
+
+        var persisted = await context.MusicImportItems.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == item.Id);
+        Assert.Equal(MusicImportItemStatus.Failed, persisted.Status);
+        Assert.Equal("DATABASE_ERROR", persisted.ErrorCode);
+        Assert.Empty(await context.Tracks.ToListAsync());
+        Assert.Empty(storage.Objects);
+        Assert.All(storage.Uploads, path => Assert.Contains(path, storage.Deletes));
+        Assert.Contains($"tracks/import/{item.Id}/audio.mp3", storage.Deletes);
     }
 
     [Fact]
@@ -437,10 +520,11 @@ public class MusicImportProcessorTests
         IAudioMetadataExtractor? metadata = null,
         MusicImportRuntimeSettings? settings = null,
         IServiceScopeFactory? scopeFactory = null) => new(
-            context,
-            storage,
-            metadata ?? new RecordingMetadataExtractor(ValidMetadata),
-            settings ?? MusicImportScannerTests.EnabledSettings(sourceRoot),
+        context,
+        storage,
+        metadata ?? new RecordingMetadataExtractor(ValidMetadata),
+        new EmbeddedTrackAssetWriter(storage),
+        settings ?? MusicImportScannerTests.EnabledSettings(sourceRoot),
             NullLogger<MusicImportProcessor>.Instance,
             scopeFactory);
 
@@ -518,9 +602,11 @@ internal sealed class RecordingImportStorageService : IStorageService
 {
     public Dictionary<string, byte[]> Objects { get; } = new(StringComparer.Ordinal);
     public List<string> Writes { get; } = [];
+    public List<string> Uploads { get; } = [];
     public List<string> Deletes { get; } = [];
     public bool DeleteSucceeds { get; set; } = true;
     public bool ThrowAfterWrite { get; set; }
+    public int? FailUploadNumber { get; init; }
     public Func<Task>? AfterWriteAsync { get; set; }
 
     public async Task WriteObjectAsync(
@@ -543,7 +629,17 @@ internal sealed class RecordingImportStorageService : IStorageService
         Stream fileStream,
         string fileName,
         string contentType,
-        string? folder = null) => throw new NotSupportedException();
+        string? folder = null)
+    {
+        var objectPath = $"{folder}/{fileName}";
+        Uploads.Add(objectPath);
+        if (Uploads.Count == FailUploadNumber)
+            throw new IOException("simulated embedded asset upload failure");
+        using var buffer = new MemoryStream();
+        fileStream.CopyTo(buffer);
+        Objects[objectPath] = buffer.ToArray();
+        return Task.FromResult(objectPath);
+    }
 
     public Task<StorageObjectMetadata?> GetObjectMetadataAsync(
         string filePath,

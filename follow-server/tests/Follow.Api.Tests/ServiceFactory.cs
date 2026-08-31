@@ -20,8 +20,19 @@ internal static class ServiceFactory
             storage,
             artistService,
             albumService,
+            new NoopAudioMetadataExtractor(),
+            new EmbeddedTrackAssetWriter(storage),
             queue,
             NullLogger<TrackService>.Instance);
+    }
+
+    private sealed class NoopAudioMetadataExtractor : IAudioMetadataExtractor
+    {
+        public Task<AudioMetadata> ExtractAsync(
+            Stream source,
+            string fileName,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AudioMetadata("Track", null, null, 1, 0, "mp3"));
     }
 
     private sealed class NoopStorageService : IStorageService

@@ -47,6 +47,8 @@ builder.Services.AddScoped<MusicImportScanner>();
 builder.Services.AddScoped<MusicImportProcessor>();
 builder.Services.AddScoped<IMusicImportService, MusicImportService>();
 builder.Services.AddSingleton<IAudioMetadataExtractor, TagLibAudioMetadataExtractor>();
+builder.Services.AddSingleton<EmbeddedTrackAssetWriter>();
+builder.Services.AddScoped<TrackMetadataBackfillService>();
 builder.Services.AddHostedService<MusicImportWorker>();
 builder.Services.AddSingleton<IStorageService, MinioStorageService>();
 builder.Services.AddScoped<IArtistService, ArtistService>();

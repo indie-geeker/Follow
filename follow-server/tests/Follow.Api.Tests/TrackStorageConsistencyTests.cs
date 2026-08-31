@@ -201,6 +201,100 @@ public class TrackStorageConsistencyTests
     }
 
     [Fact]
+    public async Task TrackUpload_UsesSharedExtractorAndPersistsEmbeddedAssets()
+    {
+        await using var context = CreateContext();
+        var storage = new RecordingStorageService(
+            "tracks/id/new.mp3",
+            useManagedAssetPaths: true);
+        var metadata = new RecordingTrackMetadataExtractor(new AudioMetadata(
+            "Embedded title",
+            "Embedded artist",
+            "Embedded album",
+            120,
+            256,
+            "mp3",
+            [1, 2, 3],
+            "image/png",
+            "[00:01.20]line"));
+        var service = CreateTrackService(context, storage, metadata);
+
+        var result = await service.UploadTrackAsync(
+            new MemoryStream([4, 5, 6]),
+            "song.mp3",
+            "audio/mpeg");
+
+        var track = await context.Tracks.SingleAsync();
+        Assert.Equal(1, metadata.CallCount);
+        Assert.Equal("Embedded title", result.Title);
+        Assert.Equal($"covers/{track.Id}/cover.png", track.CoverUrl);
+        Assert.Equal($"lyrics/{track.Id}/lyrics.lrc", track.LyricsUrl);
+    }
+
+    [Fact]
+    public async Task TrackUpload_EmbeddedWriteFailureCleansAssetsAndAudio()
+    {
+        await using var context = CreateContext();
+        var storage = new RecordingStorageService(
+            "tracks/id/new.mp3",
+            useManagedAssetPaths: true)
+        {
+            FailUploadNumber = 3
+        };
+        var metadata = new RecordingTrackMetadataExtractor(new AudioMetadata(
+            "Track",
+            null,
+            null,
+            1,
+            0,
+            "mp3",
+            [1],
+            "image/jpeg",
+            "[00:01.20]line"));
+        var service = CreateTrackService(context, storage, metadata);
+
+        await Assert.ThrowsAsync<IOException>(() => service.UploadTrackAsync(
+            new MemoryStream([1]),
+            "song.mp3",
+            "audio/mpeg"));
+
+        Assert.Empty(await context.Tracks.ToListAsync());
+        Assert.Contains("tracks/id/new.mp3", storage.DeletedPaths);
+        Assert.Contains(storage.UploadedPaths.Single(path => path.StartsWith("covers/")), storage.DeletedPaths);
+    }
+
+    [Fact]
+    public async Task TrackUpload_DatabaseFailureCleansEmbeddedAssetsAndAudio()
+    {
+        var interceptor = new FailNextSaveInterceptor { IsArmed = true };
+        await using var context = CreateContext(interceptor);
+        var storage = new RecordingStorageService(
+            "tracks/id/new.mp3",
+            useManagedAssetPaths: true);
+        var metadata = new RecordingTrackMetadataExtractor(new AudioMetadata(
+            "Track",
+            null,
+            null,
+            1,
+            0,
+            "mp3",
+            [1],
+            "image/png",
+            "[00:01.20]line"));
+        var service = CreateTrackService(context, storage, metadata);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UploadTrackAsync(
+            new MemoryStream([1]),
+            "song.mp3",
+            "audio/mpeg"));
+
+        Assert.Equal(3, storage.DeletedPaths.Count);
+        Assert.Contains("tracks/id/new.mp3", storage.DeletedPaths);
+        Assert.Contains(storage.UploadedPaths.Single(path => path.StartsWith("covers/")), storage.DeletedPaths);
+        Assert.Contains(storage.UploadedPaths.Single(path => path.StartsWith("lyrics/")), storage.DeletedPaths);
+    }
+
+    [Fact]
     public async Task MetadataHelpers_DoNotPersistBeforeTrackGraphCommit()
     {
         await using var context = CreateContext();
@@ -365,7 +459,8 @@ public class TrackStorageConsistencyTests
 
     private static TrackService CreateTrackService(
         FollowDbContext context,
-        RecordingStorageService storage)
+        RecordingStorageService storage,
+        IAudioMetadataExtractor? metadataExtractor = null)
     {
         var queue = new StorageDeletionQueue(context);
         var artistService = new ArtistService(
@@ -377,6 +472,14 @@ public class TrackStorageConsistencyTests
             storage,
             artistService,
             albumService,
+            metadataExtractor ?? new RecordingTrackMetadataExtractor(new AudioMetadata(
+                "Track",
+                null,
+                null,
+                1,
+                0,
+                "mp3")),
+            new EmbeddedTrackAssetWriter(storage),
             queue,
             NullLogger<TrackService>.Instance);
     }
@@ -409,16 +512,22 @@ public class TrackStorageConsistencyTests
     {
         private readonly string _uploadedPath;
         private readonly bool _deleteSucceeds;
+        private readonly bool _useManagedAssetPaths;
+        private int _uploadCount;
 
         public RecordingStorageService(
             string uploadedPath,
-            bool deleteSucceeds = true)
+            bool deleteSucceeds = true,
+            bool useManagedAssetPaths = false)
         {
             _uploadedPath = uploadedPath;
             _deleteSucceeds = deleteSucceeds;
+            _useManagedAssetPaths = useManagedAssetPaths;
         }
 
         public List<string> DeletedPaths { get; } = [];
+        public List<string> UploadedPaths { get; } = [];
+        public int? FailUploadNumber { get; init; }
 
         public Task WriteObjectAsync(string objectPath, Stream source, long length, string contentType, CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
@@ -426,7 +535,19 @@ public class TrackStorageConsistencyTests
             Stream fileStream,
             string fileName,
             string contentType,
-            string? folder = null) => Task.FromResult(_uploadedPath);
+            string? folder = null)
+        {
+            _uploadCount++;
+            var uploadedPath = _useManagedAssetPaths &&
+                (folder?.StartsWith("covers/", StringComparison.Ordinal) == true ||
+                 folder?.StartsWith("lyrics/", StringComparison.Ordinal) == true)
+                    ? $"{folder}/{fileName}"
+                    : _uploadedPath;
+            UploadedPaths.Add(uploadedPath);
+            if (_uploadCount == FailUploadNumber)
+                throw new IOException("simulated upload failure");
+            return Task.FromResult(uploadedPath);
+        }
 
         public Task<bool> DeleteFileAsync(string filePath)
         {
@@ -445,5 +566,26 @@ public class TrackStorageConsistencyTests
             Stream destination,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
+    }
+
+    private sealed class RecordingTrackMetadataExtractor : IAudioMetadataExtractor
+    {
+        private readonly AudioMetadata _metadata;
+
+        public RecordingTrackMetadataExtractor(AudioMetadata metadata)
+        {
+            _metadata = metadata;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task<AudioMetadata> ExtractAsync(
+            Stream source,
+            string fileName,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(_metadata);
+        }
     }
 }

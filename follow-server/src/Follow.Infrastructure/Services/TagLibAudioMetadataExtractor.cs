@@ -1,4 +1,5 @@
 using Follow.Core.Interfaces;
+using Follow.Core.Services;
 
 namespace Follow.Infrastructure.Services;
 
@@ -17,6 +18,14 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
         using var tagFile = TagLib.File.Create(new StreamFileAbstraction(source, fileName));
         cancellationToken.ThrowIfCancellationRequested();
 
+        var picture = tagFile.Tag.Pictures.FirstOrDefault(candidate =>
+            candidate.Data.Count > 0 &&
+            NormalizeCoverContentType(candidate.MimeType) != null);
+        var coverContentType = picture == null
+            ? null
+            : NormalizeCoverContentType(picture.MimeType);
+        var coverData = picture?.Data.Data.ToArray();
+
         var metadata = new AudioMetadata(
             string.IsNullOrWhiteSpace(tagFile.Tag.Title)
                 ? Path.GetFileNameWithoutExtension(fileName)
@@ -27,9 +36,21 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
                 : tagFile.Tag.Album.Trim(),
             (int)Math.Ceiling(tagFile.Properties.Duration.TotalSeconds),
             tagFile.Properties.AudioBitrate,
-            Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant());
+            Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant(),
+            coverData,
+            coverContentType,
+            EmbeddedLyricsPolicy.Normalize(tagFile.Tag.Lyrics));
         return Task.FromResult(metadata);
     }
+
+    private static string? NormalizeCoverContentType(string? contentType) =>
+        contentType?.Trim().ToLowerInvariant() switch
+        {
+            "image/jpeg" or "image/jpg" => "image/jpeg",
+            "image/png" => "image/png",
+            "image/webp" => "image/webp",
+            _ => null
+        };
 
     private sealed class StreamFileAbstraction : TagLib.File.IFileAbstraction
     {

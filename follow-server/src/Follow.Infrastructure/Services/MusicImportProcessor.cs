@@ -19,6 +19,7 @@ public sealed class MusicImportProcessor
     private readonly FollowDbContext _context;
     private readonly IStorageService _storage;
     private readonly IAudioMetadataExtractor _metadataExtractor;
+    private readonly EmbeddedTrackAssetWriter _assetWriter;
     private readonly MusicImportRuntimeSettings _settings;
     private readonly ILogger<MusicImportProcessor> _logger;
     private readonly IServiceScopeFactory? _scopeFactory;
@@ -27,6 +28,7 @@ public sealed class MusicImportProcessor
         FollowDbContext context,
         IStorageService storage,
         IAudioMetadataExtractor metadataExtractor,
+        EmbeddedTrackAssetWriter assetWriter,
         MusicImportRuntimeSettings settings,
         ILogger<MusicImportProcessor> logger,
         IServiceScopeFactory? scopeFactory = null)
@@ -34,6 +36,7 @@ public sealed class MusicImportProcessor
         _context = context;
         _storage = storage;
         _metadataExtractor = metadataExtractor;
+        _assetWriter = assetWriter;
         _settings = settings;
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -459,6 +462,31 @@ public sealed class MusicImportProcessor
     {
         await RenewLeaseAsync(item, leaseOwner, cancellationToken);
         if (stopHeartbeat != null) await stopHeartbeat();
+
+        var trackId = Guid.NewGuid();
+        EmbeddedTrackAssetResult embeddedAssets;
+        try
+        {
+            embeddedAssets = await _assetWriter.WriteAsync(
+                trackId,
+                metadata.CoverData,
+                metadata.CoverContentType,
+                metadata.TimedLyrics,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new ProcessingFailureException(
+                "STORAGE_ERROR",
+                retryable: true,
+                "Embedded track asset storage failed.",
+                exception);
+        }
+
         await using var transaction = _context.Database.IsRelational()
             ? await _context.Database.BeginTransactionAsync(cancellationToken)
             : null;
@@ -469,6 +497,7 @@ public sealed class MusicImportProcessor
             var album = await GetOrCreateAlbumAsync(metadata.Album, artist, cancellationToken);
             var track = new Track
             {
+                Id = trackId,
                 Title = metadata.Title.Trim(),
                 DurationSeconds = metadata.DurationSeconds,
                 FilePath = objectPath,
@@ -477,6 +506,8 @@ public sealed class MusicImportProcessor
                 ContentSha256 = contentHash,
                 FileSizeBytes = item.SizeBytes,
                 OriginalFileName = item.OriginalFileName,
+                CoverUrl = embeddedAssets.CoverUrl,
+                LyricsUrl = embeddedAssets.LyricsUrl,
                 ArtistId = artist?.Id,
                 AlbumId = album?.Id
             };
@@ -490,6 +521,7 @@ public sealed class MusicImportProcessor
             if (transaction != null)
                 await transaction.RollbackAsync(CancellationToken.None);
             _context.ChangeTracker.Clear();
+            await TryDeleteEmbeddedAssetsAsync(embeddedAssets.NewObjectPaths);
             await TryDeleteImportObjectAsync(objectPath, item.Id, leaseOwner);
             throw;
         }
@@ -512,6 +544,7 @@ public sealed class MusicImportProcessor
 
             var duplicateConflict = IsTrackHashUniqueViolation(exception);
             _context.ChangeTracker.Clear();
+            await TryDeleteEmbeddedAssetsAsync(embeddedAssets.NewObjectPaths);
             var cleanupSucceeded = await TryDeleteImportObjectAsync(
                 objectPath,
                 item.Id,
@@ -559,6 +592,30 @@ public sealed class MusicImportProcessor
                 cleanupSucceeded ? null : objectPath,
                 cancellationToken,
                 stopHeartbeat);
+        }
+    }
+
+    private async Task TryDeleteEmbeddedAssetsAsync(
+        IReadOnlyList<string> objectPaths)
+    {
+        foreach (var objectPath in objectPaths)
+        {
+            try
+            {
+                if (!await _storage.DeleteFileAsync(objectPath))
+                {
+                    _logger.LogCritical(
+                        "Immediate cleanup failed for embedded track asset {ObjectPath}",
+                        objectPath);
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogCritical(
+                    "Immediate cleanup threw for embedded track asset {ObjectPath} ({ExceptionType})",
+                    objectPath,
+                    exception.GetType().Name);
+            }
         }
     }
 

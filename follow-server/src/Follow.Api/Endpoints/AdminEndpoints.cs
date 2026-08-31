@@ -2,6 +2,7 @@ using Follow.Core.Entities;
 using Follow.Core.Interfaces;
 using Follow.Shared.Constants;
 using Follow.Shared.DTOs;
+using Follow.Infrastructure.Services;
 
 namespace Follow.Api.Endpoints;
 
@@ -36,6 +37,10 @@ public static class AdminEndpoints
         group.MapDelete("/users/{id:guid}", DeleteUser)
             .WithName("AdminDeleteUser")
             .WithDescription("Delete a user");
+
+        group.MapPost("/tracks/metadata-backfill", RunTrackMetadataBackfill)
+            .WithName("AdminTrackMetadataBackfill")
+            .WithDescription("Inspect or fill missing embedded cover and timed lyric references");
     }
 
     private static async Task<IResult> GetDashboardStats(IAdminService adminService)
@@ -109,6 +114,15 @@ public static class AdminEndpoints
             return Results.BadRequest(new { error = "Cannot delete user. They may be the last admin." });
         
         return Results.NoContent();
+    }
+
+    private static async Task<IResult> RunTrackMetadataBackfill(
+        TrackMetadataBackfillRequest request,
+        TrackMetadataBackfillService backfillService,
+        CancellationToken cancellationToken)
+    {
+        var response = await backfillService.RunAsync(request, cancellationToken);
+        return Results.Ok(response);
     }
 }
 

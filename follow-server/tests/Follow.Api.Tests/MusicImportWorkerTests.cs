@@ -557,6 +557,7 @@ public class MusicImportWorkerTests
             options.UseInMemoryDatabase(databaseName));
         services.AddSingleton(settings);
         services.AddSingleton<IStorageService>(storage ?? new RecordingImportStorageService());
+        services.AddSingleton<EmbeddedTrackAssetWriter>();
         services.AddSingleton<IAudioMetadataExtractor>(new RecordingMetadataExtractor(
             new AudioMetadata("Worker title", null, null, 60, 192, "mp3")));
         services.AddScoped<MusicImportScanner>();

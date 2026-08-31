@@ -469,70 +469,73 @@ class DownloadedTrackTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: isDark ? Border.all(color: LoginColors.cardBorder) : null,
         ),
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 4,
-          ),
-          leading: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: coverUri != null
-                ? CachedNetworkImage(
-                    imageUrl: coverUri.toString(),
-                    width: 48,
-                    height: 48,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => const DefaultCover(),
-                    errorWidget: (_, __, ___) => const DefaultCover(),
+        child: Material(
+          type: MaterialType.transparency,
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 4,
+            ),
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: coverUri != null
+                  ? CachedNetworkImage(
+                      imageUrl: coverUri.toString(),
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => const DefaultCover(),
+                      errorWidget: (_, __, ___) => const DefaultCover(),
+                    )
+                  : const DefaultCover(),
+            ),
+            title: Text(
+              track.title,
+              style: TextStyle(
+                fontWeight: FontWeight.w500,
+                color: isDark ? Colors.white : theme.colorScheme.onSurface,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              track.artist?.name ?? 'Unknown Artist',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark
+                    ? LoginColors.textSecondary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: showRevealAction && onReveal != null
+                ? IconButton(
+                    tooltip: '在文件夹中显示',
+                    constraints: const BoxConstraints(
+                      minWidth: 48,
+                      minHeight: 48,
+                    ),
+                    onPressed: () async => onReveal!(),
+                    icon: Icon(
+                      Icons.folder_open_rounded,
+                      size: 20,
+                      color: isDark
+                          ? LoginColors.accentPurple
+                          : theme.colorScheme.primary,
+                    ),
                   )
-                : const DefaultCover(),
-          ),
-          title: Text(
-            track.title,
-            style: TextStyle(
-              fontWeight: FontWeight.w500,
-              color: isDark ? Colors.white : theme.colorScheme.onSurface,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            track.artist?.name ?? 'Unknown Artist',
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark
-                  ? LoginColors.textSecondary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: showRevealAction && onReveal != null
-              ? IconButton(
-                  tooltip: '在文件夹中显示',
-                  constraints: const BoxConstraints(
-                    minWidth: 48,
-                    minHeight: 48,
+                : Tooltip(
+                    message: '已保存在应用内',
+                    child: Icon(
+                      Icons.offline_pin_rounded,
+                      color: isDark
+                          ? LoginColors.accentPurple
+                          : theme.colorScheme.primary,
+                    ),
                   ),
-                  onPressed: () async => onReveal!(),
-                  icon: Icon(
-                    Icons.folder_open_rounded,
-                    size: 20,
-                    color: isDark
-                        ? LoginColors.accentPurple
-                        : theme.colorScheme.primary,
-                  ),
-                )
-              : Tooltip(
-                  message: '已保存在应用内',
-                  child: Icon(
-                    Icons.offline_pin_rounded,
-                    color: isDark
-                        ? LoginColors.accentPurple
-                        : theme.colorScheme.primary,
-                  ),
-                ),
-          onTap: () async => onPlay(),
+            onTap: () async => onPlay(),
+          ),
         ),
       ),
     );

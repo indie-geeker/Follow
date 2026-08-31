@@ -8,7 +8,9 @@ import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/core/utils/duration_utils.dart';
 import 'package:follow/shared/widgets/player/player_cover_art.dart';
 import 'package:follow/shared/widgets/player/player_main_controls.dart';
+import 'package:follow/shared/widgets/player/player_volume_control.dart';
 import 'package:follow/shared/widgets/player/page_indicator_dot.dart';
+import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
 
 @RoutePage()
 class PlayerPage extends ConsumerStatefulWidget {
@@ -368,7 +370,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 ),
               ),
 
-              const SizedBox(height: 24),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: PlayerVolumeControl(),
+              ),
+
+              const SizedBox(height: 12),
 
               // Main controls
               PlayerMainControls(
@@ -382,8 +389,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 },
                 onPrevious: () => audioService.playPrevious(),
                 onNext: () => audioService.playNext(),
-                onShuffle: () {},
-                onRepeat: () {},
               ),
 
               const Spacer(flex: 2),
@@ -451,14 +456,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       loading: () => Center(
         child: CircularProgressIndicator(color: _foregroundColor(context)),
       ),
-      error: (_, __) => Center(
-        child: Text(
-          '歌词加载失败',
-          style: TextStyle(
-            fontSize: 16,
-            color: _foregroundColor(context, alpha: 0.6),
-          ),
-        ),
+      error: (_, __) => LyricsFailureView(
+        foregroundColor: _foregroundColor(context, alpha: 0.6),
       ),
     );
   }

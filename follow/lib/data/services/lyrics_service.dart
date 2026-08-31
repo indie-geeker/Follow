@@ -3,22 +3,31 @@ import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/data/services/api/api_client.dart';
 import 'package:follow/core/network/media_url.dart';
 
+class LyricsFormatException implements Exception {
+  final String message;
+
+  const LyricsFormatException(this.message);
+
+  @override
+  String toString() => 'LyricsFormatException: $message';
+}
+
 class LyricsService {
   final Dio _dio;
 
-  LyricsService() : _dio = ApiClient.instance;
+  LyricsService({Dio? dio}) : _dio = dio ?? ApiClient.instance;
 
   Future<List<LyricLine>> fetchLyrics(String trackId) async {
-    try {
-      final url = resolveTrackLyricsUri(trackId).toString();
-      final response = await _dio.get(url);
-      final content = response.data is String
-          ? response.data
-          : response.data.toString();
-      return parseLrc(content);
-    } catch (e) {
-      return [];
+    final url = resolveTrackLyricsUri(trackId).toString();
+    final response = await _dio.get(url);
+    final content = response.data is String
+        ? response.data as String
+        : response.data.toString();
+    final lyrics = parseLrc(content);
+    if (lyrics.isEmpty) {
+      throw const LyricsFormatException('未找到带时间戳的歌词');
     }
+    return lyrics;
   }
 
   List<LyricLine> parseLrc(String lrcContent) {
