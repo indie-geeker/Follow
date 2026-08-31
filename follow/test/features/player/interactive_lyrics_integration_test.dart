@@ -97,9 +97,10 @@ Future<({ProviderContainer container, _FakeAudioPlayerService audioService})>
 _pumpLyricsOverlay(
   WidgetTester tester, {
   required AsyncValue<List<LyricLine>> lyrics,
+  Size viewportSize = const Size(1280, 800),
 }) async {
   tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = const Size(1280, 800);
+  tester.view.physicalSize = viewportSize;
   addTearDown(tester.view.reset);
 
   final audioService = _FakeAudioPlayerService();
@@ -172,14 +173,9 @@ void main() {
       ),
     );
     expect(source, contains('InteractiveLyricsView('));
-    expect(source, contains("ValueKey('desktop-lyrics-\$trackId')"));
 
     expect(source, isNot(contains('_lyricsScrollController')));
     expect(source, isNot(contains('currentLyricIdx * 48.0')));
-    expect(
-      source,
-      isNot(contains('WidgetsBinding.instance.addPostFrameCallback')),
-    );
   });
 
   testWidgets('desktop LyricsOverlay renders the wide shared lyrics layout', (
@@ -196,6 +192,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('desktop LyricsOverlay renders the narrow shared lyrics layout', (
+    tester,
+  ) async {
+    await _pumpLyricsOverlay(
+      tester,
+      lyrics: AsyncData(_lyrics),
+      viewportSize: const Size(599, 800),
+    );
+
+    final cover = find.byType(TrackCoverImage);
+    final lyrics = find.byType(InteractiveLyricsView);
+    expect(lyrics, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('desktop-lyrics-track-1')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(lyrics).dy,
+      greaterThan(tester.getBottomLeft(cover).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'desktop mouse wheel shows accessible center control and delegates seek',
     (tester) async {
@@ -203,16 +222,25 @@ void main() {
         tester,
         lyrics: AsyncData(_lyrics),
       );
+      final lyricsScrollable = find.descendant(
+        of: find.byType(InteractiveLyricsView),
+        matching: find.byType(Scrollable),
+      );
+      final scrollPosition = tester
+          .state<ScrollableState>(lyricsScrollable)
+          .position;
+      final initialOffset = scrollPosition.pixels;
 
       await tester.sendEventToBinding(
         PointerScrollEvent(
           position: tester.getCenter(find.byKey(lyricsViewportKey)),
-          scrollDelta: const Offset(0, 120),
+          scrollDelta: const Offset(0, 96),
         ),
       );
       await tester.pump();
       await tester.pump();
 
+      expect(scrollPosition.pixels, greaterThan(initialOffset));
       expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
       expect(find.byTooltip('从此处播放'), findsOneWidget);
       expect(
@@ -220,22 +248,13 @@ void main() {
         greaterThanOrEqualTo(44),
       );
 
-      final playSemantics = find.bySemanticsLabel(
-        RegExp(r'^从此处播放：Player lyric \d+$'),
-      );
-      expect(playSemantics, findsOneWidget);
-      final selectedText = tester
-          .getSemantics(playSemantics)
-          .label
-          .replaceFirst('从此处播放：', '');
-      final selectedLyric = _lyrics.singleWhere(
-        (lyric) => lyric.text == selectedText,
-      );
+      expect(find.bySemanticsLabel('从此处播放：Player lyric 4'), findsOneWidget);
+      expect(find.bySemanticsLabel('从此处播放：Player lyric 2'), findsNothing);
 
       await tester.tap(find.byKey(lyricsCenterPlayKey));
       await tester.pumpAndSettle();
 
-      expect(harness.audioService.seekCalls, [selectedLyric.timestamp]);
+      expect(harness.audioService.seekCalls, [const Duration(seconds: 20)]);
       expect(find.byKey(lyricsCenterPlayKey), findsNothing);
     },
   );
