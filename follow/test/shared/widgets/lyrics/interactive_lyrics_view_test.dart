@@ -416,6 +416,91 @@ void main() {
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
+  testWidgets('scale-only pan-zoom returns after full inactivity', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final listener = _lyricsInputListener(tester);
+    listener.onPointerPanZoomStart!(const PointerPanZoomStartEvent());
+    await tester.pump();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    listener.onPointerPanZoomUpdate!(
+      const PointerPanZoomUpdateEvent(scale: 1.1),
+    );
+    listener.onPointerPanZoomEnd!(const PointerPanZoomEndEvent());
+    await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('pan-zoom with scrolling waits for scroll end inactivity', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final listener = _lyricsInputListener(tester);
+    final listContext = tester.element(find.byKey(lyricsViewportKey));
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+
+    listener.onPointerPanZoomStart!(const PointerPanZoomStartEvent());
+    ScrollStartNotification(
+      metrics: position,
+      context: listContext,
+    ).dispatch(listContext);
+    listener.onPointerPanZoomUpdate!(
+      const PointerPanZoomUpdateEvent(
+        pan: Offset(0, 24),
+        panDelta: Offset(0, 24),
+      ),
+    );
+    listener.onPointerPanZoomEnd!(const PointerPanZoomEndEvent());
+    await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 3100));
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    ScrollEndNotification(
+      metrics: position,
+      context: listContext,
+    ).dispatch(listContext);
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
   testWidgets('return retries when playback advances during its animation', (
     tester,
   ) async {

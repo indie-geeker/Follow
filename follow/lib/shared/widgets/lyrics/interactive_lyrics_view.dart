@@ -312,22 +312,21 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   void _handlePanZoomUpdate(PointerPanZoomUpdateEvent event) {
-    _gestureHadScrollActivity = true;
+    _scheduleCenterSelection();
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
     if (_isProgrammaticScroll) return false;
 
-    if (notification is ScrollStartNotification &&
-        notification.dragDetails != null) {
+    if (notification is ScrollStartNotification) {
       _gestureHadScrollActivity = true;
-      if (!_isBrowsing) _beginBrowsing();
+      if (notification.dragDetails != null && !_isBrowsing) {
+        _beginBrowsing();
+      }
     }
 
     if (notification is ScrollUpdateNotification && _isBrowsing) {
-      if (notification.dragDetails != null) {
-        _gestureHadScrollActivity = true;
-      }
+      _gestureHadScrollActivity = true;
       final previousPixels = _lastScrollPixels;
       final pixels = notification.metrics.pixels;
       if (previousPixels != null && pixels != previousPixels) {
