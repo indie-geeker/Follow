@@ -28,6 +28,19 @@ public class UserCredentialPolicyTests
         Assert.Equal("Aa1!bc", result.Password);
     }
 
+    [Fact]
+    public void LocalDevelopmentAdminCredentials_SatisfyPolicy()
+    {
+        var result = UserCredentialPolicy.NormalizeAndValidate(
+            "admin",
+            "admin@follow.local",
+            "FollowDev!123");
+
+        Assert.Equal("admin", result.Username);
+        Assert.Equal("admin@follow.local", result.Email);
+        Assert.Equal("FollowDev!123", result.Password);
+    }
+
     [Theory]
     [InlineData("ab")]
     [InlineData(" user name ")]

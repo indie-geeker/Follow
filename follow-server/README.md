@@ -172,7 +172,7 @@ docker compose down
 
 该命令启动独立的 `follow-dev` PostgreSQL、Redis 和 MinIO，等待健康后通过 `dotnet watch` 启动 API。开发依赖仅发布到 `127.0.0.1`，并使用独立数据卷；脚本显式不读取根目录 `.env`，也不操作完整栈容器。
 
-本地入口会维护一个可直接登录的默认管理员：用户名 `admin`、邮箱 `admin@follow.local`、密码 `FollowDev!123`。这组凭据仅供 Development 环境且仅在 API 绑定 `127.0.0.1` 的本地开发时使用，不得用于生产；完整 Docker 栈仍从根目录 `.env` 读取独立的管理员凭据。
+默认管理员凭据由 `./scripts/dev-api.sh run` 在启动 API 进程时注入：用户名 `admin`、邮箱 `admin@follow.local`、密码 `FollowDev!123`。这组凭据仅供 Development 环境且仅在 API 绑定 `127.0.0.1` 的本地开发时使用，不得用于生产。直接执行 `dotnet run` 或 `dotnet watch`，即使使用 Development 环境，也不会获得这组默认管理员凭据；完整 Docker 栈仍从根目录 `.env` 读取独立的管理员凭据。
 
 常用命令均从仓库根目录执行：
 

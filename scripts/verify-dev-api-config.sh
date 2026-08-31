@@ -155,9 +155,7 @@ jq -e --argjson root "$FOLLOW_ROOT_JSON" '
   .MinioSettings.AccessKey == "follow" and
   .MinioSettings.SecretKey == "follow123" and
   .MinioSettings.UseSSL == false and
-  .AdminAccount.Username == "admin" and
-  .AdminAccount.Email == "admin@follow.local" and
-  .AdminAccount.Password == "FollowDev!123" and
+  (has("AdminAccount") | not) and
   $root.services.api.environment.AdminAccount__Username == "${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}" and
   $root.services.api.environment.AdminAccount__Email == "${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}" and
   $root.services.api.environment.AdminAccount__Password == "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}"
@@ -264,6 +262,7 @@ FOLLOW_TEST_DOCKER_LOG="$FOLLOW_COMMAND_TEST_ROOT/docker.log"
 FOLLOW_TEST_LSOF_LOG="$FOLLOW_COMMAND_TEST_ROOT/lsof.log"
 FOLLOW_TEST_LSOF_COUNTER="$FOLLOW_COMMAND_TEST_ROOT/lsof.count"
 FOLLOW_TEST_DOTNET_LOG="$FOLLOW_COMMAND_TEST_ROOT/dotnet.log"
+FOLLOW_TEST_DOTNET_ENV_LOG="$FOLLOW_COMMAND_TEST_ROOT/dotnet-env.log"
 FOLLOW_TEST_OUTPUT="$FOLLOW_COMMAND_TEST_ROOT/command.out"
 mkdir -p "$FOLLOW_TEST_BIN" "$FOLLOW_TEST_MINIMAL_BIN"
 trap 'rm -rf -- "$FOLLOW_COMMAND_TEST_ROOT"' EXIT
@@ -271,6 +270,13 @@ trap 'rm -rf -- "$FOLLOW_COMMAND_TEST_ROOT"' EXIT
 cat >"$FOLLOW_TEST_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+if [[ -n "${AdminAccount__Username+x}" ||
+  -n "${AdminAccount__Email+x}" ||
+  -n "${AdminAccount__Password+x}" ]]; then
+  echo 'local administrator credentials leaked into a Docker subcommand' >&2
+  exit 98
+fi
 
 {
   printf '%s' "${1:-}"
@@ -344,6 +350,12 @@ cat >"$FOLLOW_TEST_BIN/dotnet" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+printf '%s\n%s\n%s\n' \
+  "${AdminAccount__Username-<unset>}" \
+  "${AdminAccount__Email-<unset>}" \
+  "${AdminAccount__Password-<unset>}" \
+  >"$FOLLOW_TEST_DOTNET_ENV_LOG"
+
 {
   printf '%s' "${1:-}"
   shift || true
@@ -371,6 +383,7 @@ reset_command_test_logs() {
   : >"$FOLLOW_TEST_DOCKER_LOG"
   : >"$FOLLOW_TEST_LSOF_LOG"
   : >"$FOLLOW_TEST_DOTNET_LOG"
+  : >"$FOLLOW_TEST_DOTNET_ENV_LOG"
   : >"$FOLLOW_TEST_OUTPUT"
   rm -f "$FOLLOW_TEST_LSOF_COUNTER"
 }
@@ -383,10 +396,11 @@ run_command_test() {
   (
     export PATH="$FOLLOW_TEST_BIN:/usr/bin:/bin:/usr/sbin:/sbin"
     export FOLLOW_TEST_DOCKER_LOG FOLLOW_TEST_LSOF_LOG FOLLOW_TEST_LSOF_COUNTER
-    export FOLLOW_TEST_DOTNET_LOG
+    export FOLLOW_TEST_DOTNET_LOG FOLLOW_TEST_DOTNET_ENV_LOG
     export FOLLOW_TEST_DEV_COMPOSE="$FOLLOW_DEV_COMPOSE"
     export FOLLOW_TEST_LSOF_MODE="$lsof_mode"
     export FOLLOW_TEST_WAIT_MODE="$wait_mode"
+    unset AdminAccount__Username AdminAccount__Email AdminAccount__Password
     "$FOLLOW_DEV_COMMAND" "$@"
   ) >"$FOLLOW_TEST_OUTPUT" 2>&1
 }
@@ -472,6 +486,9 @@ FOLLOW_EXPECT_LSOF_TWICE="$(
 )"
 FOLLOW_EXPECT_DOTNET_RUN="$(
   printf '%s\t%s\t%s\t%s' 'watch' 'run' '--launch-profile' 'http'
+)"
+FOLLOW_EXPECT_DOTNET_ENV="$(
+  printf '%s\n%s\n%s' 'admin' 'admin@follow.local' 'FollowDev!123'
 )"
 
 reset_command_test_logs
@@ -569,6 +586,8 @@ assert_command_exit 0 "$command_exit" 'run with an available API port'
 assert_log_equals "$FOLLOW_EXPECT_DOCKER_UP" "$FOLLOW_TEST_DOCKER_LOG" 'run with an available API port'
 assert_log_equals "$FOLLOW_EXPECT_LSOF_TWICE" "$FOLLOW_TEST_LSOF_LOG" 'run with an available API port'
 assert_log_equals "$FOLLOW_EXPECT_DOTNET_RUN" "$FOLLOW_TEST_DOTNET_LOG" 'run with an available API port'
+assert_log_equals "$FOLLOW_EXPECT_DOTNET_ENV" "$FOLLOW_TEST_DOTNET_ENV_LOG" \
+  'run with an available API port administrator environment'
 
 reset_command_test_logs
 command_exit=0
@@ -630,8 +649,18 @@ rg -q '`\./scripts/dev-api\.sh reset --confirm`' <<<"$FOLLOW_LOCAL_BACKEND_SECTI
   fail 'the local backend section must document the exact confirmed reset command'
 rg -q '删除.*follow-dev.*卷' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
   fail 'the local backend section must warn that reset deletes follow-dev volumes'
-rg -q '`admin`' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+rg -q '用户名 `admin`' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
   fail 'the local backend section must document the local administrator username'
+rg -q '邮箱 `admin@follow\.local`' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must document the local administrator email'
+rg -q '密码 `FollowDev!123`' <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must document the local administrator password'
+rg -q '默认管理员凭据由 `\./scripts/dev-api\.sh run`.*注入' \
+  <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must explain that dev-api.sh run injects the administrator credentials'
+rg -q '直接.*dotnet.*Development.*不.*默认管理员凭据' \
+  <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
+  fail 'the local backend section must explain that raw Development startup has no default administrator credentials'
 rg -q '仅.*(Development|本地开发).*127\.0\.0\.1|127\.0\.0\.1.*仅.*(Development|本地开发)' \
   <<<"$FOLLOW_LOCAL_BACKEND_SECTION" ||
   fail 'the local backend section must limit the default administrator to loopback Development use'

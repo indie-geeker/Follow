@@ -98,7 +98,10 @@ case "${1:-}" in
       fail '127.0.0.1:5050 is already in use; stop the full-stack API or choose the Docker workflow'
     fi
     cd "$FOLLOW_API_PROJECT"
-    exec dotnet watch run --launch-profile http
+    AdminAccount__Username='admin' \
+      AdminAccount__Email='admin@follow.local' \
+      AdminAccount__Password='FollowDev!123' \
+      exec dotnet watch run --launch-profile http
     ;;
   up)
     start_dependencies
