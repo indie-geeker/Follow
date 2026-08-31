@@ -370,7 +370,11 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   void _handlePointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent || _isSeeking) return;
+    if (event is! PointerScrollEvent ||
+        event.scrollDelta.dy == 0 ||
+        _isSeeking) {
+      return;
+    }
     _beginBrowsing();
     _restartInactivityTimer();
   }
@@ -378,7 +382,6 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void _handlePointerDown(PointerDownEvent event) {
     if (_isSeeking) return;
     _gestureHadScrollActivity = false;
-    _beginBrowsing();
   }
 
   void _handleLyricTap(int index) {
@@ -461,7 +464,6 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void _handlePanZoomStart(PointerPanZoomStartEvent event) {
     if (_isSeeking) return;
     _gestureHadScrollActivity = false;
-    _beginBrowsing();
   }
 
   void _handlePanZoomUpdate(PointerPanZoomUpdateEvent event) {
@@ -473,22 +475,34 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     if (_isSeeking || _isProgrammaticScroll) return false;
 
     if (notification is ScrollStartNotification) {
-      _gestureHadScrollActivity = true;
-      if (notification.dragDetails != null && !_isBrowsing) {
-        _beginBrowsing();
-      }
+      _lastScrollPixels = notification.metrics.pixels;
     }
 
-    if (notification is ScrollUpdateNotification && _isBrowsing) {
-      _gestureHadScrollActivity = true;
-      final previousPixels = _lastScrollPixels;
+    if (notification is ScrollUpdateNotification) {
       final pixels = notification.metrics.pixels;
+      final previousPixels = _lastScrollPixels;
+      final delta =
+          notification.scrollDelta ??
+          (previousPixels == null ? 0.0 : pixels - previousPixels);
+      _lastScrollPixels = pixels;
+      if (delta == 0) return false;
+
+      _gestureHadScrollActivity = true;
+      if (!_isBrowsing) _beginBrowsing();
       if (previousPixels != null && pixels != previousPixels) {
         _scrollDirection = pixels > previousPixels ? 1 : -1;
-      } else if (notification.scrollDelta case final delta? when delta != 0) {
+      } else {
         _scrollDirection = delta > 0 ? 1 : -1;
       }
-      _lastScrollPixels = pixels;
+      _updateCenterSelection();
+    }
+
+    if (notification case OverscrollNotification(
+      :final overscroll,
+    ) when overscroll != 0) {
+      _gestureHadScrollActivity = true;
+      if (!_isBrowsing) _beginBrowsing();
+      _scrollDirection = overscroll > 0 ? 1 : -1;
       _updateCenterSelection();
     }
 

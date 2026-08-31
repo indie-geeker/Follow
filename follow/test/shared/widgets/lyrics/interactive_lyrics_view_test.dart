@@ -83,6 +83,47 @@ class _LyricsHarness extends StatelessWidget {
   }
 }
 
+class _NestedPageViewHarness extends StatelessWidget {
+  const _NestedPageViewHarness({
+    required this.controller,
+    required this.currentIndex,
+  });
+
+  final PageController controller;
+  final ValueNotifier<int> currentIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    return ProviderScope(
+      child: MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            height: 300,
+            child: ValueListenableBuilder<int>(
+              valueListenable: currentIndex,
+              builder: (context, index, _) {
+                return PageView(
+                  controller: controller,
+                  children: [
+                    const ColoredBox(color: Colors.purple),
+                    InteractiveLyricsView(
+                      lyrics: AsyncData(_manyLyrics),
+                      currentIndex: index,
+                      foregroundColor: Colors.black,
+                      onSeek: (_) async {},
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 double _verticalCenter(WidgetTester tester, Finder finder) {
   return tester.getRect(finder).center.dy;
 }
@@ -121,6 +162,57 @@ TextStyle _lyricStyle(WidgetTester tester, int index) {
 }
 
 void main() {
+  testWidgets(
+    'nested horizontal PageView swipe stays in follow while vertical lyrics drag browses',
+    (tester) async {
+      final controller = PageController(initialPage: 1);
+      final currentIndex = ValueNotifier(2);
+      addTearDown(controller.dispose);
+      addTearDown(currentIndex.dispose);
+
+      await tester.pumpWidget(
+        _NestedPageViewHarness(
+          controller: controller,
+          currentIndex: currentIndex,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final horizontalGesture = await tester.startGesture(
+        tester.getCenter(find.byType(PageView)),
+      );
+      await horizontalGesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+      expect(
+        find.byKey(lyricsCenterPlayKey, skipOffstage: false),
+        findsNothing,
+      );
+
+      await horizontalGesture.moveBy(const Offset(270, 0));
+      await horizontalGesture.up();
+      await tester.pumpAndSettle();
+
+      expect(controller.page, closeTo(0, 0.01));
+      expect(
+        find.byKey(lyricsCenterPlayKey, skipOffstage: false),
+        findsNothing,
+      );
+
+      controller.jumpToPage(1);
+      await tester.pumpAndSettle();
+      final verticalGesture = await tester.startGesture(
+        tester.getCenter(find.byType(PageView)),
+      );
+      await verticalGesture.moveBy(const Offset(0, -30));
+      await tester.pump();
+      await verticalGesture.moveBy(const Offset(0, -66));
+      await tester.pump();
+
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+      await verticalGesture.up();
+    },
+  );
+
   testWidgets('centers the current lyric after initial layout', (tester) async {
     final currentIndex = ValueNotifier(2);
     addTearDown(currentIndex.dispose);
@@ -505,8 +597,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    _lyricsInputListener(tester).onPointerDown!(const PointerDownEvent());
-    await tester.pump();
     expect(_lyricStyle(tester, 2).fontSize, 18);
     expect(_lyricStyle(tester, 2).fontWeight, FontWeight.bold);
     expect(_lyricStyle(tester, 2).color, Colors.black);
@@ -711,7 +801,7 @@ void main() {
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
-  testWidgets('a no-movement pointer gesture returns after full inactivity', (
+  testWidgets('a no-movement pointer gesture stays in follow mode', (
     tester,
   ) async {
     final currentIndex = ValueNotifier(2);
@@ -731,15 +821,11 @@ void main() {
       Offset(viewport.left + 4, viewport.center.dy),
     );
     await tester.pump();
-    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
     await gesture.up();
     await tester.pump();
 
-    await tester.pump(const Duration(milliseconds: 2900));
-    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
-
+    await tester.pump(const Duration(seconds: 3));
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
@@ -770,6 +856,11 @@ void main() {
       context: listContext,
       dragDetails: DragStartDetails(),
     ).dispatch(listContext);
+    ScrollUpdateNotification(
+      metrics: position,
+      context: listContext,
+      scrollDelta: 24,
+    ).dispatch(listContext);
     listener.onPointerUp!(const PointerUpEvent());
     await tester.pump();
 
@@ -790,9 +881,7 @@ void main() {
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
-  testWidgets('scale-only pan-zoom returns after full inactivity', (
-    tester,
-  ) async {
+  testWidgets('scale-only pan-zoom stays in follow mode', (tester) async {
     final currentIndex = ValueNotifier(2);
     addTearDown(currentIndex.dispose);
 
@@ -808,7 +897,7 @@ void main() {
     final listener = _lyricsInputListener(tester);
     listener.onPointerPanZoomStart!(const PointerPanZoomStartEvent());
     await tester.pump();
-    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
 
     listener.onPointerPanZoomUpdate!(
       const PointerPanZoomUpdateEvent(scale: 1.1),
@@ -816,11 +905,7 @@ void main() {
     listener.onPointerPanZoomEnd!(const PointerPanZoomEndEvent());
     await tester.pump();
 
-    await tester.pump(const Duration(milliseconds: 2900));
-    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
-
+    await tester.pump(const Duration(seconds: 3));
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
@@ -846,10 +931,24 @@ void main() {
         .position;
 
     listener.onPointerPanZoomStart!(const PointerPanZoomStartEvent());
+    await tester.pump();
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+
     ScrollStartNotification(
       metrics: position,
       context: listContext,
     ).dispatch(listContext);
+    await tester.pump();
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+
+    ScrollUpdateNotification(
+      metrics: position,
+      context: listContext,
+      scrollDelta: 24,
+    ).dispatch(listContext);
+    await tester.pump();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
     listener.onPointerPanZoomUpdate!(
       const PointerPanZoomUpdateEvent(
         pan: Offset(0, 24),
@@ -998,6 +1097,30 @@ void main() {
     },
   );
 
+  testWidgets('horizontal pointer scroll stays in follow mode', (tester) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: _viewportCenter(tester),
+        scrollDelta: const Offset(80, 0),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
   testWidgets('user input during return animation cancels the return', (
     tester,
   ) async {
@@ -1020,6 +1143,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     final gesture = await tester.startGesture(_viewportCenter(tester));
+    await gesture.moveBy(const Offset(0, -60));
     await tester.pump();
     final interruptedOffset = _scrollOffset(tester);
     await tester.pump(const Duration(milliseconds: 500));
@@ -1472,7 +1596,6 @@ void main() {
       closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
     );
 
-    _lyricsInputListener(tester).onPointerDown!(const PointerDownEvent());
     await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
     await tester.pump();
 
