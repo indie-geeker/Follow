@@ -385,11 +385,12 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   void _handlePanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    if (_isSeeking) return;
     _scheduleCenterSelection();
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
-    if (_isProgrammaticScroll) return false;
+    if (_isSeeking || _isProgrammaticScroll) return false;
 
     if (notification is ScrollStartNotification) {
       _gestureHadScrollActivity = true;
@@ -459,6 +460,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                     child: ListView.builder(
                       key: lyricsViewportKey,
                       controller: _scrollController,
+                      physics: _isSeeking
+                          ? const NeverScrollableScrollPhysics()
+                          : null,
                       padding: EdgeInsets.symmetric(
                         horizontal: 24,
                         vertical: boundarySpace,

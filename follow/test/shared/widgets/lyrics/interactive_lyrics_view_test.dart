@@ -339,6 +339,103 @@ void main() {
     );
   });
 
+  testWidgets('pending seek freezes input without restarting return timer', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    final seekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: seekCalls,
+        onSeek: (position) {
+          seekCalls.add(position);
+          return seekCompleter.future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+    final pendingOffset = _scrollOffset(tester);
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: _viewportCenter(tester),
+        scrollDelta: const Offset(0, 80),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(microseconds: 1));
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
+    expect(_scrollOffset(tester), closeTo(pendingOffset, 0.01));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    seekCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-4'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('failed pending seek restores scrolling and fresh return delay', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    final seekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: seekCalls,
+        onSeek: (position) {
+          seekCalls.add(position);
+          return seekCompleter.future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+    final pendingOffset = _scrollOffset(tester);
+
+    seekCompleter.completeError(StateError('seek failed'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('无法跳转播放位置，请重试'), findsOneWidget);
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -48));
+    await tester.pump();
+    expect(_scrollOffset(tester), isNot(closeTo(pendingOffset, 0.01)));
+
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(microseconds: 1));
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(seekCalls, [const Duration(seconds: 20)]);
+  });
+
   testWidgets('failed seek reports feedback then returns after fresh delay', (
     tester,
   ) async {
