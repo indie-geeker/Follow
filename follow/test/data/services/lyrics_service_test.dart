@@ -42,6 +42,33 @@ void main() {
     expect(lyrics[1].timestamp, const Duration(milliseconds: 2250));
   });
 
+  test(
+    'sorts lyrics chronologically while preserving duplicate timestamp order',
+    () {
+      final service = LyricsService();
+      final sourceOrderAtTenSeconds = List.generate(
+        40,
+        (index) => 'duplicate-$index',
+      );
+      final input = <String>[
+        '[00:20.00]later',
+        ...sourceOrderAtTenSeconds.map((text) => '[00:10.00]$text'),
+        '[00:05.00]earlier',
+      ].join('\n');
+
+      final lyrics = service.parseLrc(input);
+
+      expect(lyrics.first.text, 'earlier');
+      expect(
+        lyrics
+            .where((line) => line.timestamp == const Duration(seconds: 10))
+            .map((line) => line.text),
+        sourceOrderAtTenSeconds,
+      );
+      expect(lyrics.last.text, 'later');
+    },
+  );
+
   test('propagates a 404 for a referenced lyric object', () async {
     final service = LyricsService(
       dio: _dioRespondingWith('not found', statusCode: 404),

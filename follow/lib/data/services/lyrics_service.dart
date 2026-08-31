@@ -59,8 +59,16 @@ class LyricsService {
       }
     }
 
-    // Sort by timestamp
-    lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    return lines;
+    // Sort by timestamp while preserving source order for equal timestamps.
+    final indexedLines = lines.asMap().entries.toList()
+      ..sort((a, b) {
+        final timestampComparison = a.value.timestamp.compareTo(
+          b.value.timestamp,
+        );
+        return timestampComparison != 0
+            ? timestampComparison
+            : a.key.compareTo(b.key);
+      });
+    return indexedLines.map((entry) => entry.value).toList();
   }
 }

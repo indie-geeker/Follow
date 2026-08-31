@@ -45,9 +45,12 @@ int currentLyricIndex(ref) {
 
   if (lyrics.isEmpty) return -1;
 
-  // Find the last lyric whose timestamp is <= current position
+  // Find the active timestamp group and return its first lyric.
   for (int i = lyrics.length - 1; i >= 0; i--) {
     if (position >= lyrics[i].timestamp) {
+      while (i > 0 && lyrics[i - 1].timestamp == lyrics[i].timestamp) {
+        i--;
+      }
       return i;
     }
   }
