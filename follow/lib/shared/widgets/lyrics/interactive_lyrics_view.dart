@@ -81,7 +81,8 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
       }
     } else if (currentIndexChanged &&
         (lyrics?.isNotEmpty ?? false) &&
-        !_isBrowsing) {
+        !_isBrowsing &&
+        !_isSeeking) {
       _scheduleFollowCurrentLyric(animate: true);
     }
   }

@@ -1479,4 +1479,53 @@ void main() {
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
     expect(_scrollOffset(tester), closeTo(centeredOffset, 0.01));
   });
+
+  testWidgets('single lyric seek keeps its lock across current index updates', (
+    tester,
+  ) async {
+    const singleLyric = [
+      LyricLine(timestamp: Duration(seconds: 7), text: 'Only lyric'),
+    ];
+    final currentIndex = ValueNotifier(0);
+    final seekCalls = <Duration>[];
+    final firstSeekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: const AsyncData(singleLyric),
+        seekCalls: seekCalls,
+        onSeek: (position) {
+          seekCalls.add(position);
+          return seekCalls.length == 1
+              ? firstSeekCompleter.future
+              : Future<void>.value();
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lyric-row-0')));
+    await tester.pump();
+    expect(seekCalls, [const Duration(seconds: 7)]);
+
+    currentIndex.value = -1;
+    await tester.pump();
+    firstSeekCompleter.completeError(StateError('seek failed'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('无法跳转播放位置，请重试'), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+
+    currentIndex.value = 0;
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-0')));
+    await tester.pump();
+
+    expect(seekCalls, [const Duration(seconds: 7), const Duration(seconds: 7)]);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
