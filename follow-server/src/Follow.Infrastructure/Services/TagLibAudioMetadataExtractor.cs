@@ -1,4 +1,5 @@
 using Follow.Core.Interfaces;
+using Follow.Core.Services;
 
 namespace Follow.Infrastructure.Services;
 
@@ -26,6 +27,13 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
             audioCodecs.FirstOrDefault()?.Description ?? tagFile.Properties.Description,
             container);
         var duration = tagFile.Properties.Duration;
+        var picture = tagFile.Tag.Pictures.FirstOrDefault(candidate =>
+            candidate.Data.Count > 0 &&
+            NormalizeCoverContentType(candidate.MimeType) != null);
+        var coverContentType = picture == null
+            ? null
+            : NormalizeCoverContentType(picture.MimeType);
+        var coverData = picture?.Data.Data.ToArray();
 
         var metadata = new AudioMetadata(
             string.IsNullOrWhiteSpace(tagFile.Tag.Title)
@@ -38,6 +46,8 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
             (int)Math.Ceiling(tagFile.Properties.Duration.TotalSeconds),
             tagFile.Properties.AudioBitrate,
             container,
+            coverData,
+            coverContentType,
             Codec: codec,
             Container: container,
             IsLossless: InferLossless(audioCodecs, codec),
@@ -45,7 +55,8 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
             BitDepth: PositiveOrNull(tagFile.Properties.BitsPerSample),
             Channels: PositiveOrNull(tagFile.Properties.AudioChannels),
             BitRateKbps: PositiveOrNull(tagFile.Properties.AudioBitrate),
-            ExactDurationMilliseconds: checked((long)Math.Round(duration.TotalMilliseconds)));
+            ExactDurationMilliseconds: checked((long)Math.Round(duration.TotalMilliseconds)),
+            TimedLyrics: EmbeddedLyricsPolicy.Normalize(tagFile.Tag.Lyrics));
         return Task.FromResult(metadata);
     }
 
@@ -80,6 +91,14 @@ public sealed class TagLibAudioMetadataExtractor : IAudioMetadataExtractor
             value.Contains("pcm", StringComparison.Ordinal)) return "pcm";
         return container;
     }
+    private static string? NormalizeCoverContentType(string? contentType) =>
+        contentType?.Trim().ToLowerInvariant() switch
+        {
+            "image/jpeg" or "image/jpg" => "image/jpeg",
+            "image/png" => "image/png",
+            "image/webp" => "image/webp",
+            _ => null
+        };
 
     private sealed class StreamFileAbstraction : TagLib.File.IFileAbstraction
     {

@@ -24,4 +24,5 @@ public sealed record AudioMetadata(
     int? BitDepth = null,
     int? Channels = null,
     int? BitRateKbps = null,
-    long? ExactDurationMilliseconds = null);
+    long? ExactDurationMilliseconds = null,
+    string? TimedLyrics = null);

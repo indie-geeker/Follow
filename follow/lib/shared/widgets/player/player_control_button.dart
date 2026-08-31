@@ -7,6 +7,7 @@ class PlayerControlButton extends StatelessWidget {
   final double size;
   final VoidCallback onPressed;
   final bool isActive;
+  final String? tooltip;
 
   const PlayerControlButton({
     super.key,
@@ -14,6 +15,7 @@ class PlayerControlButton extends StatelessWidget {
     required this.size,
     required this.onPressed,
     this.isActive = false,
+    this.tooltip,
   });
 
   Color _foregroundColor(BuildContext context, {double alpha = 1.0}) {
@@ -24,12 +26,12 @@ class PlayerControlButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final button = GestureDetector(
       onTap: onPressed,
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isActive 
+          color: isActive
               ? _foregroundColor(context, alpha: 0.2)
               : _foregroundColor(context, alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
@@ -42,6 +44,14 @@ class PlayerControlButton extends StatelessWidget {
           size: size,
         ),
       ),
+    );
+
+    final message = tooltip;
+    if (message == null) return button;
+
+    return Tooltip(
+      message: message,
+      child: Semantics(button: true, label: message, child: button),
     );
   }
 }

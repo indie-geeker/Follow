@@ -32,7 +32,10 @@ public class MusicImportReplacementTests
                 MusicImportScannerTests.EnabledSettings(directory.Path),
                 storage),
             new ReplacementFingerprintService(),
+            new RecordingMetadataExtractor(new AudioMetadata(
+                "replacement", null, null, 60, 900, "flac")),
             storage,
+            new EmbeddedTrackAssetWriter(storage),
             new StorageDeletionQueue(context));
 
         var result = await service.ApplyGroupAsync(seeded.GroupId, 0);
@@ -62,7 +65,10 @@ public class MusicImportReplacementTests
                     MusicImportScannerTests.EnabledSettings(directory.Path),
                     storage),
                 new ReplacementFingerprintService(),
+                new RecordingMetadataExtractor(new AudioMetadata(
+                    "replacement", null, null, 60, 900, "flac")),
                 storage,
+                new EmbeddedTrackAssetWriter(storage),
                 new StorageDeletionQueue(context))
             .ApplyGroupAsync(seeded.GroupId, 1);
         Assert.True(repeated.AlreadyApplied);

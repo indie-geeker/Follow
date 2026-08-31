@@ -9,6 +9,7 @@ import 'package:follow/shared/widgets/player_progress_bar.dart';
 import 'package:follow/core/theme/app_theme.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_track_info.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_controls.dart';
+import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
 
 class LyricsOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -405,14 +406,8 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
       loading: () => Center(
         child: CircularProgressIndicator(color: _foregroundColor(context)),
       ),
-      error: (_, __) => Center(
-        child: Text(
-          '歌词加载失败',
-          style: TextStyle(
-            fontSize: 16,
-            color: _foregroundColor(context, alpha: 0.5),
-          ),
-        ),
+      error: (_, __) => LyricsFailureView(
+        foregroundColor: _foregroundColor(context, alpha: 0.5),
       ),
     );
   }

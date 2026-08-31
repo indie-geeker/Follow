@@ -11,6 +11,22 @@ namespace Follow.Api.Tests;
 public class MusicImportApplyServiceTests
 {
     [Fact]
+    public void ConfirmedApply_WritesEmbeddedAssetsThroughManagedWriter()
+    {
+        var serverRoot = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "../../../../../"));
+        var source = File.ReadAllText(Path.Combine(
+            serverRoot,
+            "src/Follow.Infrastructure/Services/MusicImportApplyService.cs"));
+
+        Assert.Contains("EmbeddedTrackAssetWriter", source);
+        Assert.Contains("_assetWriter.WriteAsync", source);
+        Assert.Contains("CoverUrl", source);
+        Assert.Contains("LyricsUrl", source);
+    }
+
+    [Fact]
     public async Task CreateTrack_WritesOnlyExplicitSelectionAndLinksRejectedCandidates()
     {
         using var directory = new TemporaryDirectory();
@@ -42,6 +58,42 @@ public class MusicImportApplyServiceTests
         Assert.Equal(MusicImportItemStatus.Imported, seeded.Selected.Status);
         Assert.Equal(MusicImportItemStatus.Duplicate, seeded.Rejected.Status);
         Assert.Equal(MusicImportReviewStatus.Applied, seeded.Group.Status);
+    }
+
+    [Fact]
+    public async Task CreateTrack_PersistsEmbeddedCoverAndTimedLyrics()
+    {
+        using var directory = new TemporaryDirectory();
+        var first = await WriteSourceAsync(directory.Path, "selected.flac", 7);
+        var second = await WriteSourceAsync(directory.Path, "rejected.mp3", 8);
+        await using var context = CreateContext();
+        var seeded = await SeedCreateGroupAsync(context, first, second);
+        var storage = new ApplyRecordingStorage();
+        var metadata = new RecordingMetadataExtractor(new AudioMetadata(
+            "selected",
+            "artist",
+            "album",
+            60,
+            900,
+            "flac",
+            CoverData: [1, 2, 3],
+            CoverContentType: "image/png",
+            TimedLyrics: "[00:01.20]line"));
+        var service = CreateService(
+            context,
+            directory.Path,
+            storage,
+            metadata);
+
+        await service.ApplyGroupAsync(seeded.Group.Id, 0);
+
+        var track = await context.Tracks.SingleAsync();
+        Assert.Equal(1, metadata.CallCount);
+        Assert.Equal($"covers/{track.Id}/cover.png", track.CoverUrl);
+        Assert.Equal($"lyrics/{track.Id}/lyrics.lrc", track.LyricsUrl);
+        Assert.Equal(3, storage.Writes.Count);
+        Assert.True(storage.Objects.ContainsKey(Assert.IsType<string>(track.CoverUrl)));
+        Assert.True(storage.Objects.ContainsKey(Assert.IsType<string>(track.LyricsUrl)));
     }
 
     [Theory]
@@ -121,37 +173,51 @@ public class MusicImportApplyServiceTests
         await using var context = new FailNextTrackSaveContext(options);
         var seeded = await SeedCreateGroupAsync(context, first, second);
         var storage = new ApplyRecordingStorage();
-        var service = CreateService(context, directory.Path, storage);
+        var metadata = new RecordingMetadataExtractor(new AudioMetadata(
+            "selected",
+            "artist",
+            "album",
+            60,
+            900,
+            "flac",
+            CoverData: [1, 2, 3],
+            CoverContentType: "image/png",
+            TimedLyrics: "[00:01.20]line"));
+        var service = CreateService(context, directory.Path, storage, metadata);
         context.FailNextTrackSave = true;
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.ApplyGroupAsync(seeded.Group.Id, 0));
 
-        Assert.Single(storage.Deletes);
+        Assert.Equal(3, storage.Deletes.Count);
         Assert.Empty(storage.Objects);
         Assert.Empty(await context.Tracks.ToListAsync());
 
         context.ChangeTracker.Clear();
-        var retryResult = await CreateService(context, directory.Path, storage)
+        var retryResult = await CreateService(context, directory.Path, storage, metadata)
             .ApplyGroupAsync(seeded.Group.Id, 0);
-        var repeated = await CreateService(context, directory.Path, storage)
+        var repeated = await CreateService(context, directory.Path, storage, metadata)
             .ApplyGroupAsync(seeded.Group.Id, 1);
 
         Assert.Equal(retryResult.TrackId, repeated.TrackId);
         Assert.Single(await context.Tracks.ToListAsync());
-        Assert.Equal(2, storage.Writes.Count);
+        Assert.Equal(6, storage.Writes.Count);
     }
 
     private static MusicImportApplyService CreateService(
         FollowDbContext context,
         string sourceRoot,
-        ApplyRecordingStorage storage) => new(
+        ApplyRecordingStorage storage,
+        IAudioMetadataExtractor? metadataExtractor = null) => new(
         context,
         new MusicImportSourceReader(
             MusicImportScannerTests.EnabledSettings(sourceRoot),
             storage),
         new ApplyFingerprintService(),
+        metadataExtractor ?? new RecordingMetadataExtractor(new AudioMetadata(
+            "Track", null, null, 60, 128, "mp3")),
         storage,
+        new EmbeddedTrackAssetWriter(storage),
         new StorageDeletionQueue(context));
 
     private static FollowDbContext CreateContext() => new(
@@ -313,6 +379,18 @@ public class MusicImportApplyServiceTests
             return Task.FromResult(Objects.Remove(filePath));
         }
 
-        public Task<string> UploadFileAsync(Stream fileStream, string fileName, string contentType, string? folder = null) => throw new NotSupportedException();
+        public async Task<string> UploadFileAsync(
+            Stream fileStream,
+            string fileName,
+            string contentType,
+            string? folder = null)
+        {
+            var objectPath = $"{folder}/{fileName}";
+            using var buffer = new MemoryStream();
+            await fileStream.CopyToAsync(buffer);
+            Objects[objectPath] = buffer.ToArray();
+            Writes.Add(objectPath);
+            return objectPath;
+        }
     }
 }

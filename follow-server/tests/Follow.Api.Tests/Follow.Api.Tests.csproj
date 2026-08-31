@@ -31,4 +31,8 @@
     <ProjectReference Include="..\..\src\Follow.Api\Follow.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\synthetic-silent.mp3.b64" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -347,7 +347,10 @@ public sealed class MusicImportEndToEndTests
             },
             storage),
         new MarkerFingerprintService(),
+        new RecordingMetadataExtractor(new AudioMetadata(
+            "Track", null, null, 60, 128, "mp3")),
         storage,
+        new EmbeddedTrackAssetWriter(storage),
         new StorageDeletionQueue(context));
 
     private static FollowDbContext CreateContext() => new(

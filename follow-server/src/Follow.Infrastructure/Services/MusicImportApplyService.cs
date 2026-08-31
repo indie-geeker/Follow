@@ -13,20 +13,26 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
     private readonly FollowDbContext _context;
     private readonly IMusicImportSourceReader _sourceReader;
     private readonly IAudioFingerprintService _fingerprintService;
+    private readonly IAudioMetadataExtractor _metadataExtractor;
     private readonly IStorageService _storage;
+    private readonly EmbeddedTrackAssetWriter _assetWriter;
     private readonly StorageDeletionQueue _deletionQueue;
 
     public MusicImportApplyService(
         FollowDbContext context,
         IMusicImportSourceReader sourceReader,
         IAudioFingerprintService fingerprintService,
+        IAudioMetadataExtractor metadataExtractor,
         IStorageService storage,
+        EmbeddedTrackAssetWriter assetWriter,
         StorageDeletionQueue deletionQueue)
     {
         _context = context;
         _sourceReader = sourceReader;
         _fingerprintService = fingerprintService;
+        _metadataExtractor = metadataExtractor;
         _storage = storage;
+        _assetWriter = assetWriter;
         _deletionQueue = deletionQueue;
     }
 
@@ -131,6 +137,15 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
         {
             throw new MusicImportApplyValidationException("Selected candidate format is unsupported.");
         }
+        AudioMetadata? embeddedMetadata = null;
+        if (!replacing)
+        {
+            source.Stream.Position = 0;
+            embeddedMetadata = await _metadataExtractor.ExtractAsync(
+                source.Stream,
+                selectedItem.OriginalFileName,
+                cancellationToken);
+        }
 
         var objectPath = ImportObjectPath.BuildRevision(
             group.Id,
@@ -161,6 +176,7 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
                     group,
                     selectedItem,
                     objectPath,
+                    embeddedMetadata!,
                     cancellationToken);
         }
         catch
@@ -232,6 +248,11 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
                     throw new MusicImportApplyValidationException(
                         "Selected candidate format is unsupported.");
                 }
+                source.Stream.Position = 0;
+                var embeddedMetadata = await _metadataExtractor.ExtractAsync(
+                    source.Stream,
+                    item.OriginalFileName,
+                    cancellationToken);
 
                 var objectPath = ImportObjectPath.BuildRevision(
                     group.Id,
@@ -251,7 +272,7 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
                     item.SizeBytes,
                     item.ContentSha256!,
                     cancellationToken);
-                prepared.Add(new PreparedRecording(item, objectPath));
+                prepared.Add(new PreparedRecording(item, objectPath, embeddedMetadata));
             }
 
             return await PersistSeparateTracksAsync(group, prepared, cancellationToken);
@@ -269,6 +290,7 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
         IReadOnlyCollection<PreparedRecording> recordings,
         CancellationToken cancellationToken)
     {
+        var embeddedAssetPaths = new List<string>(recordings.Count * 2);
         await using var transaction = _context.Database.IsRelational()
             ? await _context.Database.BeginTransactionAsync(cancellationToken)
             : null;
@@ -281,6 +303,15 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
                 var artist = await GetOrCreateArtistAsync(selected.ExtractedArtist, cancellationToken);
                 var album = await GetOrCreateAlbumAsync(selected.ExtractedAlbum, artist, cancellationToken);
                 var track = CreateTrack(selected, recording.ObjectPath, artist, album);
+                var embeddedAssets = await _assetWriter.WriteAsync(
+                    track.Id,
+                    recording.Metadata.CoverData,
+                    recording.Metadata.CoverContentType,
+                    recording.Metadata.TimedLyrics,
+                    cancellationToken);
+                embeddedAssetPaths.AddRange(embeddedAssets.NewObjectPaths);
+                track.CoverUrl = embeddedAssets.CoverUrl;
+                track.LyricsUrl = embeddedAssets.LyricsUrl;
                 _context.Tracks.Add(track);
                 selected.TrackId = track.Id;
                 selected.ObjectPath = recording.ObjectPath;
@@ -300,6 +331,7 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
         {
             if (transaction != null)
                 await transaction.RollbackAsync(CancellationToken.None);
+            await CompensateAssetsAsync(embeddedAssetPaths);
             throw;
         }
     }
@@ -358,7 +390,10 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
         }
     }
 
-    private sealed record PreparedRecording(MusicImportItem Item, string ObjectPath);
+    private sealed record PreparedRecording(
+        MusicImportItem Item,
+        string ObjectPath,
+        AudioMetadata Metadata);
 
     private async Task<MusicImportSourceReadHandle> OpenAndValidateSourceAsync(
         MusicImportItem item,
@@ -451,8 +486,10 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
         MusicImportReviewGroup group,
         MusicImportItem selected,
         string objectPath,
+        AudioMetadata embeddedMetadata,
         CancellationToken cancellationToken)
     {
+        EmbeddedTrackAssetResult? embeddedAssets = null;
         await using var transaction = _context.Database.IsRelational()
             ? await _context.Database.BeginTransactionAsync(cancellationToken)
             : null;
@@ -493,6 +530,14 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
                 Album = album,
                 AlbumId = album?.Id
             };
+            embeddedAssets = await _assetWriter.WriteAsync(
+                track.Id,
+                embeddedMetadata.CoverData,
+                embeddedMetadata.CoverContentType,
+                embeddedMetadata.TimedLyrics,
+                cancellationToken);
+            track.CoverUrl = embeddedAssets.CoverUrl;
+            track.LyricsUrl = embeddedAssets.LyricsUrl;
             _context.Tracks.Add(track);
             foreach (var item in group.Items)
             {
@@ -522,6 +567,8 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
         {
             if (transaction != null)
                 await transaction.RollbackAsync(CancellationToken.None);
+            if (embeddedAssets != null)
+                await CompensateAssetsAsync(embeddedAssets.NewObjectPaths);
             throw;
         }
     }
@@ -661,6 +708,12 @@ public sealed class MusicImportApplyService : IMusicImportApplyService
             .AsNoTracking()
             .AnyAsync(track => track.FilePath == objectPath);
         if (!referenced)
+            await _deletionQueue.CompensateUploadAsync(_storage, objectPath);
+    }
+
+    private async Task CompensateAssetsAsync(IEnumerable<string> objectPaths)
+    {
+        foreach (var objectPath in objectPaths.Reverse())
             await _deletionQueue.CompensateUploadAsync(_storage, objectPath);
     }
 
