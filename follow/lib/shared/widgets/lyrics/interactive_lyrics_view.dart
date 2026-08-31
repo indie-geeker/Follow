@@ -51,6 +51,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   bool _isProgrammaticScroll = false;
   bool _selectionUpdateScheduled = false;
   bool _gestureHadScrollActivity = false;
+  bool _wasBrowsingAtPointerDown = false;
   double? _lastScrollPixels;
   int _scrollDirection = 1;
   int _operationToken = 0;
@@ -207,7 +208,15 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     _isProgrammaticScroll = false;
 
     if (!_isBrowsing) {
-      setState(() => _isBrowsing = true);
+      final lyrics = widget.lyrics.value;
+      setState(() {
+        _isBrowsing = true;
+        if (lyrics != null &&
+            widget.currentIndex >= 0 &&
+            widget.currentIndex < lyrics.length) {
+          _selectedIndex = widget.currentIndex;
+        }
+      });
     }
     _scheduleCenterSelection();
   }
@@ -261,16 +270,14 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     final viewport = _viewportKey.currentContext?.findRenderObject();
     if (viewport is! RenderBox || !viewport.attached) return;
 
-    final viewportTop = viewport.localToGlobal(Offset.zero).dy;
-    final viewportBottom = viewportTop + viewport.size.height;
     final rows = <VisibleLyricGeometry>[];
     for (var index = 0; index < _rowKeys.length; index++) {
       final row = _rowKeys[index].currentContext?.findRenderObject();
       if (row is! RenderBox || !row.attached) continue;
 
-      final rowTop = row.localToGlobal(Offset.zero).dy;
+      final rowTop = row.localToGlobal(Offset.zero, ancestor: viewport).dy;
       final rowBottom = rowTop + row.size.height;
-      if (rowBottom < viewportTop || rowTop > viewportBottom) continue;
+      if (rowBottom < 0 || rowTop > viewport.size.height) continue;
       rows.add(
         VisibleLyricGeometry(
           index: index,
@@ -281,7 +288,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
 
     final selectedIndex = findNearestLyricIndex(
       rows: rows,
-      viewportCenter: viewportTop + viewport.size.height / 2,
+      viewportCenter: viewport.size.height / 2,
       scrollDirection: _scrollDirection,
     );
     if (selectedIndex != null && selectedIndex != _selectedIndex) {
@@ -296,8 +303,56 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
+    _wasBrowsingAtPointerDown = _isBrowsing;
     _gestureHadScrollActivity = false;
     _beginBrowsing();
+  }
+
+  void _handleLyricTap(int index) {
+    if (!_isBrowsing || !_wasBrowsingAtPointerDown) return;
+    unawaited(_seekToIndex(index));
+  }
+
+  Future<void> _seekToIndex(int index) async {
+    final lyrics = widget.lyrics.value;
+    if (!_isBrowsing || lyrics == null || index < 0 || index >= lyrics.length) {
+      return;
+    }
+
+    final operationToken = ++_operationToken;
+    _inactivityTimer?.cancel();
+    if (_selectedIndex != index) {
+      setState(() => _selectedIndex = index);
+    }
+
+    try {
+      await widget.onSeek(lyrics[index].timestamp);
+    } catch (_) {
+      return;
+    }
+
+    if (!_isCurrentOperation(operationToken, allowBrowsing: true) ||
+        !_isBrowsing) {
+      return;
+    }
+
+    _inactivityTimer?.cancel();
+    final completed = await _followCurrentLyric(
+      animate: true,
+      operationToken: operationToken,
+      allowBrowsing: true,
+      duration: widget.seekDuration,
+      targetIndex: index,
+    );
+    if (!completed ||
+        !_isCurrentOperation(operationToken, allowBrowsing: true)) {
+      return;
+    }
+
+    setState(() {
+      _isBrowsing = false;
+      _selectedIndex = null;
+    });
   }
 
   void _handlePointerEnd(PointerEvent event) {
@@ -335,7 +390,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
         _scrollDirection = delta > 0 ? 1 : -1;
       }
       _lastScrollPixels = pixels;
-      _scheduleCenterSelection();
+      _updateCenterSelection();
     }
 
     if (_isBrowsing &&
@@ -368,6 +423,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final boundarySpace = constraints.maxHeight / 2;
+            final selectedIndex = _selectedIndex;
             return Stack(
               key: _viewportKey,
               fit: StackFit.expand,
@@ -395,33 +451,48 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                         final isCurrent = index == widget.currentIndex;
                         final isSelected =
                             _isBrowsing && _selectedIndex == index;
-                        final isEmphasized = isCurrent || isSelected;
 
                         return KeyedSubtree(
                           key: ValueKey('lyric-row-$index'),
-                          child: ConstrainedBox(
-                            key: _rowKeys[index],
-                            constraints: const BoxConstraints(
-                              minHeight: _minimumRowHeight,
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              child: Align(
-                                alignment: Alignment.center,
-                                child: Text(
-                                  lyric.text,
-                                  style: TextStyle(
-                                    fontSize: isEmphasized ? 18 : 15,
-                                    fontWeight: isEmphasized
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    color: isEmphasized
-                                        ? widget.foregroundColor
-                                        : widget.foregroundColor.withValues(
-                                            alpha: 0.4,
-                                          ),
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _handleLyricTap(index),
+                            child: ConstrainedBox(
+                              key: _rowKeys[index],
+                              constraints: const BoxConstraints(
+                                minHeight: _minimumRowHeight,
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    lyric.text,
+                                    style: TextStyle(
+                                      fontSize: isCurrent
+                                          ? 18
+                                          : isSelected
+                                          ? 17
+                                          : 15,
+                                      fontWeight: isCurrent
+                                          ? FontWeight.bold
+                                          : isSelected
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                      color: isCurrent
+                                          ? widget.foregroundColor
+                                          : isSelected
+                                          ? widget.foregroundColor.withValues(
+                                              alpha: 0.72,
+                                            )
+                                          : widget.foregroundColor.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                    ),
+                                    textAlign: TextAlign.center,
                                   ),
-                                  textAlign: TextAlign.center,
                                 ),
                               ),
                             ),
@@ -431,17 +502,56 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                     ),
                   ),
                 ),
-                if (_isBrowsing)
+                if (_isBrowsing &&
+                    selectedIndex != null &&
+                    selectedIndex >= 0 &&
+                    selectedIndex < lyrics.length)
                   Positioned(
-                    left: 12,
-                    top: boundarySpace - 12,
-                    child: IgnorePointer(
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        key: lyricsCenterPlayKey,
-                        size: 24,
-                        color: widget.foregroundColor,
-                      ),
+                    left: 0,
+                    right: 0,
+                    top: boundarySpace - 22,
+                    height: 44,
+                    child: Stack(
+                      alignment: Alignment.centerLeft,
+                      children: [
+                        IgnorePointer(
+                          child: Divider(
+                            indent: 52,
+                            endIndent: 12,
+                            height: 1,
+                            thickness: 1,
+                            color: widget.foregroundColor.withValues(
+                              alpha: 0.14,
+                            ),
+                          ),
+                        ),
+                        Semantics(
+                          button: true,
+                          label: '从此处播放：${lyrics[selectedIndex].text}',
+                          onTap: () => unawaited(_seekToIndex(selectedIndex)),
+                          child: ExcludeSemantics(
+                            child: MouseRegion(
+                              cursor: SystemMouseCursors.click,
+                              child: Tooltip(
+                                message: '从此处播放',
+                                child: IconButton(
+                                  key: lyricsCenterPlayKey,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 44,
+                                    minHeight: 44,
+                                  ),
+                                  padding: const EdgeInsets.all(12),
+                                  iconSize: 20,
+                                  color: widget.foregroundColor,
+                                  onPressed: () =>
+                                      unawaited(_seekToIndex(selectedIndex)),
+                                  icon: const Icon(Icons.play_arrow_rounded),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
               ],

@@ -28,19 +28,21 @@ class _LyricsHarness extends StatelessWidget {
     required this.seekCalls,
     this.lyrics = const AsyncData(_lyrics),
     this.lyricsNotifier,
+    this.onSeek,
   });
 
   final ValueNotifier<int> currentIndex;
   final List<Duration> seekCalls;
   final AsyncValue<List<LyricLine>> lyrics;
   final ValueNotifier<AsyncValue<List<LyricLine>>>? lyricsNotifier;
+  final Future<void> Function(Duration)? onSeek;
 
   Widget _buildView(int index, AsyncValue<List<LyricLine>> lyrics) {
     return InteractiveLyricsView(
       lyrics: lyrics,
       currentIndex: index,
       foregroundColor: Colors.black,
-      onSeek: (position) async => seekCalls.add(position),
+      onSeek: onSeek ?? (position) async => seekCalls.add(position),
     );
   }
 
@@ -160,6 +162,145 @@ void main() {
     await tester.pump();
 
     expect(seekCalls, isEmpty);
+  });
+
+  testWidgets('shows an accessible 44px center play control while browsing', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byTooltip('从此处播放'), findsOneWidget);
+    final playSemantics = find.bySemanticsLabel(RegExp(r'^从此处播放：Lyric 4$'));
+    expect(playSemantics, findsOneWidget);
+    expect(
+      tester.getSemantics(playSemantics),
+      isSemantics(label: '从此处播放：Lyric 4', isButton: true, hasTapAction: true),
+    );
+    expect(
+      tester.getSize(find.byKey(lyricsCenterPlayKey)).shortestSide,
+      greaterThanOrEqualTo(44),
+    );
+  });
+
+  testWidgets(
+    'center play seeks the visually selected lyric and exits browse',
+    (tester) async {
+      final currentIndex = ValueNotifier(2);
+      final seekCalls = <Duration>[];
+      addTearDown(currentIndex.dispose);
+
+      await tester.pumpWidget(
+        _LyricsHarness(
+          currentIndex: currentIndex,
+          lyrics: AsyncData(_manyLyrics),
+          seekCalls: seekCalls,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
+      await tester.pump();
+      await tester.pump();
+      expect(find.bySemanticsLabel(RegExp(r'^从此处播放：Lyric 4$')), findsOneWidget);
+
+      await tester.tap(find.byKey(lyricsCenterPlayKey));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(seekCalls, [const Duration(seconds: 20)]);
+      expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+      expect(
+        _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-4'))),
+        closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+      );
+    },
+  );
+
+  testWidgets('tapping a lyric while browsing uses the centered seek path', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: seekCalls,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -48));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
+    await tester.pump(const Duration(milliseconds: 219));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump(const Duration(microseconds: 1));
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-4'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('failed seek keeps the browse selection visible', (tester) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: seekCalls,
+        onSeek: (position) async {
+          seekCalls.add(position);
+          throw StateError('seek failed');
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
+    await tester.pump();
+    await tester.pump();
+    final selectedSemantics = find.bySemanticsLabel(RegExp(r'^从此处播放：Lyric 4$'));
+    expect(selectedSemantics, findsOneWidget);
+
+    await tester.tap(find.byKey(lyricsCenterPlayKey));
+    await tester.pump();
+    await tester.pump();
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
+    expect(find.byType(InteractiveLyricsView), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(selectedSemantics, findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(selectedSemantics, findsOneWidget);
   });
 
   testWidgets('centers the current lyric when loading changes to data', (
