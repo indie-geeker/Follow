@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('mobile PlayerPage delegates lyrics to InteractiveLyricsView', () {
+  test('mobile player uses the shared interactive lyrics view', () {
     final source = File(
       'lib/features/player/player_page.dart',
     ).readAsStringSync();
