@@ -55,10 +55,14 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   double? _lastScrollPixels;
   int _scrollDirection = 1;
   int _operationToken = 0;
+  List<LyricLine>? _lyricsDataIdentity;
+  List<Duration> _lyricTimestamps = const [];
+  List<String> _lyricTexts = const [];
 
   @override
   void initState() {
     super.initState();
+    _captureLyricsSnapshot(widget.lyrics.value);
     _scheduleFollowCurrentLyric(animate: false);
   }
 
@@ -66,10 +70,19 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void didUpdateWidget(covariant InteractiveLyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     final currentIndexChanged = widget.currentIndex != oldWidget.currentIndex;
-    final lyricsChanged = widget.lyrics != oldWidget.lyrics;
-    final hasLyrics = widget.lyrics.value?.isNotEmpty ?? false;
-    if ((currentIndexChanged || lyricsChanged) && hasLyrics && !_isBrowsing) {
-      _scheduleFollowCurrentLyric(animate: currentIndexChanged);
+    final lyrics = widget.lyrics.value;
+    final lyricsChanged = _lyricsHaveChanged(lyrics);
+    _captureLyricsSnapshot(lyrics);
+
+    if (lyricsChanged) {
+      _resetForLyricsReplacement();
+      if (lyrics?.isNotEmpty ?? false) {
+        _scheduleFollowCurrentLyric(animate: false);
+      }
+    } else if (currentIndexChanged &&
+        (lyrics?.isNotEmpty ?? false) &&
+        !_isBrowsing) {
+      _scheduleFollowCurrentLyric(animate: true);
     }
   }
 
@@ -78,8 +91,57 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     _operationToken++;
     _isSeeking = false;
     _inactivityTimer?.cancel();
+    _inactivityTimer = null;
     _scrollController.dispose();
     super.dispose();
+  }
+
+  bool _lyricsHaveChanged(List<LyricLine>? lyrics) {
+    if (!identical(lyrics, _lyricsDataIdentity)) return true;
+    if (lyrics == null) return false;
+    if (lyrics.length != _lyricTimestamps.length ||
+        lyrics.length != _lyricTexts.length) {
+      return true;
+    }
+
+    for (var index = 0; index < lyrics.length; index++) {
+      if (lyrics[index].timestamp != _lyricTimestamps[index] ||
+          lyrics[index].text != _lyricTexts[index]) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void _captureLyricsSnapshot(List<LyricLine>? lyrics) {
+    _lyricsDataIdentity = lyrics;
+    _lyricTimestamps = lyrics == null
+        ? const []
+        : [for (final lyric in lyrics) lyric.timestamp];
+    _lyricTexts = lyrics == null
+        ? const []
+        : [for (final lyric in lyrics) lyric.text];
+  }
+
+  void _resetForLyricsReplacement() {
+    _operationToken++;
+    _inactivityTimer?.cancel();
+    _inactivityTimer = null;
+
+    if (_scrollController.hasClients) {
+      final position = _scrollController.position;
+      _scrollController.jumpTo(_clampOffset(position, position.pixels));
+    }
+
+    _rowKeys.clear();
+    _isBrowsing = false;
+    _selectedIndex = null;
+    _isProgrammaticScroll = false;
+    _selectionUpdateScheduled = false;
+    _gestureHadScrollActivity = false;
+    _isSeeking = false;
+    _lastScrollPixels = null;
+    _scrollDirection = 1;
   }
 
   void _ensureRowKeys(int count) {
@@ -97,6 +159,18 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     WidgetsBinding.instance.scheduleFrame();
     return completer.future;
   }
+
+  double _clampOffset(ScrollPosition position, double offset) {
+    return offset
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+  }
+
+  Duration _motionDuration(Duration duration) {
+    return MediaQuery.disableAnimationsOf(context) ? Duration.zero : duration;
+  }
+
+  bool get _canBrowse => (widget.lyrics.value?.length ?? 0) > 1;
 
   void _scheduleFollowCurrentLyric({required bool animate}) {
     final operationToken = ++_operationToken;
@@ -144,12 +218,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
           ? 0.0
           : position.maxScrollExtent * index / (lyrics.length - 1);
       _isProgrammaticScroll = true;
-      _scrollController.jumpTo(
-        estimatedOffset.clamp(
-          position.minScrollExtent,
-          position.maxScrollExtent,
-        ),
-      );
+      _scrollController.jumpTo(_clampOffset(position, estimatedOffset));
       await _waitForLayout();
 
       if (!_isCurrentOperation(operationToken, allowBrowsing: allowBrowsing)) {
@@ -167,14 +236,15 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
 
     final viewport = RenderAbstractViewport.of(row);
     final position = _scrollController.position;
-    final targetOffset = viewport
-        .getOffsetToReveal(row, 0.5)
-        .offset
-        .clamp(position.minScrollExtent, position.maxScrollExtent)
-        .toDouble();
+    final targetOffset = _clampOffset(
+      position,
+      viewport.getOffsetToReveal(row, 0.5).offset,
+    );
 
     _isProgrammaticScroll = true;
-    final animationDuration = duration ?? widget.followDuration;
+    final animationDuration = _motionDuration(
+      duration ?? widget.followDuration,
+    );
     if (animate && animationDuration > Duration.zero) {
       await _scrollController.animateTo(
         targetOffset,
@@ -196,6 +266,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   void _beginBrowsing() {
+    if (!_canBrowse) return;
     _inactivityTimer?.cancel();
     _operationToken++;
     _lastScrollPixels = _scrollController.hasClients
@@ -223,7 +294,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   void _restartInactivityTimer() {
-    if (!_isBrowsing) return;
+    if (!_isBrowsing || !_canBrowse) return;
     _inactivityTimer?.cancel();
     _inactivityTimer = Timer(
       widget.inactivityDelay,
@@ -232,7 +303,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   Future<void> _returnToPlayback() async {
-    if (!_isBrowsing) return;
+    if (!_isBrowsing || !_canBrowse) return;
 
     final operationToken = ++_operationToken;
     while (_isCurrentOperation(operationToken, allowBrowsing: true)) {
@@ -317,8 +388,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
 
   Future<void> _seekToIndex(int index) async {
     final lyrics = widget.lyrics.value;
+    final isSingleLyric = lyrics?.length == 1;
     if (_isSeeking ||
-        !_isBrowsing ||
+        (!_isBrowsing && !isSingleLyric) ||
         lyrics == null ||
         index < 0 ||
         index >= lyrics.length) {
@@ -345,7 +417,12 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     }
 
     if (!_isCurrentOperation(operationToken, allowBrowsing: true) ||
-        !_isBrowsing) {
+        (!isSingleLyric && !_isBrowsing)) {
+      if (mounted) setState(() => _isSeeking = false);
+      return;
+    }
+
+    if (isSingleLyric) {
       if (mounted) setState(() => _isSeeking = false);
       return;
     }
@@ -460,7 +537,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                     child: ListView.builder(
                       key: lyricsViewportKey,
                       controller: _scrollController,
-                      physics: _isSeeking
+                      physics: _isSeeking || lyrics.length <= 1
                           ? const NeverScrollableScrollPhysics()
                           : null,
                       padding: EdgeInsets.symmetric(
@@ -533,7 +610,8 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                     ),
                   ),
                 ),
-                if (_isBrowsing &&
+                if (lyrics.length > 1 &&
+                    _isBrowsing &&
                     selectedIndex != null &&
                     selectedIndex >= 0 &&
                     selectedIndex < lyrics.length)

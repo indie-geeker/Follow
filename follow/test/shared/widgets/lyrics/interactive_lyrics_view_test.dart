@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
+import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
 
 const _lyrics = [
   LyricLine(timestamp: Duration(seconds: 0), text: 'Lyric 0'),
@@ -31,6 +32,8 @@ class _LyricsHarness extends StatelessWidget {
     this.lyrics = const AsyncData(_lyrics),
     this.lyricsNotifier,
     this.onSeek,
+    this.width = 360,
+    this.disableAnimations = false,
   });
 
   final ValueNotifier<int> currentIndex;
@@ -38,6 +41,8 @@ class _LyricsHarness extends StatelessWidget {
   final AsyncValue<List<LyricLine>> lyrics;
   final ValueNotifier<AsyncValue<List<LyricLine>>>? lyricsNotifier;
   final Future<void> Function(Duration)? onSeek;
+  final double width;
+  final bool disableAnimations;
 
   Widget _buildView(int index, AsyncValue<List<LyricLine>> lyrics) {
     return InteractiveLyricsView(
@@ -52,21 +57,24 @@ class _LyricsHarness extends StatelessWidget {
   Widget build(BuildContext context) {
     return ProviderScope(
       child: MaterialApp(
-        home: Scaffold(
-          body: SizedBox(
-            width: 360,
-            height: 300,
-            child: ValueListenableBuilder<int>(
-              valueListenable: currentIndex,
-              builder: (context, index, _) {
-                final notifier = lyricsNotifier;
-                if (notifier == null) return _buildView(index, lyrics);
+        home: MediaQuery(
+          data: MediaQueryData(disableAnimations: disableAnimations),
+          child: Scaffold(
+            body: SizedBox(
+              width: width,
+              height: 300,
+              child: ValueListenableBuilder<int>(
+                valueListenable: currentIndex,
+                builder: (context, index, _) {
+                  final notifier = lyricsNotifier;
+                  if (notifier == null) return _buildView(index, lyrics);
 
-                return ValueListenableBuilder<AsyncValue<List<LyricLine>>>(
-                  valueListenable: notifier,
-                  builder: (context, value, _) => _buildView(index, value),
-                );
-              },
+                  return ValueListenableBuilder<AsyncValue<List<LyricLine>>>(
+                    valueListenable: notifier,
+                    builder: (context, value, _) => _buildView(index, value),
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -1043,5 +1051,354 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('centers the first lyric using its rendered center', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(0);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(currentIndex: currentIndex, seekCalls: []),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-0'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('centers the last lyric using its rendered center', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(_lyrics.length - 1);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(currentIndex: currentIndex, seekCalls: []),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      _verticalCenter(
+        tester,
+        find.byKey(ValueKey('lyric-row-${_lyrics.length - 1}')),
+      ),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('centers a wrapped Chinese lyric from rendered geometry', (
+    tester,
+  ) async {
+    const wrappedLyrics = [
+      LyricLine(timestamp: Duration.zero, text: '第一句'),
+      LyricLine(timestamp: Duration(seconds: 5), text: '第二句'),
+      LyricLine(
+        timestamp: Duration(seconds: 10),
+        text: '这是一句很长的中文歌词，用来验证窄屏下自动换行以后仍然按照真实渲染高度准确居中',
+      ),
+      LyricLine(timestamp: Duration(seconds: 15), text: '第四句'),
+      LyricLine(timestamp: Duration(seconds: 20), text: '第五句'),
+    ];
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: const AsyncData(wrappedLyrics),
+        seekCalls: [],
+        width: 220,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final rowFinder = find.byKey(const ValueKey('lyric-row-2'));
+    expect(tester.getSize(rowFinder).height, greaterThan(48));
+    expect(
+      _verticalCenter(tester, rowFinder),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets(
+    'lyrics replacement resets browsing and follows unchanged index',
+    (tester) async {
+      final replacement = List.generate(
+        8,
+        (index) => LyricLine(
+          timestamp: Duration(seconds: 2 + index * 7),
+          text: 'Replacement $index',
+        ),
+      );
+      final currentIndex = ValueNotifier(2);
+      final lyricsNotifier = ValueNotifier<AsyncValue<List<LyricLine>>>(
+        AsyncData(_manyLyrics),
+      );
+      addTearDown(currentIndex.dispose);
+      addTearDown(lyricsNotifier.dispose);
+
+      await tester.pumpWidget(
+        _LyricsHarness(
+          currentIndex: currentIndex,
+          lyricsNotifier: lyricsNotifier,
+          seekCalls: [],
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+      await tester.pump();
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+      lyricsNotifier.value = AsyncData(replacement);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Replacement 2'), findsOneWidget);
+      expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+      expect(
+        _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-2'))),
+        closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+      );
+
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    },
+  );
+
+  testWidgets('lyrics replacement invalidates a pending seek operation', (
+    tester,
+  ) async {
+    final replacement = List.generate(
+      7,
+      (index) => LyricLine(
+        timestamp: Duration(seconds: 3 + index * 6),
+        text: 'New lyric $index',
+      ),
+    );
+    final currentIndex = ValueNotifier(2);
+    final lyricsNotifier = ValueNotifier<AsyncValue<List<LyricLine>>>(
+      AsyncData(_manyLyrics),
+    );
+    final seekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+    addTearDown(lyricsNotifier.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyricsNotifier: lyricsNotifier,
+        seekCalls: [],
+        onSeek: (_) => seekCompleter.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    lyricsNotifier.value = AsyncData(replacement);
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-2'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+
+    seekCompleter.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('dispose cancels a pending inactivity timer', (tester) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
+    await tester.pump();
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 4));
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dispose invalidates a pending seek operation', (tester) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+        onSeek: (_) => seekCompleter.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    seekCompleter.complete();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reduced motion follows a changed lyric immediately', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+        disableAnimations: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    currentIndex.value = 9;
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-9'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('reduced motion returns to playback immediately after delay', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+        disableAnimations: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+    await tester.pump();
+
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-2'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('reduced motion aligns a seek immediately', (tester) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: seekCalls,
+        disableAnimations: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-4'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('loading empty and error states never show center controls', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    final lyricsNotifier = ValueNotifier<AsyncValue<List<LyricLine>>>(
+      const AsyncLoading(),
+    );
+    addTearDown(currentIndex.dispose);
+    addTearDown(lyricsNotifier.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyricsNotifier: lyricsNotifier,
+        seekCalls: [],
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+
+    lyricsNotifier.value = const AsyncData([]);
+    await tester.pump();
+    expect(find.text('暂无歌词'), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+
+    lyricsNotifier.value = AsyncError(StateError('failed'), StackTrace.empty);
+    await tester.pump();
+    expect(find.byType(LyricsFailureView), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('a single lyric stays centered and never enters browse mode', (
+    tester,
+  ) async {
+    const singleLyric = [
+      LyricLine(timestamp: Duration(seconds: 7), text: 'Only lyric'),
+    ];
+    final currentIndex = ValueNotifier(0);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: const AsyncData(singleLyric),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final centeredOffset = _scrollOffset(tester);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-0'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+
+    _lyricsInputListener(tester).onPointerDown!(const PointerDownEvent());
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
+    await tester.pump();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(_scrollOffset(tester), closeTo(centeredOffset, 0.01));
   });
 }
