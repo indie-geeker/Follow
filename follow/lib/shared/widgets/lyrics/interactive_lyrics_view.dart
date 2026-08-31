@@ -393,6 +393,14 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     }
   }
 
+  void _handleCenterPlay() {
+    if (_isSeeking) return;
+    if (_isReturningToPlayback) _beginBrowsing();
+    _updateCenterSelection();
+    final selectedIndex = _selectedIndex;
+    if (selectedIndex != null) unawaited(_seekToIndex(selectedIndex));
+  }
+
   void _handlePointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent ||
         event.scrollDelta.dy == 0 ||
@@ -520,7 +528,13 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
-    if (_isSeeking || _isProgrammaticScroll) return false;
+    if (_isSeeking) return false;
+    if (_isProgrammaticScroll) {
+      if (_isReturningToPlayback && notification is ScrollUpdateNotification) {
+        _scheduleCenterSelection();
+      }
+      return false;
+    }
 
     if (notification is ScrollStartNotification) {
       _lastScrollPixels = notification.metrics.pixels;
@@ -702,9 +716,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                         Semantics(
                           button: true,
                           label: '从此处播放：${lyrics[selectedIndex].text}',
-                          onTap: _isSeeking
-                              ? null
-                              : () => unawaited(_seekToIndex(selectedIndex)),
+                          onTap: _isSeeking ? null : _handleCenterPlay,
                           child: ExcludeSemantics(
                             child: MouseRegion(
                               cursor: SystemMouseCursors.click,
@@ -721,9 +733,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                                   color: widget.foregroundColor,
                                   onPressed: _isSeeking
                                       ? null
-                                      : () => unawaited(
-                                          _seekToIndex(selectedIndex),
-                                        ),
+                                      : _handleCenterPlay,
                                   icon: const Icon(Icons.play_arrow_rounded),
                                 ),
                               ),

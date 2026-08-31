@@ -136,6 +136,30 @@ Offset _viewportCenter(WidgetTester tester) {
   return tester.getCenter(find.byKey(lyricsViewportKey));
 }
 
+int _nearestVisibleLyricIndex(WidgetTester tester, int lyricCount) {
+  final viewportRect = tester.getRect(find.byKey(lyricsViewportKey));
+  int? nearestIndex;
+  var nearestDistance = double.infinity;
+
+  for (var index = 0; index < lyricCount; index++) {
+    final row = find.byKey(ValueKey('lyric-row-$index'));
+    if (row.evaluate().isEmpty) continue;
+
+    final rowRect = tester.getRect(row);
+    if (rowRect.bottom < viewportRect.top ||
+        rowRect.top > viewportRect.bottom) {
+      continue;
+    }
+    final distance = (rowRect.center.dy - viewportRect.center.dy).abs();
+    if (distance < nearestDistance) {
+      nearestIndex = index;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearestIndex!;
+}
+
 Listener _lyricsInputListener(WidgetTester tester) {
   Listener? listener;
   tester.element(find.byKey(lyricsViewportKey)).visitAncestorElements((
@@ -1195,6 +1219,99 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(microseconds: 1));
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('return animation keeps center play semantics visually current', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+    await tester.pump();
+    await tester.pump();
+    final originalIndex = _nearestVisibleLyricIndex(tester, _manyLyrics.length);
+    expect(originalIndex, 5);
+    expect(find.bySemanticsLabel('从此处播放：Lyric $originalIndex'), findsOneWidget);
+
+    currentIndex.value = 9;
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+
+    final visualCenterIndex = _nearestVisibleLyricIndex(
+      tester,
+      _manyLyrics.length,
+    );
+    expect(visualCenterIndex, isNot(originalIndex));
+    expect(
+      tester.getSemantics(find.byKey(lyricsCenterPlayKey)).label,
+      '从此处播放：Lyric $visualCenterIndex',
+    );
+  });
+
+  testWidgets('center play takes ownership from an active return', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    final seekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: seekCalls,
+        onSeek: (position) {
+          seekCalls.add(position);
+          return seekCompleter.future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+    await tester.pump();
+    currentIndex.value = 9;
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 200));
+
+    final visualCenterIndex = _nearestVisibleLyricIndex(
+      tester,
+      _manyLyrics.length,
+    );
+    final midpointOffset = _scrollOffset(tester);
+    await tester.tap(find.byKey(lyricsCenterPlayKey));
+    await tester.pump();
+
+    expect(seekCalls, [_manyLyrics[visualCenterIndex].timestamp]);
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(_scrollOffset(tester), closeTo(midpointOffset, 0.01));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    seekCompleter.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(
+        tester,
+        find.byKey(ValueKey('lyric-row-$visualCenterIndex')),
+      ),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
   });
 
   testWidgets('programmatic follow notifications never enter browse mode', (
