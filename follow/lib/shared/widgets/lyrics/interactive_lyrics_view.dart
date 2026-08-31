@@ -191,12 +191,8 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                     final isSelected = _isBrowsing && _selectedIndex == index;
                     final isEmphasized = isCurrent || isSelected;
 
-                    return GestureDetector(
+                    return KeyedSubtree(
                       key: ValueKey('lyric-row-$index'),
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () {
-                        unawaited(widget.onSeek(lyric.timestamp));
-                      },
                       child: ConstrainedBox(
                         key: _rowKeys[index],
                         constraints: const BoxConstraints(

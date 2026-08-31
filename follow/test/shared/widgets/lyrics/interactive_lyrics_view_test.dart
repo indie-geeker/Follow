@@ -96,4 +96,22 @@ void main() {
 
     expect(currentRowCenter, closeTo(viewportCenter, 2));
   });
+
+  testWidgets('does not seek when a lyric row is tapped in follow mode', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(currentIndex: currentIndex, seekCalls: seekCalls),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lyric-row-2')));
+    await tester.pump();
+
+    expect(seekCalls, isEmpty);
+  });
 }
