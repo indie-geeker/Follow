@@ -326,6 +326,129 @@ void main() {
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
+  testWidgets('a cancelled pointer without scrolling still returns', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Listener? listener;
+    tester.element(find.byKey(lyricsViewportKey)).visitAncestorElements((
+      ancestor,
+    ) {
+      if (ancestor.widget case final Listener candidate) {
+        listener = candidate;
+        return false;
+      }
+      return true;
+    });
+    final lifecycleListener = listener!;
+    expect(lifecycleListener.onPointerUp, isNotNull);
+    expect(lifecycleListener.onPointerCancel, isNotNull);
+
+    lifecycleListener.onPointerDown!(const PointerDownEvent());
+    await tester.pump();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    lifecycleListener.onPointerCancel!(const PointerCancelEvent());
+    await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('return retries when playback advances during its animation', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+    currentIndex.value = 7;
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    currentIndex.value = 9;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(microseconds: 1));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-9'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('fling starts the inactivity delay after ballistic scrolling', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    await tester.fling(
+      find.byKey(lyricsViewportKey),
+      const Offset(0, -360),
+      1400,
+    );
+    await tester.pump();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(position.isScrollingNotifier.value, isTrue);
+
+    var ballisticFrames = 0;
+    while (position.isScrollingNotifier.value && ballisticFrames < 180) {
+      await tester.pump(const Duration(milliseconds: 16));
+      ballisticFrames++;
+    }
+    expect(position.isScrollingNotifier.value, isFalse);
+    final settledOffset = position.pixels;
+
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(position.pixels, closeTo(settledOffset, 0.01));
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
   testWidgets(
     'pointer scroll enters browse mode and each signal resets delay',
     (tester) async {

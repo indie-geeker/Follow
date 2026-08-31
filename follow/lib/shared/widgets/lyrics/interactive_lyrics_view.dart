@@ -116,9 +116,10 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     required int operationToken,
     bool allowBrowsing = false,
     Duration? duration,
+    int? targetIndex,
   }) async {
     final lyrics = widget.lyrics.value;
-    final index = widget.currentIndex;
+    final index = targetIndex ?? widget.currentIndex;
 
     if (!_isCurrentOperation(operationToken, allowBrowsing: allowBrowsing) ||
         lyrics == null ||
@@ -194,6 +195,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void _beginBrowsing() {
     _inactivityTimer?.cancel();
     _operationToken++;
+    _lastScrollPixels = _scrollController.hasClients
+        ? _scrollController.offset
+        : null;
 
     if (_isProgrammaticScroll && _scrollController.hasClients) {
       final currentOffset = _scrollController.offset;
@@ -220,21 +224,27 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     if (!_isBrowsing) return;
 
     final operationToken = ++_operationToken;
-    final completed = await _followCurrentLyric(
-      animate: true,
-      operationToken: operationToken,
-      allowBrowsing: true,
-      duration: widget.returnDuration,
-    );
-    if (!completed ||
-        !_isCurrentOperation(operationToken, allowBrowsing: true)) {
+    while (_isCurrentOperation(operationToken, allowBrowsing: true)) {
+      final targetIndex = widget.currentIndex;
+      final completed = await _followCurrentLyric(
+        animate: true,
+        operationToken: operationToken,
+        allowBrowsing: true,
+        duration: widget.returnDuration,
+        targetIndex: targetIndex,
+      );
+      if (!completed ||
+          !_isCurrentOperation(operationToken, allowBrowsing: true)) {
+        return;
+      }
+      if (widget.currentIndex != targetIndex) continue;
+
+      setState(() {
+        _isBrowsing = false;
+        _selectedIndex = null;
+      });
       return;
     }
-
-    setState(() {
-      _isBrowsing = false;
-      _selectedIndex = null;
-    });
   }
 
   void _scheduleCenterSelection() {
@@ -281,6 +291,10 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   void _handlePointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
     _beginBrowsing();
+    _restartInactivityTimer();
+  }
+
+  void _handlePointerEnd(PointerEvent event) {
     _restartInactivityTimer();
   }
 
@@ -340,12 +354,15 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
               children: [
                 Listener(
                   onPointerDown: (_) => _beginBrowsing(),
+                  onPointerUp: _handlePointerEnd,
+                  onPointerCancel: _handlePointerEnd,
                   onPointerSignal: _handlePointerSignal,
                   onPointerPanZoomStart: (_) {
                     _beginBrowsing();
                     _restartInactivityTimer();
                   },
                   onPointerPanZoomUpdate: (_) => _restartInactivityTimer(),
+                  onPointerPanZoomEnd: (_) => _restartInactivityTimer(),
                   child: NotificationListener<ScrollNotification>(
                     onNotification: _handleScrollNotification,
                     child: ListView.builder(
