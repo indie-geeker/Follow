@@ -83,6 +83,20 @@ Offset _viewportCenter(WidgetTester tester) {
   return tester.getCenter(find.byKey(lyricsViewportKey));
 }
 
+Listener _lyricsInputListener(WidgetTester tester) {
+  Listener? listener;
+  tester.element(find.byKey(lyricsViewportKey)).visitAncestorElements((
+    ancestor,
+  ) {
+    if (ancestor.widget case final Listener candidate) {
+      listener = candidate;
+      return false;
+    }
+    return true;
+  });
+  return listener!;
+}
+
 void main() {
   testWidgets('centers the current lyric after initial layout', (tester) async {
     final currentIndex = ValueNotifier(2);
@@ -326,7 +340,7 @@ void main() {
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
-  testWidgets('a cancelled pointer without scrolling still returns', (
+  testWidgets('a no-movement pointer gesture returns after full inactivity', (
     tester,
   ) async {
     final currentIndex = ValueNotifier(2);
@@ -341,24 +355,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    Listener? listener;
-    tester.element(find.byKey(lyricsViewportKey)).visitAncestorElements((
-      ancestor,
-    ) {
-      if (ancestor.widget case final Listener candidate) {
-        listener = candidate;
-        return false;
-      }
-      return true;
-    });
-    final lifecycleListener = listener!;
-    expect(lifecycleListener.onPointerUp, isNotNull);
-    expect(lifecycleListener.onPointerCancel, isNotNull);
-
-    lifecycleListener.onPointerDown!(const PointerDownEvent());
+    final gesture = await tester.startGesture(_viewportCenter(tester));
     await tester.pump();
     expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
-    lifecycleListener.onPointerCancel!(const PointerCancelEvent());
+    await gesture.up();
     await tester.pump();
 
     await tester.pump(const Duration(milliseconds: 2900));
@@ -366,6 +366,53 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('pointer-up defers inactivity delay to user scroll end', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final listener = _lyricsInputListener(tester);
+    final listContext = tester.element(find.byKey(lyricsViewportKey));
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+
+    listener.onPointerDown!(const PointerDownEvent());
+    ScrollStartNotification(
+      metrics: position,
+      context: listContext,
+      dragDetails: DragStartDetails(),
+    ).dispatch(listContext);
+    listener.onPointerUp!(const PointerUpEvent());
+    await tester.pump();
+
+    await tester.pump(const Duration(milliseconds: 3100));
+    await tester.pumpAndSettle();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    ScrollEndNotification(
+      metrics: position,
+      context: listContext,
+      dragDetails: DragEndDetails(),
+    ).dispatch(listContext);
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 

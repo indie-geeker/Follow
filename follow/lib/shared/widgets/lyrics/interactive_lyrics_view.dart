@@ -50,6 +50,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   int? _selectedIndex;
   bool _isProgrammaticScroll = false;
   bool _selectionUpdateScheduled = false;
+  bool _gestureHadScrollActivity = false;
   double? _lastScrollPixels;
   int _scrollDirection = 1;
   int _operationToken = 0;
@@ -294,20 +295,39 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     _restartInactivityTimer();
   }
 
+  void _handlePointerDown(PointerDownEvent event) {
+    _gestureHadScrollActivity = false;
+    _beginBrowsing();
+  }
+
   void _handlePointerEnd(PointerEvent event) {
-    _restartInactivityTimer();
+    final shouldStartInactivityTimer = !_gestureHadScrollActivity;
+    _gestureHadScrollActivity = false;
+    if (shouldStartInactivityTimer) _restartInactivityTimer();
+  }
+
+  void _handlePanZoomStart(PointerPanZoomStartEvent event) {
+    _gestureHadScrollActivity = false;
+    _beginBrowsing();
+  }
+
+  void _handlePanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    _gestureHadScrollActivity = true;
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
     if (_isProgrammaticScroll) return false;
 
     if (notification is ScrollStartNotification &&
-        notification.dragDetails != null &&
-        !_isBrowsing) {
-      _beginBrowsing();
+        notification.dragDetails != null) {
+      _gestureHadScrollActivity = true;
+      if (!_isBrowsing) _beginBrowsing();
     }
 
     if (notification is ScrollUpdateNotification && _isBrowsing) {
+      if (notification.dragDetails != null) {
+        _gestureHadScrollActivity = true;
+      }
       final previousPixels = _lastScrollPixels;
       final pixels = notification.metrics.pixels;
       if (previousPixels != null && pixels != previousPixels) {
@@ -323,6 +343,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
         (notification is ScrollEndNotification ||
             notification is UserScrollNotification &&
                 notification.direction == ScrollDirection.idle)) {
+      _gestureHadScrollActivity = false;
       _restartInactivityTimer();
     }
     return false;
@@ -353,16 +374,13 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
               fit: StackFit.expand,
               children: [
                 Listener(
-                  onPointerDown: (_) => _beginBrowsing(),
+                  onPointerDown: _handlePointerDown,
                   onPointerUp: _handlePointerEnd,
                   onPointerCancel: _handlePointerEnd,
                   onPointerSignal: _handlePointerSignal,
-                  onPointerPanZoomStart: (_) {
-                    _beginBrowsing();
-                    _restartInactivityTimer();
-                  },
-                  onPointerPanZoomUpdate: (_) => _restartInactivityTimer(),
-                  onPointerPanZoomEnd: (_) => _restartInactivityTimer(),
+                  onPointerPanZoomStart: _handlePanZoomStart,
+                  onPointerPanZoomUpdate: _handlePanZoomUpdate,
+                  onPointerPanZoomEnd: _handlePointerEnd,
                   child: NotificationListener<ScrollNotification>(
                     onNotification: _handleScrollNotification,
                     child: ListView.builder(
