@@ -407,7 +407,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     try {
       await widget.onSeek(lyrics[index].timestamp);
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || operationToken != _operationToken || !_isSeeking) {
+        return;
+      }
       setState(() => _isSeeking = false);
       ScaffoldMessenger.maybeOf(
         context,

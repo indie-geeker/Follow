@@ -1213,6 +1213,51 @@ void main() {
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
 
+  testWidgets('replaced lyrics ignore a stale pending seek failure', (
+    tester,
+  ) async {
+    final replacement = List.generate(
+      7,
+      (index) => LyricLine(
+        timestamp: Duration(seconds: 3 + index * 6),
+        text: 'Authoritative lyric $index',
+      ),
+    );
+    final currentIndex = ValueNotifier(2);
+    final lyricsNotifier = ValueNotifier<AsyncValue<List<LyricLine>>>(
+      AsyncData(_manyLyrics),
+    );
+    final seekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+    addTearDown(lyricsNotifier.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyricsNotifier: lyricsNotifier,
+        seekCalls: [],
+        onSeek: (_) => seekCompleter.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+
+    lyricsNotifier.value = AsyncData(replacement);
+    await tester.pumpAndSettle();
+    seekCompleter.completeError(StateError('stale seek failed'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('无法跳转播放位置，请重试'), findsNothing);
+    expect(find.text('Authoritative lyric 2'), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-2'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
   testWidgets('dispose cancels a pending inactivity timer', (tester) async {
     final currentIndex = ValueNotifier(2);
     addTearDown(currentIndex.dispose);
@@ -1256,6 +1301,39 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dispose cancels an active follow animation', (tester) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+
+    currentIndex.value = 9;
+    for (
+      var frame = 0;
+      frame < 4 && !position.isScrollingNotifier.value;
+      frame++
+    ) {
+      await tester.pump();
+    }
+    expect(position.isScrollingNotifier.value, isTrue);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(tester.takeException(), isNull);
+    expect(tester.binding.hasScheduledFrame, isFalse);
   });
 
   testWidgets('reduced motion follows a changed lyric immediately', (
