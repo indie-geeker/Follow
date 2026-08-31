@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Follow.Core.Interfaces;
 using Follow.Infrastructure.Data;
 using Follow.Infrastructure.Services;
@@ -191,11 +192,11 @@ internal sealed class DisposableMusicImportStack : IAsyncDisposable
 
     internal sealed class TrackingStorage(MinioStorageService inner) : IStorageService, IDisposable
     {
-        public List<string> WrittenObjectPaths { get; } = [];
+        public ConcurrentQueue<string> WrittenObjectPaths { get; } = new();
 
         public async Task WriteObjectAsync(string objectPath, Stream source, long length, string contentType, CancellationToken cancellationToken = default)
         {
-            WrittenObjectPaths.Add(objectPath);
+            WrittenObjectPaths.Enqueue(objectPath);
             await inner.WriteObjectAsync(objectPath, source, length, contentType, cancellationToken);
         }
 
