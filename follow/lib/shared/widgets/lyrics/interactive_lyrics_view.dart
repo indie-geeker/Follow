@@ -37,6 +37,7 @@ class InteractiveLyricsView extends StatefulWidget {
 
 class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   static const _minimumRowHeight = 48.0;
+  static const _maxRevealAttempts = 4;
 
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _viewportKey = GlobalKey();
@@ -53,16 +54,17 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_followCurrentLyric(animate: false));
-    });
+    _scheduleFollowCurrentLyric(animate: false);
   }
 
   @override
   void didUpdateWidget(covariant InteractiveLyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.currentIndex != oldWidget.currentIndex && !_isBrowsing) {
-      unawaited(_followCurrentLyric(animate: true));
+    final currentIndexChanged = widget.currentIndex != oldWidget.currentIndex;
+    final lyricsChanged = widget.lyrics != oldWidget.lyrics;
+    final hasLyrics = widget.lyrics.value?.isNotEmpty ?? false;
+    if ((currentIndexChanged || lyricsChanged) && hasLyrics && !_isBrowsing) {
+      _scheduleFollowCurrentLyric(animate: currentIndexChanged);
     }
   }
 
@@ -90,13 +92,28 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     return completer.future;
   }
 
-  Future<void> _followCurrentLyric({required bool animate}) async {
+  void _scheduleFollowCurrentLyric({required bool animate}) {
     final operationToken = ++_operationToken;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isCurrentOperation(operationToken)) return;
+      unawaited(
+        _followCurrentLyric(animate: animate, operationToken: operationToken),
+      );
+    });
+  }
+
+  bool _isCurrentOperation(int operationToken) {
+    return mounted && operationToken == _operationToken && !_isBrowsing;
+  }
+
+  Future<void> _followCurrentLyric({
+    required bool animate,
+    required int operationToken,
+  }) async {
     final lyrics = widget.lyrics.value;
     final index = widget.currentIndex;
 
-    if (!mounted ||
-        _isBrowsing ||
+    if (!_isCurrentOperation(operationToken) ||
         lyrics == null ||
         index < 0 ||
         index >= lyrics.length ||
@@ -106,7 +123,11 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
 
     _ensureRowKeys(lyrics.length);
     var row = _rowKeys[index].currentContext?.findRenderObject();
-    if (row == null || !row.attached) {
+    for (
+      var attempt = 0;
+      (row == null || !row.attached) && attempt < _maxRevealAttempts;
+      attempt++
+    ) {
       final position = _scrollController.position;
       final estimatedOffset = lyrics.length <= 1
           ? 0.0
@@ -120,11 +141,11 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
       );
       await _waitForLayout();
 
-      if (!mounted || operationToken != _operationToken) return;
+      if (!_isCurrentOperation(operationToken)) return;
       row = _rowKeys[index].currentContext?.findRenderObject();
     }
 
-    if (row == null || !row.attached || operationToken != _operationToken) {
+    if (row == null || !row.attached || !_isCurrentOperation(operationToken)) {
       _isProgrammaticScroll = false;
       return;
     }
@@ -148,7 +169,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
       _scrollController.jumpTo(targetOffset);
     }
 
-    if (_isProgrammaticScroll && mounted && operationToken == _operationToken) {
+    if (_isProgrammaticScroll && _isCurrentOperation(operationToken)) {
       _isProgrammaticScroll = false;
     }
   }

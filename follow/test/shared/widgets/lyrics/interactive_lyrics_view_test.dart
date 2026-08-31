@@ -14,10 +14,26 @@ const _lyrics = [
 ];
 
 class _LyricsHarness extends StatelessWidget {
-  const _LyricsHarness({required this.currentIndex, required this.seekCalls});
+  const _LyricsHarness({
+    required this.currentIndex,
+    required this.seekCalls,
+    this.lyrics = const AsyncData(_lyrics),
+    this.lyricsNotifier,
+  });
 
   final ValueNotifier<int> currentIndex;
   final List<Duration> seekCalls;
+  final AsyncValue<List<LyricLine>> lyrics;
+  final ValueNotifier<AsyncValue<List<LyricLine>>>? lyricsNotifier;
+
+  Widget _buildView(int index, AsyncValue<List<LyricLine>> lyrics) {
+    return InteractiveLyricsView(
+      lyrics: lyrics,
+      currentIndex: index,
+      foregroundColor: Colors.black,
+      onSeek: (position) async => seekCalls.add(position),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -30,11 +46,12 @@ class _LyricsHarness extends StatelessWidget {
             child: ValueListenableBuilder<int>(
               valueListenable: currentIndex,
               builder: (context, index, _) {
-                return InteractiveLyricsView(
-                  lyrics: const AsyncData(_lyrics),
-                  currentIndex: index,
-                  foregroundColor: Colors.black,
-                  onSeek: (position) async => seekCalls.add(position),
+                final notifier = lyricsNotifier;
+                if (notifier == null) return _buildView(index, lyrics);
+
+                return ValueListenableBuilder<AsyncValue<List<LyricLine>>>(
+                  valueListenable: notifier,
+                  builder: (context, value, _) => _buildView(index, value),
                 );
               },
             ),
@@ -82,8 +99,7 @@ void main() {
     await tester.pumpAndSettle();
 
     currentIndex.value = 4;
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 280));
+    await tester.pumpAndSettle();
 
     final viewportCenter = _verticalCenter(
       tester,
@@ -113,5 +129,111 @@ void main() {
     await tester.pump();
 
     expect(seekCalls, isEmpty);
+  });
+
+  testWidgets('centers the current lyric when loading changes to data', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(4);
+    final lyricsNotifier = ValueNotifier<AsyncValue<List<LyricLine>>>(
+      const AsyncLoading(),
+    );
+    addTearDown(currentIndex.dispose);
+    addTearDown(lyricsNotifier.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyricsNotifier: lyricsNotifier,
+        seekCalls: [],
+      ),
+    );
+    await tester.pump();
+
+    lyricsNotifier.value = const AsyncData(_lyrics);
+    await tester.pumpAndSettle();
+
+    final rowFinder = find.byKey(const ValueKey('lyric-row-4'));
+    expect(rowFinder, findsOneWidget);
+    expect(
+      _verticalCenter(tester, rowFinder),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('uses updated wrapped-row geometry when the index changes', (
+    tester,
+  ) async {
+    const wrappedLyrics = [
+      LyricLine(timestamp: Duration.zero, text: 'Lyric 0'),
+      LyricLine(timestamp: Duration(seconds: 5), text: 'Lyric 1'),
+      LyricLine(
+        timestamp: Duration(seconds: 10),
+        text:
+            'This wrapped lyric changes height when its larger bold current '
+            'style is applied to the newly selected row',
+      ),
+      LyricLine(timestamp: Duration(seconds: 15), text: 'Lyric 3'),
+      LyricLine(timestamp: Duration(seconds: 20), text: 'Lyric 4'),
+      LyricLine(timestamp: Duration(seconds: 25), text: 'Lyric 5'),
+    ];
+    final currentIndex = ValueNotifier(0);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: const AsyncData(wrappedLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final heightBefore = tester
+        .getRect(find.byKey(const ValueKey('lyric-row-2')))
+        .height;
+
+    currentIndex.value = 2;
+    await tester.pumpAndSettle();
+
+    final rowFinder = find.byKey(const ValueKey('lyric-row-2'));
+    expect(tester.getRect(rowFinder).height, greaterThan(heightBefore));
+    expect(
+      _verticalCenter(tester, rowFinder),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('centers a distant lyric that was not rendered', (tester) async {
+    final manyLyrics = List.generate(
+      120,
+      (index) => LyricLine(
+        timestamp: Duration(seconds: index * 5),
+        text: index < 8
+            ? 'Lyric $index'
+            : List.filled(8, 'extended lyric $index').join(' '),
+      ),
+    );
+    final currentIndex = ValueNotifier(1);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+    const targetKey = ValueKey('lyric-row-110');
+    expect(find.byKey(targetKey), findsNothing);
+
+    currentIndex.value = 110;
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(targetKey), findsOneWidget);
+    expect(
+      _verticalCenter(tester, find.byKey(targetKey)),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
   });
 }
