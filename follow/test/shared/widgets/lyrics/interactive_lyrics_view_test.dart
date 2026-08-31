@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -99,6 +101,17 @@ Listener _lyricsInputListener(WidgetTester tester) {
   return listener!;
 }
 
+TextStyle _lyricStyle(WidgetTester tester, int index) {
+  return tester
+      .widget<Text>(
+        find.descendant(
+          of: find.byKey(ValueKey('lyric-row-$index')),
+          matching: find.byType(Text),
+        ),
+      )
+      .style!;
+}
+
 void main() {
   testWidgets('centers the current lyric after initial layout', (tester) async {
     final currentIndex = ValueNotifier(2);
@@ -146,7 +159,7 @@ void main() {
     expect(currentRowCenter, closeTo(viewportCenter, 2));
   });
 
-  testWidgets('does not seek when a lyric row is tapped in follow mode', (
+  testWidgets('first lyric tap in follow mode seeks the tapped timestamp', (
     tester,
   ) async {
     final currentIndex = ValueNotifier(2);
@@ -158,10 +171,35 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('lyric-row-2')));
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
     await tester.pump();
 
-    expect(seekCalls, isEmpty);
+    expect(seekCalls, [const Duration(seconds: 20)]);
+  });
+
+  testWidgets('lyric row semantics activation uses the same seek path', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(currentIndex: currentIndex, seekCalls: seekCalls),
+    );
+    await tester.pumpAndSettle();
+
+    final rowSemantics = find.semantics.byLabel('跳转播放：Lyric 4');
+    expect(rowSemantics, findsOneWidget);
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('lyric-row-4'))),
+      isSemantics(label: '跳转播放：Lyric 4', isButton: true, hasTapAction: true),
+    );
+
+    tester.semantics.tap(rowSemantics);
+    await tester.pump();
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
   });
 
   testWidgets('shows an accessible 44px center play control while browsing', (
@@ -264,7 +302,46 @@ void main() {
     );
   });
 
-  testWidgets('failed seek keeps the browse selection visible', (tester) async {
+  testWidgets('ignores overlapping lyric seek activations', (tester) async {
+    final currentIndex = ValueNotifier(2);
+    final seekCalls = <Duration>[];
+    final seekCompleter = Completer<void>();
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: seekCalls,
+        onSeek: (position) {
+          seekCalls.add(position);
+          return seekCompleter.future;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('lyric-row-4')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('lyric-row-5')));
+    await tester.pump();
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
+
+    seekCompleter.complete();
+    await tester.pumpAndSettle();
+
+    expect(seekCalls, [const Duration(seconds: 20)]);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      _verticalCenter(tester, find.byKey(const ValueKey('lyric-row-4'))),
+      closeTo(_verticalCenter(tester, find.byKey(lyricsViewportKey)), 2),
+    );
+  });
+
+  testWidgets('failed seek reports feedback then returns after fresh delay', (
+    tester,
+  ) async {
     final currentIndex = ValueNotifier(2);
     final seekCalls = <Duration>[];
     addTearDown(currentIndex.dispose);
@@ -296,11 +373,59 @@ void main() {
     expect(find.byType(InteractiveLyricsView), findsOneWidget);
     expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
     expect(selectedSemantics, findsOneWidget);
+    expect(find.text('无法跳转播放位置，请重试'), findsOneWidget);
 
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 2900));
     expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
-    expect(selectedSemantics, findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(microseconds: 1));
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('playing lyric style stays stronger than browse selection', (
+    tester,
+  ) async {
+    final currentIndex = ValueNotifier(2);
+    addTearDown(currentIndex.dispose);
+
+    await tester.pumpWidget(
+      _LyricsHarness(
+        currentIndex: currentIndex,
+        lyrics: AsyncData(_manyLyrics),
+        seekCalls: [],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    _lyricsInputListener(tester).onPointerDown!(const PointerDownEvent());
+    await tester.pump();
+    expect(_lyricStyle(tester, 2).fontSize, 18);
+    expect(_lyricStyle(tester, 2).fontWeight, FontWeight.bold);
+    expect(_lyricStyle(tester, 2).color, Colors.black);
+
+    await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -96));
+    await tester.pump();
+    await tester.pump();
+
+    final playingStyle = _lyricStyle(tester, 2);
+    final selectedStyle = _lyricStyle(tester, 4);
+    final normalStyle = _lyricStyle(tester, 5);
+    expect(playingStyle.fontSize, greaterThan(selectedStyle.fontSize!));
+    expect(
+      playingStyle.fontWeight!.value,
+      greaterThan(selectedStyle.fontWeight!.value),
+    );
+    expect(playingStyle.color, Colors.black);
+    expect(selectedStyle.fontSize, greaterThan(normalStyle.fontSize!));
+    expect(
+      selectedStyle.fontWeight!.value,
+      greaterThan(normalStyle.fontWeight!.value),
+    );
+    expect(selectedStyle.color, Colors.black.withValues(alpha: 0.72));
+    expect(normalStyle.color, Colors.black.withValues(alpha: 0.4));
   });
 
   testWidgets('centers the current lyric when loading changes to data', (
@@ -496,7 +621,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final gesture = await tester.startGesture(_viewportCenter(tester));
+    final viewport = tester.getRect(find.byKey(lyricsViewportKey));
+    final gesture = await tester.startGesture(
+      Offset(viewport.left + 4, viewport.center.dy),
+    );
     await tester.pump();
     expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
     await gesture.up();
