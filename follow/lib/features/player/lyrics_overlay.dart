@@ -7,9 +7,9 @@ import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/shared/widgets/player_progress_bar.dart';
 import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_track_info.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_controls.dart';
-import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
 
 class LyricsOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -24,7 +24,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<Offset> _slideAnimation;
-  final ScrollController _lyricsScrollController = ScrollController();
 
   @override
   void initState() {
@@ -43,7 +42,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
   @override
   void dispose() {
     _controller.dispose();
-    _lyricsScrollController.dispose();
     super.dispose();
   }
 
@@ -91,23 +89,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
       loading: () => fallbackDuration,
       error: (_, __) => fallbackDuration,
     );
-
-    // Auto-scroll to current lyric
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (currentLyricIdx >= 0 && _lyricsScrollController.hasClients) {
-        final targetOffset = (currentLyricIdx * 48.0) - 100;
-        final maxScroll = _lyricsScrollController.position.maxScrollExtent;
-        // Only scroll if there's content to scroll and target is within bounds
-        if (targetOffset > 0 && maxScroll > 0) {
-          final clampedOffset = targetOffset.clamp(0.0, maxScroll);
-          _lyricsScrollController.animateTo(
-            clampedOffset,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
-        }
-      }
-    });
 
     return SlideTransition(
       position: _slideAnimation,
@@ -310,6 +291,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
           flex: 1,
           child: _buildLyricsList(
             context,
+            currentTrack?.id,
             lyricsAsync,
             currentLyricIdx,
             audioService,
@@ -340,6 +322,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
         Expanded(
           child: _buildLyricsList(
             context,
+            currentTrack?.id,
             lyricsAsync,
             currentLyricIdx,
             audioService,
@@ -351,64 +334,17 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
 
   Widget _buildLyricsList(
     BuildContext context,
+    String? trackId,
     AsyncValue<List<LyricLine>> lyricsAsync,
     int currentLyricIdx,
     AudioPlayerService audioService,
   ) {
-    return lyricsAsync.when(
-      data: (lyrics) {
-        if (lyrics.isEmpty) {
-          return Center(
-            child: Text(
-              '暂无歌词',
-              style: TextStyle(
-                fontSize: 16,
-                color: _foregroundColor(context, alpha: 0.5),
-              ),
-            ),
-          );
-        }
-        // Add bottom padding so last lyrics can scroll to center
-        final viewportHeight = MediaQuery.of(context).size.height * 0.4;
-        return ListView.builder(
-          controller: _lyricsScrollController,
-          padding: EdgeInsets.only(
-            left: 24,
-            right: 24,
-            top: 16,
-            bottom: viewportHeight,
-          ),
-          itemCount: lyrics.length,
-          itemBuilder: (context, index) {
-            final lyric = lyrics[index];
-            final isCurrent = index == currentLyricIdx;
-            return GestureDetector(
-              onTap: () => audioService.seek(lyric.timestamp),
-              child: Container(
-                height: 48,
-                alignment: Alignment.center,
-                child: Text(
-                  lyric.text,
-                  style: TextStyle(
-                    fontSize: isCurrent ? 18 : 15,
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                    color: isCurrent
-                        ? _foregroundColor(context)
-                        : _foregroundColor(context, alpha: 0.4),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
-          },
-        );
-      },
-      loading: () => Center(
-        child: CircularProgressIndicator(color: _foregroundColor(context)),
-      ),
-      error: (_, __) => LyricsFailureView(
-        foregroundColor: _foregroundColor(context, alpha: 0.5),
-      ),
+    return InteractiveLyricsView(
+      key: ValueKey('desktop-lyrics-$trackId'),
+      lyrics: lyricsAsync,
+      currentIndex: currentLyricIdx,
+      foregroundColor: _foregroundColor(context),
+      onSeek: audioService.seek,
     );
   }
 }

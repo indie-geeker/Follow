@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,9 +8,11 @@ import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
+import 'package:follow/features/player/lyrics_overlay.dart';
 import 'package:follow/features/player/player_page.dart';
 import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
+import 'package:follow/shared/widgets/track_cover_image.dart';
 
 const _firstTrack = Track(
   id: 'track-1',
@@ -33,7 +36,17 @@ final _lyrics = List.generate(
   ),
 );
 
-class _FakeAudioPlayerService extends Fake implements AudioPlayerService {}
+class _FakeAudioPlayerService extends Fake implements AudioPlayerService {
+  final seekCalls = <Duration>[];
+
+  @override
+  Future<void> seek(Duration position) async => seekCalls.add(position);
+}
+
+class _FakeIsFavorite extends IsFavorite {
+  @override
+  Future<bool> build(String? trackId) async => false;
+}
 
 Future<ProviderContainer> _pumpPlayerPage(
   WidgetTester tester, {
@@ -54,6 +67,7 @@ Future<ProviderContainer> _pumpPlayerPage(
         const AsyncData(Duration(seconds: 180)),
       ),
       playerVolumeProvider.overrideWithValue(const AsyncData(0.65)),
+      isFavoriteProvider.overrideWith(_FakeIsFavorite.new),
       currentTrackLyricsProvider.overrideWithValue(lyrics),
       currentLyricIndexProvider.overrideWithValue(2),
     ],
@@ -79,6 +93,49 @@ Future<void> _showLyricsPage(WidgetTester tester) async {
   expect(tester.widget<PageView>(pageView).controller!.page, closeTo(1, 0.01));
 }
 
+Future<({ProviderContainer container, _FakeAudioPlayerService audioService})>
+_pumpLyricsOverlay(
+  WidgetTester tester, {
+  required AsyncValue<List<LyricLine>> lyrics,
+}) async {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = const Size(1280, 800);
+  addTearDown(tester.view.reset);
+
+  final audioService = _FakeAudioPlayerService();
+  final container = ProviderContainer(
+    overrides: [
+      audioPlayerServiceProvider.overrideWithValue(audioService),
+      isPlayingProvider.overrideWithValue(const AsyncData(false)),
+      playerPositionProvider.overrideWithValue(
+        const AsyncData(Duration(seconds: 10)),
+      ),
+      playerDurationProvider.overrideWithValue(
+        const AsyncData(Duration(seconds: 180)),
+      ),
+      playerVolumeProvider.overrideWithValue(const AsyncData(0.65)),
+      isFavoriteProvider.overrideWith(_FakeIsFavorite.new),
+      currentTrackLyricsProvider.overrideWithValue(lyrics),
+      currentLyricIndexProvider.overrideWithValue(2),
+    ],
+  );
+  addTearDown(container.dispose);
+  container.read(currentTrackProvider.notifier).setTrack(_firstTrack);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        home: Scaffold(body: LyricsOverlay(onClose: () {})),
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+  await tester.pump();
+  return (container: container, audioService: audioService);
+}
+
 void main() {
   test('mobile player uses the shared interactive lyrics view', () {
     final source = File(
@@ -101,6 +158,157 @@ void main() {
       source,
       isNot(contains('WidgetsBinding.instance.addPostFrameCallback')),
     );
+  });
+
+  test('desktop overlay uses the shared interactive lyrics view', () {
+    final source = File(
+      'lib/features/player/lyrics_overlay.dart',
+    ).readAsStringSync();
+
+    expect(
+      source,
+      contains(
+        "import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';",
+      ),
+    );
+    expect(source, contains('InteractiveLyricsView('));
+    expect(source, contains("ValueKey('desktop-lyrics-\$trackId')"));
+
+    expect(source, isNot(contains('_lyricsScrollController')));
+    expect(source, isNot(contains('currentLyricIdx * 48.0')));
+    expect(
+      source,
+      isNot(contains('WidgetsBinding.instance.addPostFrameCallback')),
+    );
+  });
+
+  testWidgets('desktop LyricsOverlay renders the wide shared lyrics layout', (
+    tester,
+  ) async {
+    await _pumpLyricsOverlay(tester, lyrics: AsyncData(_lyrics));
+
+    expect(find.byType(InteractiveLyricsView), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('desktop-lyrics-track-1')),
+      findsOneWidget,
+    );
+    expect(find.byType(TrackCoverImage), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'desktop mouse wheel shows accessible center control and delegates seek',
+    (tester) async {
+      final harness = await _pumpLyricsOverlay(
+        tester,
+        lyrics: AsyncData(_lyrics),
+      );
+
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(find.byKey(lyricsViewportKey)),
+          scrollDelta: const Offset(0, 120),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+      expect(find.byTooltip('从此处播放'), findsOneWidget);
+      expect(
+        tester.getSize(find.byKey(lyricsCenterPlayKey)).shortestSide,
+        greaterThanOrEqualTo(44),
+      );
+
+      final playSemantics = find.bySemanticsLabel(
+        RegExp(r'^从此处播放：Player lyric \d+$'),
+      );
+      expect(playSemantics, findsOneWidget);
+      final selectedText = tester
+          .getSemantics(playSemantics)
+          .label
+          .replaceFirst('从此处播放：', '');
+      final selectedLyric = _lyrics.singleWhere(
+        (lyric) => lyric.text == selectedText,
+      );
+
+      await tester.tap(find.byKey(lyricsCenterPlayKey));
+      await tester.pumpAndSettle();
+
+      expect(harness.audioService.seekCalls, [selectedLyric.timestamp]);
+      expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    },
+  );
+
+  testWidgets('desktop LyricsOverlay resets lyric browsing on track change', (
+    tester,
+  ) async {
+    final harness = await _pumpLyricsOverlay(
+      tester,
+      lyrics: AsyncData(_lyrics),
+    );
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(find.byKey(lyricsViewportKey)),
+        scrollDelta: const Offset(0, 120),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('desktop-lyrics-track-1')),
+      findsOneWidget,
+    );
+
+    harness.container
+        .read(currentTrackProvider.notifier)
+        .setTrack(_secondTrack);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(
+      find.byKey(const ValueKey('desktop-lyrics-track-2')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('desktop LyricsOverlay renders the shared lyrics loading state', (
+    tester,
+  ) async {
+    await _pumpLyricsOverlay(
+      tester,
+      lyrics: const AsyncLoading<List<LyricLine>>(),
+    );
+
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('desktop LyricsOverlay renders the shared empty lyrics state', (
+    tester,
+  ) async {
+    await _pumpLyricsOverlay(tester, lyrics: const AsyncData(<LyricLine>[]));
+
+    expect(find.text('暂无歌词'), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+  });
+
+  testWidgets('desktop LyricsOverlay renders the shared lyrics error state', (
+    tester,
+  ) async {
+    await _pumpLyricsOverlay(
+      tester,
+      lyrics: AsyncError<List<LyricLine>>(
+        StateError('failed'),
+        StackTrace.empty,
+      ),
+    );
+
+    expect(find.byType(LyricsFailureView), findsOneWidget);
+    expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
