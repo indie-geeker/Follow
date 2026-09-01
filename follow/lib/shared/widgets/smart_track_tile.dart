@@ -11,12 +11,14 @@ import 'package:follow/shared/widgets/track_options_sheet.dart';
 class SmartTrackTile extends ConsumerWidget {
   final Track track;
   final List<Track> playlist;
+  final String? sourcePlaylistId;
   final VoidCallback? onRemoveFromList;
 
   const SmartTrackTile({
     super.key,
     required this.track,
     required this.playlist,
+    this.sourcePlaylistId,
     this.onRemoveFromList,
   });
 
@@ -37,9 +39,17 @@ class SmartTrackTile extends ConsumerWidget {
       isFavorite: isFavorite,
       onTap: () {
         final index = playlist.indexOf(track);
-        ref
-            .read(audioPlayerServiceProvider)
-            .playAll(playlist, startIndex: index < 0 ? 0 : index);
+        final startIndex = index < 0 ? 0 : index;
+        final audioService = ref.read(audioPlayerServiceProvider);
+        if (sourcePlaylistId == null) {
+          audioService.playAll(playlist, startIndex: startIndex);
+        } else {
+          audioService.playPlaylist(
+            sourcePlaylistId!,
+            playlist,
+            startIndex: startIndex,
+          );
+        }
       },
       onFavoriteToggle: (val) async {
         try {

@@ -133,7 +133,7 @@ class PlayQueueSheet extends ConsumerWidget {
                     onTap: () {
                       ref
                           .read(audioPlayerServiceProvider)
-                          .playAll(tracks, startIndex: index);
+                          .playQueueItemAt(index);
                     },
                   ),
                 );

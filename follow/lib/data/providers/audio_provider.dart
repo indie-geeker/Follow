@@ -59,6 +59,17 @@ class CurrentIndex extends _$CurrentIndex {
   }
 }
 
+/// Playlist that supplied the current queue, when the queue still matches it.
+@Riverpod(keepAlive: true)
+class CurrentPlaylistId extends _$CurrentPlaylistId {
+  @override
+  String? build() => null;
+
+  void setPlaylistId(String? playlistId) {
+    state = playlistId;
+  }
+}
+
 /// Shuffled indices provider — only regenerated explicitly via reshuffle()
 @Riverpod(keepAlive: true)
 class ShuffledIndices extends _$ShuffledIndices {
@@ -191,6 +202,25 @@ class AudioPlayerService {
   /// Play all tracks in a list starting from the first track
   /// This consolidates the common pattern of setting queue, track, index and playing
   Future<void> playAll(List<Track> tracks, {int startIndex = 0}) async {
+    _ref.read(currentPlaylistIdProvider.notifier).setPlaylistId(null);
+    await _replaceQueueAndPlay(tracks, startIndex: startIndex);
+  }
+
+  /// Replace the queue with a playlist and remember its source.
+  Future<void> playPlaylist(
+    String playlistId,
+    List<Track> tracks, {
+    int startIndex = 0,
+  }) async {
+    if (tracks.isEmpty) return;
+    _ref.read(currentPlaylistIdProvider.notifier).setPlaylistId(playlistId);
+    await _replaceQueueAndPlay(tracks, startIndex: startIndex);
+  }
+
+  Future<void> _replaceQueueAndPlay(
+    List<Track> tracks, {
+    int startIndex = 0,
+  }) async {
     if (tracks.isEmpty) return;
     final index = startIndex.clamp(0, tracks.length - 1);
     _ref.read(playQueueProvider.notifier).setQueue(tracks);
@@ -203,6 +233,15 @@ class AudioPlayerService {
     }
 
     await playTrack(tracks[index]);
+  }
+
+  /// Select an item already in the queue without changing its playlist source.
+  Future<void> playQueueItemAt(int index) async {
+    final queue = _ref.read(playQueueProvider);
+    if (index < 0 || index >= queue.length) return;
+
+    _ref.read(currentIndexProvider.notifier).setIndex(index);
+    await playTrack(queue[index]);
   }
 
   Future<void> play() async {
@@ -322,6 +361,8 @@ class AudioPlayerService {
 
     if (index < 0 || index >= queue.length) return;
 
+    _ref.read(currentPlaylistIdProvider.notifier).setPlaylistId(null);
+
     _ref.read(playQueueProvider.notifier).removeFromQueue(index);
 
     // Keep shuffle indices consistent after removal
@@ -370,6 +411,7 @@ class AudioPlayerService {
 
   Future<void> clearQueue() async {
     await stop();
+    _ref.read(currentPlaylistIdProvider.notifier).setPlaylistId(null);
     _ref.read(playQueueProvider.notifier).clearQueue();
     _ref.read(currentTrackProvider.notifier).setTrack(null);
     _ref.read(currentIndexProvider.notifier).setIndex(0);

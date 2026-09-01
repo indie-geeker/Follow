@@ -39,7 +39,9 @@ class PlaylistView extends ConsumerWidget {
               return PlayAllTile(
                 count: tracks.length,
                 onTap: () {
-                  ref.read(audioPlayerServiceProvider).playAll(tracks);
+                  ref
+                      .read(audioPlayerServiceProvider)
+                      .playPlaylist(playlistId, tracks);
                 },
               );
             }
@@ -47,6 +49,7 @@ class PlaylistView extends ConsumerWidget {
             return SmartTrackTile(
               track: track,
               playlist: tracks,
+              sourcePlaylistId: playlistId,
               onRemoveFromList: playlist.canEdit
                   ? () async {
                       try {

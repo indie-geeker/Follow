@@ -10,9 +10,15 @@ void main() {
     final addDialog = File(
       'lib/shared/widgets/add_to_playlist_dialog.dart',
     ).readAsStringSync();
+    final smartTrackTile = File(
+      'lib/shared/widgets/smart_track_tile.dart',
+    ).readAsStringSync();
 
     expect(view, contains('playlist.canEdit'));
     expect(view, contains('onRemoveFromList: playlist.canEdit'));
+    expect(view, contains('sourcePlaylistId: playlistId'));
     expect(addDialog, contains('where((playlist) => playlist.canEdit)'));
+    expect(smartTrackTile, contains('sourcePlaylistId'));
+    expect(smartTrackTile, contains('.playPlaylist('));
   });
 }

@@ -6,16 +6,14 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/play_queue_sheet.dart';
 
 class _FakeAudioPlayerService extends Fake implements AudioPlayerService {
-  List<Track>? playedQueue;
-  int? playedIndex;
+  int? selectedIndex;
 
   @override
   Future<void> playTrack(Track track) async {}
 
   @override
-  Future<void> playAll(List<Track> tracks, {int startIndex = 0}) async {
-    playedQueue = tracks;
-    playedIndex = startIndex;
+  Future<void> playQueueItemAt(int index) async {
+    selectedIndex = index;
   }
 }
 
@@ -44,7 +42,6 @@ void main() {
     await tester.tap(find.text('Song C'));
     await tester.pump();
 
-    expect(audioService.playedQueue, tracks);
-    expect(audioService.playedIndex, 2);
+    expect(audioService.selectedIndex, 2);
   });
 }
