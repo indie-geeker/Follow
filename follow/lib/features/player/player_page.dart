@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
@@ -9,17 +11,39 @@ import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/data/providers/playlist_provider.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/data/models/track.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
+import 'package:follow/core/theme/player_palette.dart';
+import 'package:follow/core/theme/player_palette_provider.dart';
 import 'package:follow/core/utils/duration_utils.dart';
 import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
+import 'package:follow/shared/widgets/play_queue_sheet.dart';
 import 'package:follow/shared/widgets/player/folded_track_queue.dart';
 import 'package:follow/shared/widgets/player/player_cover_art.dart';
+import 'package:follow/shared/widgets/player/player_aurora_background.dart';
 import 'package:follow/shared/widgets/player/player_main_controls.dart';
 import 'package:follow/shared/widgets/player/player_volume_control.dart';
 import 'package:follow/shared/widgets/player/playlist_gallery_drawer.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
+import 'package:follow/shared/widgets/surfaces/aurora_background.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
+import 'package:follow/router/app_router.dart';
 
 const playerPlaylistPullHandleKey = ValueKey('player-playlist-pull-handle');
 const playerPlaylistGalleryKey = ValueKey('player-playlist-gallery');
+const playerPlaylistGalleryOpacityKey = ValueKey(
+  'player-playlist-gallery-opacity',
+);
+const playerPlaylistGalleryPointerKey = ValueKey(
+  'player-playlist-gallery-pointer',
+);
+const playerPlaylistGallerySemanticsKey = ValueKey(
+  'player-playlist-gallery-semantics',
+);
+const playerPlaylistGuidanceOpacityKey = ValueKey(
+  'player-playlist-guidance-opacity',
+);
+const playerTopChromeSurfaceKey = ValueKey('player-top-chrome-surface');
 const playerLyricsSurfaceKey = ValueKey('player-lyrics-surface');
 const playerQueueSurfaceKey = ValueKey('player-queue-surface');
 
@@ -35,6 +59,7 @@ class PlayerPage extends ConsumerStatefulWidget {
 
 class _PlayerPageState extends ConsumerState<PlayerPage> {
   static const _playlistOpenThreshold = 88.0;
+  static const _foldedQueueIdleDuration = Duration(seconds: 2);
 
   _PlayerVisualMode _visualMode = _PlayerVisualMode.record;
   double _playlistPullDistance = 0;
@@ -47,6 +72,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   bool _recordGestureActive = false;
   bool _lyricsGestureActive = false;
   bool _trackGestureBusy = false;
+  bool _foldedQueueInteractionActive = false;
+  Timer? _foldedQueueAutoCloseTimer;
 
   bool get _hasTransientLayer =>
       _playlistGalleryOpen ||
@@ -54,20 +81,63 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       _visualMode != _PlayerVisualMode.record;
 
   Color _foregroundColor(BuildContext context, {double alpha = 1.0}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseColor = isDark ? Colors.white : Colors.black87;
+    final baseColor = context.followTokens.textPrimary;
     return alpha < 1.0 ? baseColor.withValues(alpha: alpha) : baseColor;
   }
 
+  @override
+  void dispose() {
+    _foldedQueueAutoCloseTimer?.cancel();
+    super.dispose();
+  }
+
+  void _cancelFoldedQueueAutoClose() {
+    _foldedQueueAutoCloseTimer?.cancel();
+    _foldedQueueAutoCloseTimer = null;
+  }
+
+  void _scheduleFoldedQueueAutoClose() {
+    _cancelFoldedQueueAutoClose();
+    if (!_queueOpen || _foldedQueueInteractionActive) return;
+    _foldedQueueAutoCloseTimer = Timer(_foldedQueueIdleDuration, () {
+      if (!mounted || !_queueOpen || _foldedQueueInteractionActive) return;
+      _closeQueue();
+    });
+  }
+
+  void _handleFoldedQueueInteractionStart() {
+    _foldedQueueInteractionActive = true;
+    _cancelFoldedQueueAutoClose();
+  }
+
+  void _handleFoldedQueueInteractionSettled() {
+    _foldedQueueInteractionActive = false;
+  }
+
+  void _handleFoldedQueueScrollSettled() {
+    _foldedQueueInteractionActive = false;
+    _scheduleFoldedQueueAutoClose();
+  }
+
+  void _dismissFoldedQueueForExternalInteraction() {
+    if (_queueOpen || _queueRevealProgress > 0) _closeQueue();
+  }
+
+  bool _consumeRecordInteractionIfQueueOpen() {
+    if (!_queueOpen && _queueRevealProgress <= 0) return false;
+    _closeQueue();
+    return true;
+  }
+
   void _showMoreMenu(BuildContext context) {
+    _dismissFoldedQueueForExternalInteraction();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
         return Container(
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1a1a2e) : Colors.white,
+            color: context.followTokens.surface,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: SafeArea(
@@ -131,6 +201,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   }
 
   void _closeQueue() {
+    _cancelFoldedQueueAutoClose();
+    _foldedQueueInteractionActive = false;
     setState(() {
       _queueOpen = false;
       _queueRevealProgress = 0;
@@ -138,11 +210,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     });
   }
 
-  void _settleTrackGesture(double revealDistance) {
-    setState(() {
-      _recordVisualOffset = Offset(_queueOpen ? revealDistance : 0, 0);
-      _queueRevealProgress = _queueOpen ? 1 : 0;
-    });
+  void _showPlayQueue(BuildContext context, PlayerPalette palette) {
+    _dismissFoldedQueueForExternalInteraction();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => PlayQueueSheet(palette: palette),
+    );
   }
 
   void _handleRecordVisualOffset(
@@ -153,10 +228,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     if (_visualMode == _PlayerVisualMode.lyrics) return;
     setState(() {
       if (offset.dy != 0) {
-        _recordVisualOffset = Offset(
-          _queueOpen ? revealDistance : 0,
-          offset.dy,
-        );
+        _recordVisualOffset = Offset(_queueOpen ? revealDistance : 0, 0);
         _queueRevealProgress = _queueOpen ? 1 : 0;
         return;
       }
@@ -186,6 +258,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   }
 
   void _handlePlaylistPullStart() {
+    _dismissFoldedQueueForExternalInteraction();
     setState(() => _playlistDragActive = true);
   }
 
@@ -210,7 +283,13 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       _playlistGalleryOpen = shouldOpen;
       _playlistDragActive = false;
       _playlistPullDistance = shouldOpen ? galleryHeight : 0;
-      if (shouldOpen) _visualMode = _PlayerVisualMode.record;
+      if (shouldOpen) {
+        _visualMode = _PlayerVisualMode.record;
+        _queueOpen = false;
+        _queueRevealProgress = 0;
+        _recordVisualOffset = Offset.zero;
+        _lyricsHorizontalDrag = 0;
+      }
     });
     if (shouldOpen) HapticFeedback.selectionClick();
   }
@@ -302,6 +381,9 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     final lyricsAsync = ref.watch(currentTrackLyricsProvider);
     final currentLyricIdx = ref.watch(currentLyricIndexProvider);
     final queue = ref.watch(playQueueProvider);
+    final currentIndex = ref.watch(currentIndexProvider);
+    final playerMode = ref.watch(playerModeProvider);
+    final shuffledIndices = ref.watch(shuffledIndicesProvider);
     final playlists = ref.watch(playlistsProvider);
     final currentPlaylistId = ref.watch(currentPlaylistIdProvider);
 
@@ -315,28 +397,28 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
             onPressed: () => context.router.maybePop(),
           ),
         ),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: isDark
-                  ? [LoginColors.gradientEnd, LoginColors.gradientStart]
-                  : [
-                      theme.colorScheme.primaryContainer,
-                      theme.colorScheme.surface,
-                    ],
-            ),
-          ),
-          child: Center(
-            child: Text(
-              '暂无播放',
-              style: TextStyle(color: _foregroundColor(context, alpha: 0.7)),
+        body: AuroraBackground(
+          child: AppStateView(
+            kind: AppStateKind.nothingPlaying,
+            title: '暂无播放',
+            description: '从音乐库选择一首歌，开启沉浸式播放。',
+            actionLabel: '打开音乐库',
+            onAction: () => context.router.root.navigate(
+              const MainShellRoute(children: [LibraryRoute()]),
             ),
           ),
         ),
       );
     }
+
+    final tokens = context.followTokens;
+    final paletteRequest = PlayerPaletteRequest.fromTrack(
+      currentTrack,
+      theme.brightness,
+    );
+    final palette =
+        ref.watch(playerPaletteProvider(paletteRequest)).value ??
+        PlayerPalette.fallback(brightness: theme.brightness, tokens: tokens);
 
     final isPlaying = isPlayingAsync.when(
       data: (v) => v,
@@ -363,72 +445,83 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       loading: () => fallbackDuration,
       error: (_, __) => fallbackDuration,
     );
+    final displayedQueueIndex = queue.indexWhere(
+      (track) => track.id == currentTrack.id,
+    );
+    final previewQueueIndex = displayedQueueIndex >= 0
+        ? displayedQueueIndex
+        : currentIndex;
+    final previousIndex = resolveAdjacentQueueIndex(
+      queueLength: queue.length,
+      currentIndex: previewQueueIndex,
+      mode: playerMode,
+      shuffledIndices: shuffledIndices,
+      delta: -1,
+    );
+    final nextIndex = resolveAdjacentQueueIndex(
+      queueLength: queue.length,
+      currentIndex: previewQueueIndex,
+      mode: playerMode,
+      shuffledIndices: shuffledIndices,
+      delta: 1,
+    );
+    Track? queueTrackAt(int? index) {
+      if (index == null || index < 0 || index >= queue.length) return null;
+      return queue[index];
+    }
+
+    final previousTrack = queueTrackAt(previousIndex);
+    final nextTrack = queueTrackAt(nextIndex);
 
     final galleryHeight =
         MediaQuery.sizeOf(context).height * (compactHeight ? 0.9 : 0.42);
+    final playlistRevealProgress = (_playlistPullDistance / galleryHeight)
+        .clamp(0.0, 1.0);
+    final topChromeAlpha = 0.22 * (1 - playlistRevealProgress);
+    final topChromeBlur = 18.0 * (1 - playlistRevealProgress);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final playerScaffold = Scaffold(
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        flexibleSpace: ClipRect(
+          child: BackdropFilter.grouped(
+            key: ValueKey('player-top-chrome'),
+            filter: ImageFilter.blur(
+              sigmaX: topChromeBlur,
+              sigmaY: topChromeBlur,
+            ),
+            child: ColoredBox(
+              key: playerTopChromeSurfaceKey,
+              color: palette.scrim.withValues(alpha: topChromeAlpha),
+            ),
+          ),
+        ),
         leading: IconButton(
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: _foregroundColor(context, alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              Icons.keyboard_arrow_down,
-              color: _foregroundColor(context),
-            ),
+          icon: Icon(
+            Icons.keyboard_arrow_down,
+            color: _foregroundColor(context),
           ),
           onPressed: () => context.router.maybePop(),
         ),
-        title: _visualMode == _PlayerVisualMode.lyrics
-            ? Text(
-                currentTrack.title,
-                style: TextStyle(
-                  color: _foregroundColor(context),
-                  fontSize: 16,
-                ),
-              )
-            : null,
+        title: Text(
+          _visualMode == _PlayerVisualMode.lyrics ? currentTrack.title : '',
+          style: TextStyle(color: _foregroundColor(context), fontSize: 16),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: _foregroundColor(context, alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(Icons.more_horiz, color: _foregroundColor(context)),
-            ),
+            icon: Icon(Icons.more_horiz, color: _foregroundColor(context)),
             onPressed: () => _showMoreMenu(context),
           ),
           const SizedBox(width: 8),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: isDark
-                ? [
-                    LoginColors.gradientEnd,
-                    LoginColors.gradientMid2,
-                    LoginColors.gradientMid1,
-                    LoginColors.gradientStart,
-                  ]
-                : [
-                    theme.colorScheme.primaryContainer,
-                    theme.colorScheme.surface,
-                  ],
-          ),
-        ),
+      body: PlayerAuroraBackground(
+        track: currentTrack,
+        palette: palette,
         child: SafeArea(
           child: Column(
             children: [
@@ -445,15 +538,20 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                     Expanded(
                       child: _buildVisualSurface(
                         currentTrack: currentTrack,
+                        previousTrack: previousTrack,
+                        nextTrack: nextTrack,
                         queue: queue,
                         lyricsAsync: lyricsAsync,
                         currentLyricIdx: currentLyricIdx,
+                        position: position,
                         audioService: audioService,
                         recordSize: compactHeight ? 150 : 280,
                         isPlaying: isPlaying,
+                        palette: palette,
                       ),
                     ),
                     SizedBox(
+                      key: const ValueKey('player-track-info-slot'),
                       height: compactHeight ? 64 : 104,
                       child: _visualMode == _PlayerVisualMode.lyrics
                           ? const SizedBox.shrink()
@@ -466,101 +564,108 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                   ],
                 ),
               ),
-
-              SizedBox(height: compactHeight ? 4 : 12),
-
-              // Progress bar
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    // Standard Slider
-                    SliderTheme(
-                      data: SliderThemeData(
-                        trackHeight: 4,
-                        thumbShape: const RoundSliderThumbShape(
-                          enabledThumbRadius: 6,
-                        ),
-                        overlayShape: const RoundSliderOverlayShape(
-                          overlayRadius: 16,
-                        ),
-                        activeTrackColor: isDark
-                            ? LoginColors.accentPink
-                            : theme.colorScheme.primary,
-                        inactiveTrackColor: _foregroundColor(
-                          context,
-                          alpha: 0.2,
-                        ),
-                        thumbColor: isDark
-                            ? Colors.white
-                            : theme.colorScheme.primary,
-                        trackShape: const RoundedRectSliderTrackShape(),
-                      ),
-                      child: Slider(
-                        value: position.inMilliseconds.toDouble().clamp(
-                          0,
-                          duration.inMilliseconds.toDouble(),
-                        ),
-                        min: 0,
-                        max: duration.inMilliseconds.toDouble(),
-                        onChanged: (value) {
-                          audioService.seek(
-                            Duration(milliseconds: value.toInt()),
-                          );
-                        },
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            formatDuration(position),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _foregroundColor(context, alpha: 0.6),
-                            ),
+                padding: EdgeInsets.fromLTRB(
+                  compactHeight ? 12 : 20,
+                  compactHeight ? 4 : 8,
+                  compactHeight ? 12 : 20,
+                  compactHeight ? 8 : 20,
+                ),
+                child: GlassPanel(
+                  key: const ValueKey('player-control-deck'),
+                  tier: GlassTier.standard,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compactHeight ? 8 : 12,
+                    vertical: compactHeight ? 4 : 8,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SliderTheme(
+                        data: SliderThemeData(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 6,
                           ),
-                          Text(
-                            formatDuration(duration),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _foregroundColor(context, alpha: 0.6),
-                            ),
+                          overlayShape: const RoundSliderOverlayShape(
+                            overlayRadius: 16,
                           ),
-                        ],
+                          activeTrackColor: palette.progress,
+                          inactiveTrackColor: _foregroundColor(
+                            context,
+                            alpha: 0.2,
+                          ),
+                          thumbColor: palette.progress,
+                          overlayColor: palette.progress.withValues(
+                            alpha: 0.14,
+                          ),
+                          trackShape: const RoundedRectSliderTrackShape(),
+                        ),
+                        child: Slider(
+                          value: position.inMilliseconds.toDouble().clamp(
+                            0,
+                            duration.inMilliseconds.toDouble(),
+                          ),
+                          min: 0,
+                          max: duration.inMilliseconds.toDouble(),
+                          onChanged: (value) {
+                            audioService.seek(
+                              Duration(milliseconds: value.toInt()),
+                            );
+                          },
+                        ),
                       ),
-                    ),
-                  ],
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              formatDuration(position),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _foregroundColor(context, alpha: 0.6),
+                              ),
+                            ),
+                            Text(
+                              formatDuration(duration),
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _foregroundColor(context, alpha: 0.6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (!compactHeight)
+                        PlayerVolumeControl(
+                          palette: palette,
+                          onInteractionStart:
+                              _dismissFoldedQueueForExternalInteraction,
+                        ),
+                      SizedBox(height: compactHeight ? 2 : 6),
+                      Listener(
+                        onPointerDown: (_) =>
+                            _dismissFoldedQueueForExternalInteraction(),
+                        child: PlayerMainControls(
+                          palette: palette,
+                          isPlaying: isPlaying,
+                          onPlayPause: () {
+                            if (isPlaying) {
+                              audioService.pause();
+                            } else {
+                              audioService.play();
+                            }
+                          },
+                          onPrevious: () => audioService.playPrevious(),
+                          onNext: () => audioService.playNext(),
+                          onShowQueue: () => _showPlayQueue(context, palette),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-
-              if (!compactHeight)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 24),
-                  child: PlayerVolumeControl(),
-                ),
-
-              SizedBox(height: compactHeight ? 4 : 12),
-
-              // Main controls
-              PlayerMainControls(
-                isPlaying: isPlaying,
-                onPlayPause: () {
-                  if (isPlaying) {
-                    audioService.pause();
-                  } else {
-                    audioService.play();
-                  }
-                },
-                onPrevious: () => audioService.playPrevious(),
-                onNext: () => audioService.playNext(),
-                onShowQueue: () =>
-                    _showQueue((compactHeight ? 150.0 : 280.0) * 0.52),
-              ),
-
-              SizedBox(height: compactHeight ? 12 : 48),
             ],
           ),
         ),
@@ -572,48 +677,65 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _hasTransientLayer) _closeTopLayer();
       },
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Positioned(
-            key: playerPlaylistGalleryKey,
-            top: 0,
-            left: 0,
-            right: 0,
-            height: galleryHeight,
-            child: IgnorePointer(
-              ignoring: !_playlistGalleryOpen,
-              child: ExcludeSemantics(
-                excluding: !_playlistGalleryOpen,
-                child: PlaylistGalleryDrawer(
-                  playlists: playlists,
-                  currentPlaylistId: currentPlaylistId,
-                  onSelect: (playlist) =>
-                      _selectPlaylist(playlist.id, audioService),
-                  onClose: () {
-                    setState(() {
-                      _playlistGalleryOpen = false;
-                      _playlistPullDistance = 0;
-                    });
-                  },
-                  onRetry: () => ref.invalidate(playlistsProvider),
+      child: BackdropGroup(
+        key: const ValueKey('player-backdrop-group'),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              key: playerPlaylistGalleryKey,
+              top: 0,
+              left: 0,
+              right: 0,
+              height: galleryHeight,
+              child: Opacity(
+                key: playerPlaylistGalleryOpacityKey,
+                opacity: playlistRevealProgress,
+                child: IgnorePointer(
+                  key: playerPlaylistGalleryPointerKey,
+                  ignoring: !_playlistGalleryOpen,
+                  child: ExcludeSemantics(
+                    key: playerPlaylistGallerySemanticsKey,
+                    excluding: !_playlistGalleryOpen,
+                    child: PlaylistGalleryDrawer(
+                      palette: palette,
+                      playlists: playlists,
+                      currentPlaylistId: currentPlaylistId,
+                      onSelect: (playlist) =>
+                          _selectPlaylist(playlist.id, audioService),
+                      onClose: () {
+                        setState(() {
+                          _playlistGalleryOpen = false;
+                          _playlistPullDistance = 0;
+                        });
+                      },
+                      onRetry: () => ref.invalidate(playlistsProvider),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-          AnimatedContainer(
-            duration: reduceMotion || _playlistDragActive
-                ? Duration.zero
-                : const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(0, _playlistPullDistance, 0),
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: _playlistGalleryOpen ? _closeTopLayer : null,
-              child: playerScaffold,
+            AnimatedContainer(
+              duration: reduceMotion || _playlistDragActive
+                  ? Duration.zero
+                  : const Duration(milliseconds: 280),
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(0, _playlistPullDistance, 0),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: _playlistGalleryOpen ? _closeTopLayer : null,
+                child: Listener(
+                  onPointerDown: (_) {
+                    if (!_foldedQueueInteractionActive) {
+                      _dismissFoldedQueueForExternalInteraction();
+                    }
+                  },
+                  child: playerScaffold,
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -624,6 +746,8 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   }) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final progress = (_playlistPullDistance / galleryHeight).clamp(0.0, 1.0);
+    final guidanceProgress = (_playlistPullDistance / _playlistOpenThreshold)
+        .clamp(0.0, 1.0);
     return GestureDetector(
       key: playerPlaylistPullHandleKey,
       behavior: HitTestBehavior.opaque,
@@ -635,29 +759,40 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       onVerticalDragCancel: () => _cancelPlaylistPull(galleryHeight),
       child: SizedBox(
         height: compact ? 32 : 38,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AnimatedContainer(
-              duration: reduceMotion
-                  ? Duration.zero
-                  : const Duration(milliseconds: 120),
-              width: 42 + progress * 14,
-              height: 4,
-              decoration: BoxDecoration(
-                color: _foregroundColor(context, alpha: 0.24 + progress * 0.3),
-                borderRadius: BorderRadius.circular(2),
+        child: Opacity(
+          key: playerPlaylistGuidanceOpacityKey,
+          opacity: guidanceProgress,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: reduceMotion
+                    ? Duration.zero
+                    : const Duration(milliseconds: 120),
+                width: 42 + progress * 14,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _foregroundColor(
+                    context,
+                    alpha: 0.24 + progress * 0.3,
+                  ),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _playlistGalleryOpen ? '上推收起歌单' : '下拉切换歌单',
-              style: TextStyle(
-                fontSize: 11,
-                color: _foregroundColor(context, alpha: 0.5),
+              const SizedBox(height: 4),
+              Text(
+                _playlistGalleryOpen
+                    ? '上推收起歌单'
+                    : _playlistPullDistance >= _playlistOpenThreshold
+                    ? '释放打开歌单'
+                    : '下拉切换歌单',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _foregroundColor(context, alpha: 0.5),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -665,12 +800,16 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
 
   Widget _buildVisualSurface({
     required Track currentTrack,
+    required Track? previousTrack,
+    required Track? nextTrack,
     required List<Track> queue,
     required AsyncValue<List<LyricLine>> lyricsAsync,
     required int currentLyricIdx,
+    required Duration position,
     required AudioPlayerService audioService,
     required double recordSize,
     required bool isPlaying,
+    required PlayerPalette palette,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -696,11 +835,18 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               top: math.max(0, (constraints.maxHeight - recordSize) / 2),
               width: math.min(196, pageWidth * 0.52),
               height: math.min(recordSize, constraints.maxHeight),
-              child: FoldedTrackQueue(
-                tracks: queue,
-                currentTrackId: currentTrack.id,
-                revealProgress: _queueRevealProgress,
-                onSelect: (index) => audioService.playQueueItemAt(index),
+              child: Opacity(
+                opacity: _queueRevealProgress.clamp(0.0, 1.0),
+                child: FoldedTrackQueue(
+                  palette: palette,
+                  tracks: queue,
+                  currentTrackId: currentTrack.id,
+                  revealProgress: _queueRevealProgress,
+                  onSelect: (index) => audioService.playQueueItemAt(index),
+                  onInteractionStart: _handleFoldedQueueInteractionStart,
+                  onInteractionSettled: _handleFoldedQueueInteractionSettled,
+                  onScrollSettled: _handleFoldedQueueScrollSettled,
+                ),
               ),
             ),
             AnimatedContainer(
@@ -715,7 +861,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 child: IgnorePointer(
                   ignoring: _visualMode == _PlayerVisualMode.lyrics,
                   child: PlayerCoverArt(
+                    palette: palette,
                     track: currentTrack,
+                    previousTrack: previousTrack,
+                    nextTrack: nextTrack,
                     size: recordSize,
                     maxVerticalVisualOffset: maxVerticalVisualOffset,
                     isPlaying: isPlaying,
@@ -727,6 +876,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                         setState(() => _recordGestureActive = active);
                       }
                     },
+                    onInteractionAttempt: _consumeRecordInteractionIfQueueOpen,
+                    onTap: () {
+                      if (isPlaying) {
+                        audioService.pause();
+                      } else {
+                        audioService.play();
+                      }
+                    },
                     onVisualOffsetChanged: (offset) =>
                         _handleRecordVisualOffset(
                           offset,
@@ -734,11 +891,11 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                           revealDistance: revealDistance,
                         ),
                     onSwipeUp: () {
-                      _settleTrackGesture(revealDistance);
+                      _closeQueue();
                       _runTrackGesture(audioService.playNext);
                     },
                     onSwipeDown: () {
-                      _settleTrackGesture(revealDistance);
+                      _closeQueue();
                       _runTrackGesture(audioService.playPrevious);
                     },
                     onSwipeLeft: () {
@@ -762,10 +919,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 child: ExcludeSemantics(
                   excluding: _visualMode != _PlayerVisualMode.lyrics,
                   child: _buildLyricsSurface(
+                    palette: palette,
                     pageWidth: pageWidth,
                     trackId: currentTrack.id,
                     lyricsAsync: lyricsAsync,
                     currentLyricIdx: currentLyricIdx,
+                    position: position,
                     audioService: audioService,
                   ),
                 ),
@@ -778,10 +937,12 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   }
 
   Widget _buildLyricsSurface({
+    required PlayerPalette palette,
     required double pageWidth,
     required String trackId,
     required AsyncValue<List<LyricLine>> lyricsAsync,
     required int currentLyricIdx,
+    required Duration position,
     required AudioPlayerService audioService,
   }) {
     return GestureDetector(
@@ -824,6 +985,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
         trackId: trackId,
         lyricsAsync: lyricsAsync,
         currentLyricIdx: currentLyricIdx,
+        position: position,
         audioService: audioService,
       ),
     );
@@ -870,12 +1032,14 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     required String trackId,
     required AsyncValue<List<LyricLine>> lyricsAsync,
     required int currentLyricIdx,
+    required Duration position,
     required AudioPlayerService audioService,
   }) {
     return InteractiveLyricsView(
       key: ValueKey('mobile-lyrics-$trackId'),
       lyrics: lyricsAsync,
       currentIndex: currentLyricIdx,
+      playbackPosition: position,
       foregroundColor: _foregroundColor(context),
       onSeek: audioService.seek,
     );

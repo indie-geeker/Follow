@@ -5,8 +5,10 @@ import 'package:follow/data/providers/history_provider.dart';
 import 'package:follow/data/providers/api_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
 import 'package:follow/shared/widgets/play_all_tile.dart';
-import 'package:follow/shared/widgets/empty_state_card.dart';
 import 'package:follow/core/utils/snackbar_helper.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 class RecentlyPlayedView extends ConsumerWidget {
   const RecentlyPlayedView({super.key, required this.onBrowseLibrary});
@@ -16,17 +18,14 @@ class RecentlyPlayedView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final historyAsync = ref.watch(historyProvider);
-    final theme = Theme.of(context);
-
     return historyAsync.when(
       data: (tracks) {
         if (tracks.isEmpty) {
-          return EmptyStateCard(
-            icon: Icons.history_rounded,
+          return AppStateView(
+            kind: AppStateKind.nothingPlaying,
             title: '暂无播放记录',
-            subtitle: '从音乐库挑一首喜欢的歌开始播放',
+            description: '从音乐库挑一首喜欢的歌开始播放',
             actionLabel: '进入音乐库',
-            actionIcon: Icons.library_music_rounded,
             onAction: onBrowseLibrary,
           );
         }
@@ -62,16 +61,16 @@ class RecentlyPlayedView extends ConsumerWidget {
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text('加载失败', style: TextStyle(color: theme.colorScheme.error)),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: AppContentSkeleton(),
+      ),
+      error: (e, _) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '播放记录加载失败',
+        description: '暂时无法读取最近播放记录，请稍后重试。',
+        actionLabel: '重试',
+        onAction: () => ref.invalidate(historyProvider),
       ),
     );
   }

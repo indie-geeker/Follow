@@ -7,6 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/data/models/lyric_line.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_scroll_geometry.dart';
+import 'package:follow/shared/widgets/lyrics/timed_lyric_text.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 const lyricsViewportKey = Key('interactive-lyrics-viewport');
 const lyricsCenterPlayKey = Key('interactive-lyrics-center-play');
@@ -16,6 +20,7 @@ class InteractiveLyricsView extends StatefulWidget {
     super.key,
     required this.lyrics,
     required this.currentIndex,
+    required this.playbackPosition,
     required this.foregroundColor,
     required this.onSeek,
     this.inactivityDelay = const Duration(seconds: 3),
@@ -26,6 +31,7 @@ class InteractiveLyricsView extends StatefulWidget {
 
   final AsyncValue<List<LyricLine>> lyrics;
   final int currentIndex;
+  final Duration playbackPosition;
   final Color foregroundColor;
   final Future<void> Function(Duration) onSeek;
   final Duration inactivityDelay;
@@ -62,6 +68,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
   List<LyricLine>? _lyricsDataIdentity;
   List<Duration> _lyricTimestamps = const [];
   List<String> _lyricTexts = const [];
+  List<List<LyricSegment>> _lyricSegments = const [];
 
   @override
   void initState() {
@@ -108,7 +115,8 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     if (!identical(lyrics, _lyricsDataIdentity)) return true;
     if (lyrics == null) return false;
     if (lyrics.length != _lyricTimestamps.length ||
-        lyrics.length != _lyricTexts.length) {
+        lyrics.length != _lyricTexts.length ||
+        lyrics.length != _lyricSegments.length) {
       return true;
     }
 
@@ -116,6 +124,18 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
       if (lyrics[index].timestamp != _lyricTimestamps[index] ||
           lyrics[index].text != _lyricTexts[index]) {
         return true;
+      }
+      final segments = lyrics[index].segments;
+      final previousSegments = _lyricSegments[index];
+      if (segments.length != previousSegments.length) return true;
+      for (
+        var segmentIndex = 0;
+        segmentIndex < segments.length;
+        segmentIndex++
+      ) {
+        if (segments[segmentIndex] != previousSegments[segmentIndex]) {
+          return true;
+        }
       }
     }
     return false;
@@ -129,6 +149,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     _lyricTexts = lyrics == null
         ? const []
         : [for (final lyric in lyrics) lyric.text];
+    _lyricSegments = lyrics == null
+        ? const []
+        : [for (final lyric in lyrics) List.unmodifiable(lyric.segments)];
   }
 
   void _resetForLyricsReplacement() {
@@ -315,6 +338,11 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     );
   }
 
+  void _cancelInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = null;
+  }
+
   Future<void> _returnToPlayback() async {
     if (!_isBrowsing || !_canBrowse) return;
 
@@ -413,6 +441,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
 
   void _handlePointerDown(PointerDownEvent event) {
     if (_isSeeking) return;
+    _cancelInactivityTimer();
     _gestureHadScrollActivity = false;
     if (_isReturningToPlayback) _beginBrowsing();
   }
@@ -518,6 +547,7 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
 
   void _handlePanZoomStart(PointerPanZoomStartEvent event) {
     if (_isSeeking) return;
+    _cancelInactivityTimer();
     _gestureHadScrollActivity = false;
     if (_isReturningToPlayback) _beginBrowsing();
   }
@@ -583,14 +613,11 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
     return widget.lyrics.when(
       data: (lyrics) {
         if (lyrics.isEmpty) {
-          return Center(
-            child: Text(
-              '暂无歌词',
-              style: TextStyle(
-                fontSize: 16,
-                color: widget.foregroundColor.withValues(alpha: 0.5),
-              ),
-            ),
+          return const AppStateView(
+            kind: AppStateKind.noLyrics,
+            title: '暂无歌词',
+            description: '这首歌暂时没有可用歌词。',
+            illustrationSize: 132,
           );
         }
 
@@ -655,8 +682,10 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                                     ),
                                     child: Align(
                                       alignment: Alignment.center,
-                                      child: Text(
-                                        lyric.text,
+                                      child: TimedLyricText(
+                                        lyric: lyric,
+                                        playbackPosition:
+                                            widget.playbackPosition,
                                         style: TextStyle(
                                           fontSize: isCurrent
                                               ? 18
@@ -676,7 +705,11 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
                                               : widget.foregroundColor
                                                     .withValues(alpha: 0.4),
                                         ),
-                                        textAlign: TextAlign.center,
+                                        highlightedColor:
+                                            widget.foregroundColor,
+                                        inactiveColor: widget.foregroundColor
+                                            .withValues(alpha: 0.4),
+                                        enableTimedHighlight: isCurrent,
                                       ),
                                     ),
                                   ),
@@ -748,8 +781,9 @@ class _InteractiveLyricsViewState extends State<InteractiveLyricsView> {
           },
         );
       },
-      loading: () => Center(
-        child: CircularProgressIndicator(color: widget.foregroundColor),
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 32, vertical: 80),
+        child: AppContentSkeleton(itemCount: 4, itemHeight: 20, spacing: 16),
       ),
       error: (_, _) => LyricsFailureView(
         foregroundColor: widget.foregroundColor.withValues(alpha: 0.5),

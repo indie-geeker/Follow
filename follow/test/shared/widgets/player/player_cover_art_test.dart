@@ -1,9 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:follow/data/models/track.dart';
+import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/shared/widgets/player/player_cover_art.dart';
 
 const _track = Track(id: 'track-1', title: 'Gesture Song');
+const _previousTrack = Track(id: 'track-0', title: 'Previous Song');
+const _nextTrack = Track(id: 'track-2', title: 'Next Song');
+const _trackPageSpanForTest = 292.0;
+const _palette = PlayerPalette(
+  primaryControl: Color(0xFF173E89),
+  onPrimaryControl: Colors.white,
+  secondary: Color(0xFF8A2362),
+  ambient: Color(0xFF16869B),
+  progress: Color(0xFF8A2362),
+  glow: Color(0xFF16869B),
+  scrim: Color(0xFFF7F6FC),
+);
 
 void main() {
   Future<void> pumpCover(
@@ -12,22 +25,33 @@ void main() {
     VoidCallback? onSwipeDown,
     VoidCallback? onSwipeLeft,
     VoidCallback? onSwipeRight,
+    bool Function()? onInteractionAttempt,
+    VoidCallback? onInteractionStart,
+    VoidCallback? onTap,
     Offset restingOffset = Offset.zero,
     ValueChanged<Offset>? onVisualOffsetChanged,
     double maxVerticalVisualOffset = double.infinity,
     bool isPlaying = false,
     bool isBusy = false,
+    Track? previousTrack,
+    Track? nextTrack,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Center(
             child: PlayerCoverArt(
+              palette: _palette,
               track: _track,
+              previousTrack: previousTrack,
+              nextTrack: nextTrack,
               onSwipeUp: onSwipeUp,
               onSwipeDown: onSwipeDown,
               onSwipeLeft: onSwipeLeft,
               onSwipeRight: onSwipeRight,
+              onInteractionAttempt: onInteractionAttempt,
+              onInteractionStart: onInteractionStart,
+              onTap: onTap,
               restingOffset: restingOffset,
               onVisualOffsetChanged: onVisualOffsetChanged,
               maxVerticalVisualOffset: maxVerticalVisualOffset,
@@ -40,19 +64,134 @@ void main() {
     );
   }
 
-  testWidgets('renders a semantic circular vinyl with grooves and spindle', (
+  testWidgets('composes the track cover inside the supplied vinyl edge', (
     tester,
   ) async {
     await pumpCover(tester);
 
     expect(find.byKey(vinylRecordSurfaceKey), findsOneWidget);
-    expect(find.byKey(vinylGroovesKey), findsOneWidget);
+    expect(find.byKey(vinylCoverLayerKey), findsOneWidget);
+    expect(find.byKey(vinylEdgeAssetKey), findsOneWidget);
     expect(find.byKey(vinylSpindleKey), findsOneWidget);
-    expect(find.byType(ClipOval), findsWidgets);
     expect(
-      find.bySemanticsLabel('唱片封面：Gesture Song。上滑下一首，下滑上一首，左滑歌词，右滑播放队列'),
+      tester.getSize(find.byKey(vinylCoverLayerKey)),
+      const Size.square(193.2),
+    );
+    final edgeImage = tester.widget<Image>(find.byKey(vinylEdgeAssetKey));
+    expect(
+      edgeImage.image,
+      isA<AssetImage>().having(
+        (image) => image.assetName,
+        'assetName',
+        'assets/images/music-circle.png',
+      ),
+    );
+    expect(
+      find.bySemanticsLabel('唱片封面：Gesture Song。点击播放，上滑下一首，下滑上一首，左滑歌词，右滑播放队列'),
       findsOneWidget,
     );
+    final visual = tester.widget<AnimatedContainer>(
+      find.byKey(vinylRecordVisualKey),
+    );
+    final decoration = visual.decoration as BoxDecoration;
+    expect(
+      decoration.boxShadow?.first.color,
+      _palette.glow.withValues(alpha: 0.32),
+    );
+  });
+
+  testWidgets('reports pointer start and toggles only for a stationary tap', (
+    tester,
+  ) async {
+    var starts = 0;
+    var taps = 0;
+    await pumpCover(
+      tester,
+      onInteractionStart: () => starts++,
+      onTap: () => taps++,
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(vinylRecordSurfaceKey)),
+    );
+    await tester.pump();
+    expect(starts, 1);
+    expect(taps, 0);
+
+    await gesture.up();
+    await tester.pump();
+    expect(taps, 1);
+  });
+
+  testWidgets('a record drag never also invokes tap', (tester) async {
+    var starts = 0;
+    var taps = 0;
+    var swipes = 0;
+    await pumpCover(
+      tester,
+      onInteractionStart: () => starts++,
+      onTap: () => taps++,
+      onSwipeLeft: () => swipes++,
+    );
+
+    await tester.drag(find.byKey(vinylRecordSurfaceKey), const Offset(-100, 0));
+    await tester.pumpAndSettle();
+
+    expect(starts, 1);
+    expect(swipes, 1);
+    expect(taps, 0);
+  });
+
+  testWidgets('a consumed pointer sequence suppresses every record action', (
+    tester,
+  ) async {
+    var taps = 0;
+    var up = 0;
+    var down = 0;
+    var left = 0;
+    var right = 0;
+    final visualOffsets = <Offset>[];
+    await pumpCover(
+      tester,
+      onInteractionAttempt: () => true,
+      onTap: () => taps++,
+      onSwipeUp: () => up++,
+      onSwipeDown: () => down++,
+      onSwipeLeft: () => left++,
+      onSwipeRight: () => right++,
+      onVisualOffsetChanged: visualOffsets.add,
+    );
+
+    final record = find.byKey(vinylRecordSurfaceKey);
+    await tester.tap(record);
+    await tester.drag(record, const Offset(0, -100));
+    await tester.drag(record, const Offset(0, 100));
+    await tester.drag(record, const Offset(-100, 0));
+    await tester.drag(record, const Offset(100, 0));
+    await tester.pumpAndSettle();
+
+    expect((taps, up, down, left, right), (0, 0, 0, 0, 0));
+    expect(visualOffsets, isEmpty);
+  });
+
+  testWidgets('the interaction after a consumed tap behaves normally', (
+    tester,
+  ) async {
+    var attempts = 0;
+    var taps = 0;
+    await pumpCover(
+      tester,
+      onInteractionAttempt: () => attempts++ == 0,
+      onTap: () => taps++,
+    );
+
+    final record = find.byKey(vinylRecordSurfaceKey);
+    await tester.tap(record);
+    await tester.tap(record);
+    await tester.pump();
+
+    expect(attempts, 2);
+    expect(taps, 1);
   });
 
   testWidgets('reports each completed cardinal swipe exactly once', (
@@ -186,6 +325,99 @@ void main() {
     expect(nextCalls, 1);
   });
 
+  testWidgets('vertical drag pages current and adjacent records together', (
+    tester,
+  ) async {
+    var nextCalls = 0;
+    await pumpCover(
+      tester,
+      previousTrack: _previousTrack,
+      nextTrack: _nextTrack,
+      onSwipeUp: () => nextCalls++,
+    );
+
+    const currentPageKey = ValueKey('vinyl-record-page-current');
+    const nextPageKey = ValueKey('vinyl-record-page-next');
+    expect(find.byKey(currentPageKey), findsOneWidget);
+    expect(find.byKey(nextPageKey), findsOneWidget);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(vinylRecordSurfaceKey)),
+    );
+    await gesture.moveBy(const Offset(0, -30));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -70));
+    await tester.pump();
+
+    final currentPage = tester.widget<AnimatedContainer>(
+      find.byKey(currentPageKey),
+    );
+    final nextPage = tester.widget<AnimatedContainer>(find.byKey(nextPageKey));
+    expect(currentPage.transform!.storage[13], closeTo(-100, 0.1));
+    expect(nextPage.transform!.storage[13], greaterThan(0));
+    expect(nextPage.transform!.storage[13], lessThan(_trackPageSpanForTest));
+    expect(nextCalls, 0);
+
+    await gesture.up();
+    expect(nextCalls, 0);
+    await tester.pumpAndSettle();
+    expect(nextCalls, 1);
+  });
+
+  testWidgets(
+    'settled adjacent record stays centered until track identity handoff',
+    (tester) async {
+      var currentTrack = _track;
+      var nextCalls = 0;
+      late StateSetter updateHarness;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                updateHarness = setState;
+                return Center(
+                  child: PlayerCoverArt(
+                    track: currentTrack,
+                    previousTrack: _previousTrack,
+                    nextTrack: _nextTrack,
+                    onSwipeUp: () => nextCalls++,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(vinylRecordSurfaceKey)),
+      );
+      await gesture.moveBy(const Offset(0, -100));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 240));
+
+      expect(nextCalls, 1);
+      expect(
+        tester
+            .widget<AnimatedContainer>(find.byKey(vinylNextRecordPageKey))
+            .transform!
+            .storage[13],
+        0,
+      );
+
+      updateHarness(() => currentTrack = _nextTrack);
+      await tester.pump();
+
+      final currentPage = tester.widget<AnimatedContainer>(
+        find.byKey(vinylCurrentRecordPageKey),
+      );
+      expect(currentPage.transform!.storage[13], 0);
+      expect(currentPage.duration, Duration.zero);
+    },
+  );
+
   testWidgets('busy vinyl ignores completed gestures', (tester) async {
     var calls = 0;
     await pumpCover(tester, onSwipeUp: () => calls++, isBusy: true);
@@ -194,6 +426,85 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(calls, 0);
+  });
+
+  testWidgets('tonearm base stays centered and follows playback state', (
+    tester,
+  ) async {
+    await pumpCover(tester);
+
+    expect(find.byKey(vinylTonearmKey), findsOneWidget);
+    expect(find.byKey(vinylTonearmAssetKey), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(vinylTonearmAssetKey)),
+      const Size(140, 210),
+    );
+    final tonearmImage = tester.widget<Image>(find.byKey(vinylTonearmAssetKey));
+    expect(
+      tonearmImage.image,
+      isA<AssetImage>().having(
+        (image) => image.assetName,
+        'assetName',
+        'assets/images/play-bar.png',
+      ),
+    );
+
+    final paused = tester.widget<AnimatedRotation>(
+      find.byKey(vinylTonearmRotationKey),
+    );
+    final positioned = tester.widget<Positioned>(find.byKey(vinylTonearmKey));
+    final pivotFractionX = (paused.alignment.x + 1) / 2;
+    final baseCenterX = positioned.left! + positioned.width! * pivotFractionX;
+    expect(baseCenterX, closeTo(140, 0.001));
+    expect(paused.turns, closeTo(-25 / 360, 0.0001));
+    expect(paused.alignment, const Alignment(-0.78, -0.86));
+    expect(paused.duration, const Duration(milliseconds: 350));
+    expect(
+      find.ancestor(
+        of: find.byKey(vinylTonearmKey),
+        matching: find.byKey(vinylRotationKey),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.ancestor(
+        of: find.byKey(vinylTonearmKey),
+        matching: find.byKey(vinylCurrentRecordPageKey),
+      ),
+      findsNothing,
+    );
+
+    await pumpCover(tester, isPlaying: true);
+    final playing = tester.widget<AnimatedRotation>(
+      find.byKey(vinylTonearmRotationKey),
+    );
+    expect(playing.turns, closeTo(-3 / 360, 0.0001));
+    expect((playing.turns - paused.turns) * 360, closeTo(22, 0.001));
+
+    await pumpCover(tester, isPlaying: true, isBusy: true);
+    final busy = tester.widget<AnimatedRotation>(
+      find.byKey(vinylTonearmRotationKey),
+    );
+    expect(busy.turns, closeTo(-3 / 360, 0.0001));
+  });
+
+  testWidgets('reduced motion removes the tonearm transition', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(disableAnimations: true),
+          child: Scaffold(
+            body: Center(child: PlayerCoverArt(track: _track, isPlaying: true)),
+          ),
+        ),
+      ),
+    );
+
+    final tonearm = tester.widget<AnimatedRotation>(
+      find.byKey(vinylTonearmRotationKey),
+    );
+    expect(tonearm.turns, closeTo(-3 / 360, 0.0001));
+    expect(tonearm.duration, Duration.zero);
   });
 
   testWidgets('vinyl rotates slowly only while playback is active', (
@@ -225,6 +536,55 @@ void main() {
     expect(
       tester.widget<RotationTransition>(rotation).turns.value,
       greaterThan(pausedAngle),
+    );
+  });
+
+  testWidgets('a new track identity restarts record rotation from zero', (
+    tester,
+  ) async {
+    var currentTrack = _track;
+    late StateSetter updateHarness;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) {
+              updateHarness = setState;
+              return Center(
+                child: PlayerCoverArt(track: currentTrack, isPlaying: true),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(seconds: 3));
+    expect(
+      tester
+          .widget<RotationTransition>(find.byKey(vinylRotationKey))
+          .turns
+          .value,
+      greaterThan(0),
+    );
+
+    updateHarness(() => currentTrack = _nextTrack);
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<RotationTransition>(find.byKey(vinylRotationKey))
+          .turns
+          .value,
+      closeTo(0, 0.001),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      tester
+          .widget<RotationTransition>(find.byKey(vinylRotationKey))
+          .turns
+          .value,
+      greaterThan(0),
     );
   });
 

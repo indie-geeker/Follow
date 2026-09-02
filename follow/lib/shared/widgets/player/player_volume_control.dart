@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
+import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 
 class PlayerVolumeControl extends ConsumerStatefulWidget {
-  const PlayerVolumeControl({super.key});
+  const PlayerVolumeControl({super.key, this.onInteractionStart, this.palette});
+
+  final VoidCallback? onInteractionStart;
+  final PlayerPalette? palette;
 
   @override
   ConsumerState<PlayerVolumeControl> createState() =>
@@ -33,6 +38,7 @@ class _PlayerVolumeControlState extends ConsumerState<PlayerVolumeControl> {
   }
 
   Future<void> _toggleMute() async {
+    widget.onInteractionStart?.call();
     final current = _displayedVolume ?? 1.0;
     final (nextVolume, lastAudible) = nextMuteVolume(
       current: current,
@@ -51,6 +57,13 @@ class _PlayerVolumeControlState extends ConsumerState<PlayerVolumeControl> {
     _syncObservedVolume(volumeAsync.value ?? _displayedVolume ?? 1.0);
     final volume = _displayedVolume ?? 1.0;
     final isMuted = volume <= 0;
+    final brightness = Theme.of(context).brightness;
+    final palette =
+        widget.palette ??
+        PlayerPalette.fallback(
+          brightness: brightness,
+          tokens: context.followTokens,
+        );
 
     return Row(
       children: [
@@ -63,7 +76,18 @@ class _PlayerVolumeControlState extends ConsumerState<PlayerVolumeControl> {
           onPressed: _toggleMute,
         ),
         Expanded(
-          child: Slider(value: volume, onChanged: _setVolume),
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: palette.secondary,
+              thumbColor: palette.secondary,
+              overlayColor: palette.secondary.withValues(alpha: 0.14),
+            ),
+            child: Slider(
+              value: volume,
+              onChangeStart: (_) => widget.onInteractionStart?.call(),
+              onChanged: _setVolume,
+            ),
+          ),
         ),
       ],
     );

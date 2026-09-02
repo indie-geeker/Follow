@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:follow/router/app_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/network/media_url.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/album_provider.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 class AlbumsTab extends ConsumerWidget {
   const AlbumsTab({super.key});
@@ -13,36 +16,14 @@ class AlbumsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final albumsAsync = ref.watch(albumsProvider);
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return albumsAsync.when(
       data: (albums) {
         if (albums.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.album_outlined,
-                  size: 64,
-                  color: isDark
-                      ? LoginColors.textSecondary
-                      : theme.colorScheme.outline,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '暂无专辑',
-                  style: isDark
-                      ? const TextStyle(
-                          color: LoginColors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        )
-                      : theme.textTheme.titleLarge,
-                ),
-              ],
-            ),
+          return const AppStateView(
+            kind: AppStateKind.emptyLibrary,
+            title: '暂无专辑',
+            description: '添加音乐后，专辑会自动整理在这里。',
           );
         }
 
@@ -63,21 +44,16 @@ class AlbumsTab extends ConsumerWidget {
           ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
-            const SizedBox(height: 16),
-            Text('加载失败: $error'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => ref.read(albumsProvider.notifier).refresh(),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: AppContentSkeleton(),
+      ),
+      error: (error, stack) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '专辑加载失败',
+        description: '暂时无法读取专辑，请稍后重试。',
+        actionLabel: '重试',
+        onAction: () => ref.read(albumsProvider.notifier).refresh(),
       ),
     );
   }
@@ -95,28 +71,12 @@ class _AlbumCard extends StatelessWidget {
 
     final coverUri = resolveCoverUri(album.coverUrl);
 
-    return GestureDetector(
-      onTap: () {
-        context.pushRoute(AlbumDetailRoute(id: album.id));
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: isDark
-              ? LoginColors.cardBackground
-              : theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
-          border: isDark
-              ? Border.all(color: LoginColors.cardBorder.withValues(alpha: 0.5))
-              : null,
-          boxShadow: [
-            if (isDark)
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-          ],
-        ),
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          context.pushRoute(AlbumDetailRoute(id: album.id));
+        },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -133,9 +93,10 @@ class _AlbumCard extends StatelessWidget {
                       ? Image.network(
                           coverUri.toString(),
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _buildPlaceholder(),
+                          errorBuilder: (_, __, ___) =>
+                              _buildPlaceholder(context),
                         )
-                      : _buildPlaceholder(),
+                      : _buildPlaceholder(context),
                 ),
               ),
             ),
@@ -145,8 +106,7 @@ class _AlbumCard extends StatelessWidget {
                 children: [
                   Text(
                     album.title,
-                    style: TextStyle(
-                      fontSize: 16,
+                    style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: isDark
                           ? Colors.white
@@ -159,10 +119,9 @@ class _AlbumCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     album.artist?.name ?? '未知艺术家',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: theme.textTheme.bodySmall?.copyWith(
                       color: isDark
-                          ? LoginColors.textSecondary
+                          ? context.followTokens.textSecondary
                           : theme.colorScheme.onSurfaceVariant,
                     ),
                     maxLines: 1,
@@ -173,10 +132,9 @@ class _AlbumCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       '${album.year}',
-                      style: TextStyle(
-                        fontSize: 10,
+                      style: theme.textTheme.labelSmall?.copyWith(
                         color: isDark
-                            ? LoginColors.textHint
+                            ? context.followTokens.textSecondary
                             : theme.colorScheme.outline,
                       ),
                       textAlign: TextAlign.center,
@@ -191,13 +149,16 @@ class _AlbumCard extends StatelessWidget {
     );
   }
 
-  Widget _buildPlaceholder() {
+  Widget _buildPlaceholder(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
+          colors: [
+            context.followTokens.success,
+            context.followTokens.auroraCyan,
+          ],
         ),
       ),
       child: const Center(

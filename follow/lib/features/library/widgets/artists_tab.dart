@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:follow/router/app_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/network/media_url.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/artist_provider.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 class ArtistsTab extends ConsumerWidget {
   const ArtistsTab({super.key});
@@ -13,36 +16,14 @@ class ArtistsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final artistsAsync = ref.watch(artistsProvider);
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return artistsAsync.when(
       data: (artists) {
         if (artists.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.person_outline,
-                  size: 64,
-                  color: isDark
-                      ? LoginColors.textSecondary
-                      : theme.colorScheme.outline,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '暂无艺术家',
-                  style: isDark
-                      ? const TextStyle(
-                          color: LoginColors.textPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        )
-                      : theme.textTheme.titleLarge,
-                ),
-              ],
-            ),
+          return const AppStateView(
+            kind: AppStateKind.emptyLibrary,
+            title: '暂无艺术家',
+            description: '添加音乐后，艺术家会自动整理在这里。',
           );
         }
 
@@ -63,21 +44,16 @@ class ArtistsTab extends ConsumerWidget {
           ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
-            const SizedBox(height: 16),
-            Text('加载失败: $error'),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => ref.read(artistsProvider.notifier).refresh(),
-              child: const Text('重试'),
-            ),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: AppContentSkeleton(),
+      ),
+      error: (error, stack) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '艺术家加载失败',
+        description: '暂时无法读取艺术家，请稍后重试。',
+        actionLabel: '重试',
+        onAction: () => ref.read(artistsProvider.notifier).refresh(),
       ),
     );
   }
@@ -95,28 +71,12 @@ class _ArtistCard extends StatelessWidget {
     final initial = artist.name.isNotEmpty ? artist.name[0].toUpperCase() : '?';
     final coverUri = resolveCoverUri(artist.coverUrl);
 
-    return GestureDetector(
-      onTap: () {
-        context.pushRoute(ArtistDetailRoute(id: artist.id));
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: isDark
-              ? LoginColors.cardBackground
-              : theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(16),
-          border: isDark
-              ? Border.all(color: LoginColors.cardBorder.withValues(alpha: 0.5))
-              : null,
-          boxShadow: [
-            if (isDark)
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-          ],
-        ),
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          context.pushRoute(ArtistDetailRoute(id: artist.id));
+        },
         child: Column(
           children: [
             Expanded(
@@ -134,9 +94,9 @@ class _ArtistCard extends StatelessWidget {
                           coverUri.toString(),
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) =>
-                              _buildPlaceholder(initial),
+                              _buildPlaceholder(context, initial),
                         )
-                      : _buildPlaceholder(initial),
+                      : _buildPlaceholder(context, initial),
                 ),
               ),
             ),
@@ -146,8 +106,7 @@ class _ArtistCard extends StatelessWidget {
                 children: [
                   Text(
                     artist.name,
-                    style: TextStyle(
-                      fontSize: 16,
+                    style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: isDark
                           ? Colors.white
@@ -161,10 +120,9 @@ class _ArtistCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       artist.bio!,
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: theme.textTheme.bodySmall?.copyWith(
                         color: isDark
-                            ? LoginColors.textSecondary
+                            ? context.followTokens.textSecondary
                             : theme.colorScheme.onSurfaceVariant,
                       ),
                       maxLines: 1,
@@ -181,13 +139,16 @@ class _ArtistCard extends StatelessWidget {
     );
   }
 
-  Widget _buildPlaceholder(String initial) {
+  Widget _buildPlaceholder(BuildContext context, String initial) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [LoginColors.gradientStart, LoginColors.gradientEnd],
+          colors: [
+            context.followTokens.brandPrimary,
+            context.followTokens.background,
+          ],
         ),
       ),
       child: Center(

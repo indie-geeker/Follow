@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:follow/data/providers/audio_provider.dart';
+import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/shared/widgets/player/player_main_controls.dart';
+import 'package:follow/shared/widgets/player/player_mode_control.dart';
 
 class _FakeAudioPlayerService extends Fake implements AudioPlayerService {
   final appliedModes = <PlayMode>[];
@@ -14,6 +16,15 @@ class _FakeAudioPlayerService extends Fake implements AudioPlayerService {
 }
 
 void main() {
+  const palette = PlayerPalette(
+    primaryControl: Color(0xFF173E89),
+    onPrimaryControl: Colors.white,
+    secondary: Color(0xFF8A2362),
+    ambient: Color(0xFF16869B),
+    progress: Color(0xFF8A2362),
+    glow: Color(0xFF16869B),
+    scrim: Color(0xFFF7F6FC),
+  );
   late _FakeAudioPlayerService audioService;
   late int playPauseCalls;
   late int previousCalls;
@@ -35,6 +46,7 @@ void main() {
         child: MaterialApp(
           home: Scaffold(
             body: PlayerMainControls(
+              palette: palette,
               isPlaying: false,
               onPlayPause: () => playPauseCalls++,
               onPrevious: () => previousCalls++,
@@ -75,6 +87,26 @@ void main() {
       PlayMode.single,
       PlayMode.sequence,
     ]);
+  });
+
+  testWidgets('primary transport uses the guarded control pair', (
+    tester,
+  ) async {
+    await pumpControls(tester);
+
+    final control = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('player-primary-control')),
+    );
+    final decoration = control.decoration as BoxDecoration;
+    expect(decoration.color, palette.primaryControl);
+    expect(
+      decoration.boxShadow?.single.color,
+      palette.glow.withValues(alpha: 0.36),
+    );
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.play_arrow_rounded)).color,
+      palette.onPrimaryControl,
+    );
   });
 
   testWidgets('playback actions delegate once and remain touch friendly', (
@@ -119,4 +151,75 @@ void main() {
     await tester.tap(find.byTooltip('当前播放队列'));
     expect(queueCalls, 1);
   });
+
+  testWidgets(
+    'compact 360dp controls keep the mode popup inside the viewport',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpControls(tester);
+      await tester.tap(find.byTooltip('播放模式：顺序播放'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 160));
+
+      final mode = find.byTooltip('播放模式：随机播放');
+      final popup = find.byKey(playerModePopupKey);
+      expect(tester.getSize(popup).width, 112);
+      expect(tester.getRect(popup).left, closeTo(8, 0.01));
+      expect(
+        tester.getCenter(popup).dx,
+        greaterThan(tester.getCenter(mode).dx),
+      );
+
+      for (final tooltip in ['播放模式：随机播放', '上一首', '下一首', '当前播放队列']) {
+        expect(tester.getSize(find.byTooltip(tooltip)), const Size.square(48));
+      }
+      expect(tester.getSize(find.byTooltip('播放')), const Size.square(56));
+      expect(tester.getCenter(find.byTooltip('播放')).dx, closeTo(180, 0.01));
+    },
+  );
+
+  for (final width in [360.0, 390.0]) {
+    testWidgets('$width dp uses five equal slots with breathing room', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await pumpControls(tester);
+      final controls = [
+        find.byTooltip('播放模式：顺序播放'),
+        find.byTooltip('上一首'),
+        find.byTooltip('播放'),
+        find.byTooltip('下一首'),
+        find.byTooltip('当前播放队列'),
+      ];
+      final centers = controls
+          .map((finder) => tester.getCenter(finder).dx)
+          .toList();
+      final steps = <double>[
+        for (var index = 1; index < centers.length; index++)
+          centers[index] - centers[index - 1],
+      ];
+      for (final step in steps.skip(1)) {
+        expect(step, closeTo(steps.first, 0.01));
+      }
+
+      for (var index = 1; index < controls.length; index++) {
+        final gap =
+            tester.getRect(controls[index]).left -
+            tester.getRect(controls[index - 1]).right;
+        expect(gap, greaterThanOrEqualTo(10));
+      }
+      expect(tester.getSize(controls[2]), const Size.square(56));
+      for (final control in [...controls.take(2), ...controls.skip(3)]) {
+        expect(tester.getSize(control), const Size.square(48));
+      }
+    });
+  }
 }

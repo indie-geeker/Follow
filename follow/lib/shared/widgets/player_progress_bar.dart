@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/core/utils/duration_utils.dart';
 
 /// A reusable progress bar for audio playback.
@@ -35,12 +35,15 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
   double get _progress {
     if (_isDragging) return _dragProgress;
     if (widget.duration.inMilliseconds <= 0) return 0.0;
-    return (widget.position.inMilliseconds / widget.duration.inMilliseconds).clamp(0.0, 1.0);
+    return (widget.position.inMilliseconds / widget.duration.inMilliseconds)
+        .clamp(0.0, 1.0);
   }
 
   Duration get _displayPosition {
     if (_isDragging) {
-      return Duration(milliseconds: (widget.duration.inMilliseconds * _dragProgress).toInt());
+      return Duration(
+        milliseconds: (widget.duration.inMilliseconds * _dragProgress).toInt(),
+      );
     }
     return widget.position;
   }
@@ -53,7 +56,9 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
 
   Color _trackColor() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return isDark ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.15);
+    return isDark
+        ? Colors.white.withValues(alpha: 0.2)
+        : Colors.black.withValues(alpha: 0.15);
   }
 
   void _handleDragStart(DragStartDetails details, double trackWidth) {
@@ -87,8 +92,6 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
     widget.onSeek(seekPosition);
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -100,8 +103,10 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
             builder: (context, constraints) {
               final trackWidth = constraints.maxWidth;
               return GestureDetector(
-                onHorizontalDragStart: (details) => _handleDragStart(details, trackWidth),
-                onHorizontalDragUpdate: (details) => _handleDragUpdate(details, trackWidth),
+                onHorizontalDragStart: (details) =>
+                    _handleDragStart(details, trackWidth),
+                onHorizontalDragUpdate: (details) =>
+                    _handleDragUpdate(details, trackWidth),
                 onHorizontalDragEnd: _handleDragEnd,
                 onTapUp: (details) => _handleTap(details, trackWidth),
                 child: Container(
@@ -118,7 +123,9 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                           width: double.infinity,
                           decoration: BoxDecoration(
                             color: _trackColor(),
-                            borderRadius: BorderRadius.circular(widget.height / 2),
+                            borderRadius: BorderRadius.circular(
+                              widget.height / 2,
+                            ),
                           ),
                         ),
                         // Progress fill (left to right)
@@ -127,10 +134,15 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                           child: Container(
                             height: widget.height,
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [LoginColors.accentPurple, LoginColors.accentPink],
+                              gradient: LinearGradient(
+                                colors: [
+                                  context.followTokens.brandPrimary,
+                                  context.followTokens.brandSecondary,
+                                ],
                               ),
-                              borderRadius: BorderRadius.circular(widget.height / 2),
+                              borderRadius: BorderRadius.circular(
+                                widget.height / 2,
+                              ),
                             ),
                           ),
                         ),
@@ -141,11 +153,12 @@ class _PlayerProgressBarState extends State<PlayerProgressBar> {
                             width: widget.thumbRadius * 2,
                             height: widget.thumbRadius * 2,
                             decoration: BoxDecoration(
-                              color: LoginColors.accentPurple,
+                              color: context.followTokens.brandPrimary,
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
-                                  color: LoginColors.accentPurple.withValues(alpha: 0.3),
+                                  color: context.followTokens.brandPrimary
+                                      .withValues(alpha: 0.3),
                                   blurRadius: 8,
                                   offset: const Offset(0, 2),
                                 ),

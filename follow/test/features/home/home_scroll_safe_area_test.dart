@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:follow/features/home/home_page.dart';
 
 void main() {
-  testWidgets('home scroll viewport stays below the top system inset', (
+  testWidgets('home atmosphere extends behind the top system inset', (
     tester,
   ) async {
     const contentKey = Key('scroll-content');
@@ -22,7 +22,7 @@ void main() {
       ),
     );
 
-    expect(tester.getTopLeft(find.byKey(contentKey)).dy, 36);
+    expect(tester.getTopLeft(find.byKey(contentKey)).dy, 0);
     expect(
       tester.getBottomRight(find.byKey(contentKey)).dy,
       tester.view.physicalSize.height / tester.view.devicePixelRatio,

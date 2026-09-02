@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 
 class PlayAllTile extends StatelessWidget {
   final VoidCallback onTap;
@@ -28,11 +28,13 @@ class PlayAllTile extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: LoginColors.accentPurple,
+                color: context.followTokens.brandPrimary,
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: LoginColors.accentPurple.withValues(alpha: 0.3),
+                    color: context.followTokens.brandPrimary.withValues(
+                      alpha: 0.3,
+                    ),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
@@ -62,7 +64,7 @@ class PlayAllTile extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12,
                     color: isDark
-                        ? LoginColors.textSecondary
+                        ? context.followTokens.textSecondary
                         : theme.colorScheme.onSurfaceVariant,
                   ),
                 ),

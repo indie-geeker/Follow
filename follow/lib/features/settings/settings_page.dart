@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/platform/platform_capabilities.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/core/theme/theme_provider.dart';
 import 'package:follow/data/providers/auth_provider.dart';
 import 'package:follow/data/providers/api_provider.dart';
 import 'package:follow/data/providers/download_provider.dart';
 import 'package:follow/features/settings/session_management_sheet.dart';
+import 'package:follow/shared/widgets/section_header.dart';
+import 'package:follow/shared/widgets/surfaces/aurora_background.dart';
 
 @RoutePage()
 class SettingsPage extends ConsumerWidget {
@@ -27,173 +29,137 @@ class SettingsPage extends ConsumerWidget {
         !kIsWeb && supportsNativeFolderBrowsing(defaultTargetPlatform);
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
-      body: Stack(
-        children: [
-          // Full-screen gradient background
-          if (isDark)
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    LoginColors.gradientEnd,
-                    LoginColors.gradientMid2,
-                    LoginColors.gradientMid1,
-                    LoginColors.gradientStart,
-                  ],
-                ),
+      body: AuroraBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.only(bottom: 100),
+            children: [
+              // Header
+              SectionHeader(
+                title: l10n.settings,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
               ),
-            ),
 
-          // Content
-          SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.only(bottom: 100),
-              children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                  child: Text(
-                    l10n.settings,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: isDark
-                          ? Colors.white
-                          : theme.colorScheme.onSurface,
-                    ),
+              // Appearance section
+              _SectionCard(
+                isDark: isDark,
+                children: [
+                  _SectionHeader(title: l10n.get('appearance'), isDark: isDark),
+                  _SettingsTile(
+                    icon: Icons.palette_outlined,
+                    title: l10n.theme,
+                    subtitle: _getThemeName(themeMode, l10n),
+                    onTap: () =>
+                        _showThemeDialog(context, ref, themeMode, l10n, isDark),
+                    isDark: isDark,
                   ),
-                ),
+                  _SettingsTile(
+                    icon: Icons.language_rounded,
+                    title: l10n.language,
+                    subtitle: locale.languageCode == 'zh' ? '中文' : 'English',
+                    onTap: () =>
+                        _showLanguageDialog(context, ref, locale, isDark),
+                    isDark: isDark,
+                  ),
+                ],
+              ),
 
-                // Appearance section
-                _SectionCard(
-                  isDark: isDark,
-                  children: [
-                    _SectionHeader(
-                      title: l10n.get('appearance'),
-                      isDark: isDark,
-                    ),
+              const SizedBox(height: 16),
+
+              // Storage section
+              _SectionCard(
+                isDark: isDark,
+                children: [
+                  _SectionHeader(title: '存储', isDark: isDark),
+                  if (canBrowseDownloadFolder)
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final downloadPathAsync = ref.watch(
+                          downloadPathProvider,
+                        );
+                        return _SettingsTile(
+                          icon: Icons.folder_outlined,
+                          title: '下载位置',
+                          subtitle: downloadPathAsync.when(
+                            data: (path) => _truncatePath(path, 30),
+                            loading: () => '...',
+                            error: (_, __) => '加载失败',
+                          ),
+                          onTap: () => _showDownloadPathDialog(
+                            context,
+                            ref,
+                            isDark,
+                            downloadPathAsync.value,
+                          ),
+                          isDark: isDark,
+                        );
+                      },
+                    )
+                  else
                     _SettingsTile(
-                      icon: Icons.palette_outlined,
-                      title: l10n.theme,
-                      subtitle: _getThemeName(themeMode, l10n),
-                      onTap: () => _showThemeDialog(
-                        context,
-                        ref,
-                        themeMode,
-                        l10n,
-                        isDark,
-                      ),
-                      isDark: isDark,
-                    ),
-                    _SettingsTile(
-                      icon: Icons.language_rounded,
-                      title: l10n.language,
-                      subtitle: locale.languageCode == 'zh' ? '中文' : 'English',
-                      onTap: () =>
-                          _showLanguageDialog(context, ref, locale, isDark),
-                      isDark: isDark,
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Storage section
-                _SectionCard(
-                  isDark: isDark,
-                  children: [
-                    _SectionHeader(title: '存储', isDark: isDark),
-                    if (canBrowseDownloadFolder)
-                      Consumer(
-                        builder: (context, ref, _) {
-                          final downloadPathAsync = ref.watch(
-                            downloadPathProvider,
-                          );
-                          return _SettingsTile(
-                            icon: Icons.folder_outlined,
-                            title: '下载位置',
-                            subtitle: downloadPathAsync.when(
-                              data: (path) => _truncatePath(path, 30),
-                              loading: () => '...',
-                              error: (_, __) => '加载失败',
-                            ),
-                            onTap: () => _showDownloadPathDialog(
-                              context,
-                              ref,
-                              isDark,
-                              downloadPathAsync.value,
-                            ),
-                            isDark: isDark,
-                          );
-                        },
-                      )
-                    else
-                      _SettingsTile(
-                        icon: Icons.smartphone_rounded,
-                        title: '下载位置',
-                        subtitle: '应用内存储',
-                        showArrow: false,
-                        isDark: isDark,
-                      ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Account section
-                _SectionCard(
-                  isDark: isDark,
-                  children: [
-                    _SectionHeader(title: l10n.get('account'), isDark: isDark),
-                    if (user != null) ...[
-                      _UserTile(user: user, isDark: isDark),
-                      _SettingsTile(
-                        icon: Icons.devices_rounded,
-                        title: '登录设备',
-                        subtitle: '查看并撤销家庭设备会话',
-                        onTap: () => _showSessions(context, ref),
-                        isDark: isDark,
-                      ),
-                      _SettingsTile(
-                        icon: Icons.logout_rounded,
-                        title: l10n.logout,
-                        isDestructive: true,
-                        onTap: () => _confirmLogout(context, ref, isDark),
-                        isDark: isDark,
-                      ),
-                    ] else
-                      _SettingsTile(
-                        icon: Icons.login_rounded,
-                        title: l10n.login,
-                        onTap: () => context.router.pushPath('/login'),
-                        isDark: isDark,
-                      ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // About section
-                _SectionCard(
-                  isDark: isDark,
-                  children: [
-                    _SectionHeader(title: '关于', isDark: isDark),
-                    _SettingsTile(
-                      icon: Icons.info_outline_rounded,
-                      title: '版本',
-                      subtitle: '0.1.0',
+                      icon: Icons.smartphone_rounded,
+                      title: '下载位置',
+                      subtitle: '应用内存储',
                       showArrow: false,
                       isDark: isDark,
                     ),
-                  ],
-                ),
-              ],
-            ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // Account section
+              _SectionCard(
+                isDark: isDark,
+                children: [
+                  _SectionHeader(title: l10n.get('account'), isDark: isDark),
+                  if (user != null) ...[
+                    _UserTile(user: user, isDark: isDark),
+                    _SettingsTile(
+                      icon: Icons.devices_rounded,
+                      title: '登录设备',
+                      subtitle: '查看并撤销家庭设备会话',
+                      onTap: () => _showSessions(context, ref),
+                      isDark: isDark,
+                    ),
+                    _SettingsTile(
+                      icon: Icons.logout_rounded,
+                      title: l10n.logout,
+                      isDestructive: true,
+                      onTap: () => _confirmLogout(context, ref, isDark),
+                      isDark: isDark,
+                    ),
+                  ] else
+                    _SettingsTile(
+                      icon: Icons.login_rounded,
+                      title: l10n.login,
+                      onTap: () => context.router.pushPath('/login'),
+                      isDark: isDark,
+                    ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // About section
+              _SectionCard(
+                isDark: isDark,
+                children: [
+                  _SectionHeader(title: '关于', isDark: isDark),
+                  _SettingsTile(
+                    icon: Icons.info_outline_rounded,
+                    title: '版本',
+                    subtitle: '0.1.0',
+                    showArrow: false,
+                    isDark: isDark,
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -234,7 +200,7 @@ class SettingsPage extends ConsumerWidget {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: isDark ? LoginColors.gradientMid1 : null,
+      backgroundColor: isDark ? context.followTokens.surface : null,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -250,7 +216,7 @@ class SettingsPage extends ConsumerWidget {
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                   color: isDark
-                      ? LoginColors.textSecondary
+                      ? context.followTokens.textSecondary
                       : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
                 ),
@@ -279,7 +245,7 @@ class SettingsPage extends ConsumerWidget {
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark
-                              ? LoginColors.textSecondary
+                              ? context.followTokens.textSecondary
                               : Colors.grey.shade600,
                         ),
                         textAlign: TextAlign.center,
@@ -345,7 +311,7 @@ class SettingsPage extends ConsumerWidget {
   ) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: isDark ? LoginColors.gradientMid1 : null,
+      backgroundColor: isDark ? context.followTokens.surface : null,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -361,7 +327,7 @@ class SettingsPage extends ConsumerWidget {
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                   color: isDark
-                      ? LoginColors.textSecondary
+                      ? context.followTokens.textSecondary
                       : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
                 ),
@@ -434,7 +400,7 @@ class SettingsPage extends ConsumerWidget {
   ) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: isDark ? LoginColors.gradientMid1 : null,
+      backgroundColor: isDark ? context.followTokens.surface : null,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -450,7 +416,7 @@ class SettingsPage extends ConsumerWidget {
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                   color: isDark
-                      ? LoginColors.textSecondary
+                      ? context.followTokens.textSecondary
                       : Colors.grey.shade300,
                   borderRadius: BorderRadius.circular(2),
                 ),
@@ -507,7 +473,7 @@ class SettingsPage extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? LoginColors.gradientMid1 : null,
+        backgroundColor: isDark ? context.followTokens.surface : null,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(
           '确认退出',
@@ -518,7 +484,9 @@ class SettingsPage extends ConsumerWidget {
         ),
         content: Text(
           '确定要退出登录吗？',
-          style: TextStyle(color: isDark ? LoginColors.textSecondary : null),
+          style: TextStyle(
+            color: isDark ? context.followTokens.textSecondary : null,
+          ),
         ),
         actions: [
           TextButton(
@@ -526,7 +494,7 @@ class SettingsPage extends ConsumerWidget {
             child: Text(
               '取消',
               style: TextStyle(
-                color: isDark ? LoginColors.textSecondary : null,
+                color: isDark ? context.followTokens.textSecondary : null,
               ),
             ),
           ),
@@ -580,15 +548,8 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: isDark
-            ? LoginColors.cardBackground
-            : Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
-        border: isDark ? Border.all(color: LoginColors.cardBorder) : null,
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: children,
@@ -613,10 +574,13 @@ class _SectionHeader extends StatelessWidget {
             width: 4,
             height: 16,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [LoginColors.accentPurple, LoginColors.accentPink],
+                colors: [
+                  context.followTokens.brandPrimary,
+                  context.followTokens.brandSecondary,
+                ],
               ),
               borderRadius: BorderRadius.circular(2),
             ),
@@ -628,7 +592,7 @@ class _SectionHeader extends StatelessWidget {
               fontSize: 14,
               fontWeight: FontWeight.w600,
               color: isDark
-                  ? LoginColors.accentPurple
+                  ? context.followTokens.brandPrimary
                   : Theme.of(context).colorScheme.primary,
             ),
           ),
@@ -659,8 +623,9 @@ class _SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.followTokens;
     final color = isDestructive
-        ? Colors.red
+        ? tokens.error
         : (isDark ? Colors.white : Theme.of(context).colorScheme.onSurface);
 
     return ListTile(
@@ -669,18 +634,18 @@ class _SettingsTile extends StatelessWidget {
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: isDestructive
-              ? Colors.red.withValues(alpha: 0.15)
+              ? tokens.error.withValues(alpha: 0.15)
               : (isDark
-                    ? LoginColors.accentPurple.withValues(alpha: 0.2)
+                    ? context.followTokens.brandPrimary.withValues(alpha: 0.2)
                     : Theme.of(context).colorScheme.primaryContainer),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Icon(
           icon,
           color: isDestructive
-              ? Colors.red
+              ? tokens.error
               : (isDark
-                    ? LoginColors.accentPurple
+                    ? context.followTokens.brandPrimary
                     : Theme.of(context).colorScheme.primary),
           size: 20,
         ),
@@ -694,7 +659,7 @@ class _SettingsTile extends StatelessWidget {
               subtitle!,
               style: TextStyle(
                 color: isDark
-                    ? LoginColors.textSecondary
+                    ? context.followTokens.textSecondary
                     : Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 13,
               ),
@@ -704,7 +669,7 @@ class _SettingsTile extends StatelessWidget {
           ? Icon(
               Icons.chevron_right_rounded,
               color: isDark
-                  ? LoginColors.textSecondary
+                  ? context.followTokens.textSecondary
                   : Theme.of(context).colorScheme.onSurfaceVariant,
             )
           : null,
@@ -726,12 +691,15 @@ class _UserTile extends StatelessWidget {
       leading: Container(
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: const LinearGradient(
-            colors: [LoginColors.accentPurple, LoginColors.accentPink],
+          gradient: LinearGradient(
+            colors: [
+              context.followTokens.brandPrimary,
+              context.followTokens.brandSecondary,
+            ],
           ),
           boxShadow: [
             BoxShadow(
-              color: LoginColors.accentPurple.withValues(alpha: 0.3),
+              color: context.followTokens.brandPrimary.withValues(alpha: 0.3),
               blurRadius: 8,
             ),
           ],
@@ -762,7 +730,7 @@ class _UserTile extends StatelessWidget {
         user.email,
         style: TextStyle(
           color: isDark
-              ? LoginColors.textSecondary
+              ? context.followTokens.textSecondary
               : Theme.of(context).colorScheme.onSurfaceVariant,
           fontSize: 13,
         ),
@@ -793,15 +761,17 @@ class _DialogOption extends StatelessWidget {
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: selected
-              ? LoginColors.accentPurple.withValues(alpha: 0.2)
-              : (isDark ? LoginColors.cardBackground : Colors.grey.shade100),
+              ? context.followTokens.brandPrimary.withValues(alpha: 0.2)
+              : (isDark ? context.followTokens.surface : Colors.grey.shade100),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(
           icon,
           color: selected
-              ? LoginColors.accentPurple
-              : (isDark ? LoginColors.textSecondary : Colors.grey.shade600),
+              ? context.followTokens.brandPrimary
+              : (isDark
+                    ? context.followTokens.textSecondary
+                    : Colors.grey.shade600),
           size: 20,
         ),
       ),
@@ -809,7 +779,7 @@ class _DialogOption extends StatelessWidget {
         title,
         style: TextStyle(
           color: selected
-              ? LoginColors.accentPurple
+              ? context.followTokens.brandPrimary
               : (isDark
                     ? Colors.white
                     : Theme.of(context).colorScheme.onSurface),
@@ -817,7 +787,7 @@ class _DialogOption extends StatelessWidget {
         ),
       ),
       trailing: selected
-          ? const Icon(Icons.check_rounded, color: LoginColors.accentPurple)
+          ? Icon(Icons.check_rounded, color: context.followTokens.brandPrimary)
           : null,
       onTap: onTap,
     );

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:follow/core/network/media_url.dart';
+import 'package:follow/core/network/cover_image_provider.dart';
 import 'package:follow/data/models/track.dart';
+
+const trackCoverNetworkImageKey = ValueKey('track-cover-network-image');
+const trackCoverPlaceholderKey = ValueKey('track-cover-placeholder');
 
 class TrackCoverImage extends StatelessWidget {
   final Track? track;
@@ -32,19 +34,23 @@ class TrackCoverImage extends StatelessWidget {
       result = GestureDetector(onTap: onTap, child: result);
     }
 
-    return result;
+    return SizedBox.square(dimension: size, child: result);
   }
 
   Widget _buildImage() {
-    final coverUri = resolveCoverUri(track?.coverUrl);
-    if (coverUri != null) {
-      return CachedNetworkImage(
-        imageUrl: coverUri.toString(),
+    final provider = coverImageProviderForTrack(track);
+    if (provider != null) {
+      return Image(
+        key: trackCoverNetworkImageKey,
+        image: provider,
         width: size,
         height: size,
         fit: fit,
-        placeholder: (_, __) => _buildPlaceholder(),
-        errorWidget: (_, __, ___) => _buildPlaceholder(),
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded || frame != null) return child;
+          return _buildPlaceholder();
+        },
+        errorBuilder: (_, __, ___) => _buildPlaceholder(),
       );
     }
     return _buildPlaceholder();
@@ -52,6 +58,7 @@ class TrackCoverImage extends StatelessWidget {
 
   Widget _buildPlaceholder() {
     return Container(
+      key: trackCoverPlaceholderKey,
       width: size,
       height: size,
       color: Colors.grey[300],

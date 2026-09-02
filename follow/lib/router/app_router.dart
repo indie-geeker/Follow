@@ -2,6 +2,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/shared/widgets/mini_player.dart';
 import 'package:follow/shared/widgets/desktop_player_bar.dart';
 import 'package:follow/data/providers/audio_provider.dart';
@@ -106,6 +107,7 @@ class _MobileShell extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
+    final tokens = context.followTokens;
     final currentTrack = ref.watch(currentTrackProvider);
 
     return AutoTabsScaffold(
@@ -124,6 +126,7 @@ class _MobileShell extends ConsumerWidget {
                   onTap: () => context.router.push(const PlayerRoute()),
                 ),
               NavigationBar(
+                height: tokens.minimumTapTarget + tokens.spacing[4],
                 selectedIndex: tabsRouter.activeIndex,
                 onDestinationSelected: tabsRouter.setActiveIndex,
                 destinations: [
@@ -152,6 +155,7 @@ class _DesktopShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
+    final tokens = context.followTokens;
     final currentTrack = ref.watch(currentTrackProvider);
     final width = MediaQuery.of(context).size.width;
     final isExpanded = width >= 1200;
@@ -170,6 +174,7 @@ class _DesktopShell extends ConsumerWidget {
               // Sidebar
               NavigationRail(
                 extended: isExpanded,
+                minWidth: tokens.minimumTapTarget + tokens.spacing[4],
                 minExtendedWidth: 200,
                 selectedIndex: tabsRouter.activeIndex,
                 onDestinationSelected: (index) {

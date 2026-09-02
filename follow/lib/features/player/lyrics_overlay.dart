@@ -6,10 +6,14 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/shared/widgets/player_progress_bar.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
+import 'package:follow/core/theme/player_palette.dart';
+import 'package:follow/core/theme/player_palette_provider.dart';
 import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_track_info.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_controls.dart';
+import 'package:follow/shared/widgets/player/player_aurora_background.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 class LyricsOverlay extends ConsumerStatefulWidget {
   final VoidCallback onClose;
@@ -59,7 +63,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final currentTrack = ref.watch(currentTrackProvider);
     final isPlayingAsync = ref.watch(isPlayingProvider);
     final positionAsync = ref.watch(playerPositionProvider);
@@ -89,98 +92,107 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
       loading: () => fallbackDuration,
       error: (_, __) => fallbackDuration,
     );
+    final tokens = context.followTokens;
+    final paletteRequest = PlayerPaletteRequest.fromTrack(
+      currentTrack,
+      theme.brightness,
+    );
+    final palette =
+        ref.watch(playerPaletteProvider(paletteRequest)).value ??
+        PlayerPalette.fallback(brightness: theme.brightness, tokens: tokens);
 
     return SlideTransition(
       position: _slideAnimation,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: isDark
-                ? [
-                    LoginColors.gradientEnd,
-                    LoginColors.gradientMid2,
-                    LoginColors.gradientMid1,
-                    LoginColors.gradientStart,
-                  ]
-                : [
-                    theme.colorScheme.primaryContainer,
-                    theme.colorScheme.surface,
-                  ],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Header
-              _buildHeader(context),
-              // Content
-              // Content with floating volume control
-              Expanded(
-                child: Stack(
+      child: PlayerAuroraBackground(
+        track: currentTrack,
+        palette: palette,
+        child: BackdropGroup(
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: GlassPanel(
+                key: const ValueKey('desktop-lyrics-content-glass'),
+                tier: GlassTier.strong,
+                child: Column(
                   children: [
-                    Positioned.fill(
-                      child: LayoutBuilder(
-                        builder: (layoutContext, constraints) {
-                          final isWide = constraints.maxWidth >= 600;
-                          if (isWide) {
-                            return _buildWideLayout(
-                              context,
-                              currentTrack,
-                              lyricsAsync,
-                              currentLyricIdx,
-                              audioService,
-                            );
-                          } else {
-                            return _buildNarrowLayout(
-                              context,
-                              currentTrack,
-                              lyricsAsync,
-                              currentLyricIdx,
-                              audioService,
-                            );
-                          }
-                        },
+                    // Header
+                    _buildHeader(context),
+                    // Content
+                    // Content with floating volume control
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: LayoutBuilder(
+                              builder: (layoutContext, constraints) {
+                                final isWide = constraints.maxWidth >= 600;
+                                if (isWide) {
+                                  return _buildWideLayout(
+                                    context,
+                                    currentTrack,
+                                    lyricsAsync,
+                                    currentLyricIdx,
+                                    position,
+                                    audioService,
+                                  );
+                                } else {
+                                  return _buildNarrowLayout(
+                                    context,
+                                    currentTrack,
+                                    lyricsAsync,
+                                    currentLyricIdx,
+                                    position,
+                                    audioService,
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                          Positioned(
+                            right: 14,
+                            bottom: 16,
+                            child: _HoverVolumeControl(
+                              volumeAsync: volumeAsync,
+                              audioService: audioService,
+                              foregroundColor: _foregroundColor(context),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    Positioned(
-                      right: 14,
-                      bottom: 16,
-                      child: _HoverVolumeControl(
-                        volumeAsync: volumeAsync,
-                        audioService: audioService,
-                        foregroundColor: _foregroundColor(context),
+                    // Progress bar
+                    SliderTheme(
+                      data: SliderTheme.of(
+                        context,
+                      ).copyWith(activeTrackColor: palette.progress),
+                      child: PlayerProgressBar(
+                        position: position,
+                        duration: duration,
+                        onSeek: audioService.seek,
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    // Controls
+                    LyricsControls(
+                      isPlaying: isPlaying,
+                      playMode: playerMode,
+                      onPlayPause: () {
+                        if (isPlaying) {
+                          audioService.pause();
+                        } else {
+                          audioService.play();
+                        }
+                      },
+                      onPrevious: () => audioService.playPrevious(),
+                      onNext: () => audioService.playNext(),
+                      onModeToggle: () =>
+                          ref.read(playerModeProvider.notifier).nextMode(),
+                    ),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),
-              // Progress bar
-              PlayerProgressBar(
-                position: position,
-                duration: duration,
-                onSeek: audioService.seek,
-              ),
-              const SizedBox(height: 16),
-              // Controls
-              LyricsControls(
-                isPlaying: isPlaying,
-                playMode: playerMode,
-                onPlayPause: () {
-                  if (isPlaying) {
-                    audioService.pause();
-                  } else {
-                    audioService.play();
-                  }
-                },
-                onPrevious: () => audioService.playPrevious(),
-                onNext: () => audioService.playNext(),
-                onModeToggle: () =>
-                    ref.read(playerModeProvider.notifier).nextMode(),
-              ),
-              const SizedBox(height: 24),
-            ],
+            ),
           ),
         ),
       ),
@@ -255,6 +267,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     Track? currentTrack,
     AsyncValue<List<LyricLine>> lyricsAsync,
     int currentLyricIdx,
+    Duration position,
     AudioPlayerService audioService,
   ) {
     return Row(
@@ -294,6 +307,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             currentTrack?.id,
             lyricsAsync,
             currentLyricIdx,
+            position,
             audioService,
           ),
         ),
@@ -306,6 +320,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     Track? currentTrack,
     AsyncValue<List<LyricLine>> lyricsAsync,
     int currentLyricIdx,
+    Duration position,
     AudioPlayerService audioService,
   ) {
     return Column(
@@ -325,6 +340,7 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             currentTrack?.id,
             lyricsAsync,
             currentLyricIdx,
+            position,
             audioService,
           ),
         ),
@@ -337,12 +353,14 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     String? trackId,
     AsyncValue<List<LyricLine>> lyricsAsync,
     int currentLyricIdx,
+    Duration position,
     AudioPlayerService audioService,
   ) {
     return InteractiveLyricsView(
       key: ValueKey('desktop-lyrics-$trackId'),
       lyrics: lyricsAsync,
       currentIndex: currentLyricIdx,
+      playbackPosition: position,
       foregroundColor: _foregroundColor(context),
       onSeek: audioService.seek,
     );

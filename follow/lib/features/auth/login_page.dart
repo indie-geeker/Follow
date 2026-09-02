@@ -1,14 +1,15 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/providers/auth_provider.dart';
 import 'package:follow/data/services/auth/remembered_email_store.dart';
 import 'package:follow/router/app_router.dart';
+import 'package:follow/shared/widgets/surfaces/aurora_background.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 @RoutePage()
@@ -30,20 +31,14 @@ class _LoginPageState extends ConsumerState<LoginPage>
   bool _rememberEmail = false;
 
   // Animation controllers
-  late AnimationController _gradientController;
   late AnimationController _logoController;
   late AnimationController _cardController;
   late AnimationController _shakeController;
-  late List<AnimationController> _circleControllers;
 
   // Animations
-  late Animation<double> _gradientAnimation;
   late Animation<double> _logoAnimation;
   late Animation<double> _cardAnimation;
   late Animation<double> _shakeAnimation;
-
-  // Circle positions (random initial positions)
-  late List<_CircleConfig> _circles;
 
   @override
   void initState() {
@@ -53,15 +48,6 @@ class _LoginPageState extends ConsumerState<LoginPage>
   }
 
   void _initAnimations() {
-    // Gradient animation (background color shift)
-    _gradientController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 15),
-    )..repeat(reverse: true);
-    _gradientAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _gradientController, curve: Curves.easeInOut),
-    );
-
     // Logo breathing animation
     _logoController = AnimationController(
       vsync: this,
@@ -89,54 +75,6 @@ class _LoginPageState extends ConsumerState<LoginPage>
     _shakeAnimation = Tween<double>(begin: 0, end: 1).animate(
       CurvedAnimation(parent: _shakeController, curve: Curves.elasticIn),
     );
-
-    // Initialize floating circles
-    final random = math.Random();
-    _circleControllers = List.generate(4, (index) {
-      return AnimationController(
-        vsync: this,
-        duration: Duration(seconds: 20 + random.nextInt(15)),
-      )..repeat(reverse: true);
-    });
-
-    _circles = [
-      _CircleConfig(
-        size: 400,
-        initialX: -0.3,
-        initialY: -0.2,
-        gradient: [
-          LoginColors.circlePurple.withValues(alpha: 0.3),
-          LoginColors.circleViolet.withValues(alpha: 0.3),
-        ],
-      ),
-      _CircleConfig(
-        size: 300,
-        initialX: 0.8,
-        initialY: 0.4,
-        gradient: [
-          LoginColors.circlePink.withValues(alpha: 0.25),
-          LoginColors.circleRed.withValues(alpha: 0.25),
-        ],
-      ),
-      _CircleConfig(
-        size: 250,
-        initialX: 0.3,
-        initialY: 0.9,
-        gradient: [
-          LoginColors.circleCyan.withValues(alpha: 0.25),
-          LoginColors.circleBlue.withValues(alpha: 0.25),
-        ],
-      ),
-      _CircleConfig(
-        size: 350,
-        initialX: 0.1,
-        initialY: 0.5,
-        gradient: [
-          LoginColors.circleViolet.withValues(alpha: 0.2),
-          LoginColors.circlePink.withValues(alpha: 0.2),
-        ],
-      ),
-    ];
   }
 
   Future<void> _loadRememberedEmail() async {
@@ -171,13 +109,9 @@ class _LoginPageState extends ConsumerState<LoginPage>
     _emailController.dispose();
     _passwordController.dispose();
     _usernameController.dispose();
-    _gradientController.dispose();
     _logoController.dispose();
     _cardController.dispose();
     _shakeController.dispose();
-    for (final controller in _circleControllers) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
@@ -185,7 +119,6 @@ class _LoginPageState extends ConsumerState<LoginPage>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final authState = ref.watch(authProvider);
-    final size = MediaQuery.of(context).size;
 
     // Listen for auth state changes
     ref.listen(authProvider, (prev, next) {
@@ -196,7 +129,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(next.message),
-            backgroundColor: Colors.red.shade400,
+            backgroundColor: context.followTokens.error,
           ),
         );
       }
@@ -205,304 +138,215 @@ class _LoginPageState extends ConsumerState<LoginPage>
     final isLoading = authState is AuthStateLoading;
 
     return Scaffold(
-      body: Stack(
-        children: [
-          // Animated gradient background
-          AnimatedBuilder(
-            animation: _gradientAnimation,
-            builder: (context, child) {
-              return Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment(
-                      -1 + _gradientAnimation.value * 2,
-                      -1 + _gradientAnimation.value,
-                    ),
-                    end: Alignment(
-                      1 - _gradientAnimation.value,
-                      1 - _gradientAnimation.value * 0.5,
-                    ),
-                    colors: const [
-                      LoginColors.gradientStart,
-                      LoginColors.gradientMid1,
-                      LoginColors.gradientMid2,
-                      LoginColors.gradientEnd,
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-
-          // Floating blur circles
-          ..._buildFloatingCircles(size),
-
-          // Main content
-          SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: AnimatedBuilder(
-                  animation: _cardAnimation,
-                  builder: (context, child) {
-                    // Clamp opacity to valid range (easeOutBack can overshoot)
-                    final opacity = _cardAnimation.value.clamp(0.0, 1.0);
-                    return Transform.translate(
-                      offset: Offset(0, 30 * (1 - _cardAnimation.value)),
-                      child: Opacity(opacity: opacity, child: child),
-                    );
-                  },
-                  child: _buildLoginCard(l10n, isLoading),
-                ),
+      backgroundColor: Colors.transparent,
+      body: AuroraBackground(
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: AnimatedBuilder(
+                animation: _cardAnimation,
+                builder: (context, child) {
+                  // Clamp opacity to valid range (easeOutBack can overshoot)
+                  final opacity = _cardAnimation.value.clamp(0.0, 1.0);
+                  return Transform.translate(
+                    offset: Offset(0, 30 * (1 - _cardAnimation.value)),
+                    child: Opacity(opacity: opacity, child: child),
+                  );
+                },
+                child: _buildLoginCard(l10n, isLoading),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
-  }
-
-  List<Widget> _buildFloatingCircles(Size size) {
-    return List.generate(_circles.length, (index) {
-      final circle = _circles[index];
-      final controller = _circleControllers[index];
-
-      return AnimatedBuilder(
-        animation: controller,
-        builder: (context, child) {
-          // Create flowing motion
-          final progress = controller.value;
-          final xOffset = math.sin(progress * math.pi * 2) * 50;
-          final yOffset = math.cos(progress * math.pi * 2) * 30;
-
-          return Positioned(
-            left: size.width * circle.initialX + xOffset - circle.size / 2,
-            top: size.height * circle.initialY + yOffset - circle.size / 2,
-            child: Container(
-              width: circle.size,
-              height: circle.size,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: circle.gradient,
-                ),
-              ),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
-                child: Container(color: Colors.transparent),
-              ),
-            ),
-          );
-        },
-      );
-    });
   }
 
   Widget _buildLoginCard(AppLocalizations l10n, bool isLoading) {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 420),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
-            decoration: BoxDecoration(
-              color: LoginColors.cardBackground,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: LoginColors.cardBorder),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 32,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Animated logo
-                  _buildAnimatedLogo(),
-                  const SizedBox(height: 20),
+      child: GlassPanel(
+        tier: GlassTier.strong,
+        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Animated logo
+              _buildAnimatedLogo(),
+              const SizedBox(height: 20),
 
-                  // Title
-                  const Text(
-                    'Follow Music',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      color: LoginColors.textPrimary,
-                      letterSpacing: 1,
-                      shadows: [
-                        Shadow(
-                          color: Colors.black26,
-                          blurRadius: 10,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
+              // Title
+              Text(
+                'Follow Music',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: context.followTokens.textPrimary,
+                  letterSpacing: 1,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black26,
+                      blurRadius: 10,
+                      offset: Offset(0, 2),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Subtitle
-                  Text(
-                    _isLogin ? '欢迎回来' : '创建新账号',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: LoginColors.textSecondary,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  const SizedBox(height: 36),
-
-                  // Username (register only)
-                  if (!_isLogin) ...[
-                    _buildShakeableTextField(
-                      controller: _usernameController,
-                      label: l10n.get('username'),
-                      icon: Icons.person_outline,
-                      validator: (v) {
-                        if (!_isLogin &&
-                            (v == null ||
-                                v.trim().length < 3 ||
-                                v.trim().length > 32)) {
-                          return '用户名必须为3-32个字符';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 20),
                   ],
-
-                  // Email
-                  _buildShakeableTextField(
-                    controller: _emailController,
-                    label: l10n.get('email'),
-                    icon: Icons.email_outlined,
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (v) {
-                      if (v == null || !v.contains('@')) {
-                        return '请输入有效邮箱';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Password
-                  _buildShakeableTextField(
-                    controller: _passwordController,
-                    label: l10n.get('password'),
-                    icon: Icons.lock_outline,
-                    obscureText: _obscurePassword,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
-                        color: LoginColors.textSecondary,
-                      ),
-                      onPressed: () {
-                        setState(() => _obscurePassword = !_obscurePassword);
-                      },
-                    ),
-                    validator: (v) {
-                      if (v == null || (_isLogin && v.length < 6)) {
-                        return '密码至少6个字符';
-                      }
-                      if (!_isLogin && (v.length < 6 || v.length > 128)) {
-                        return '密码必须为6-128个字符';
-                      }
-                      if (!_isLogin &&
-                          (!RegExp(r'[A-Z]').hasMatch(v) ||
-                              !RegExp(r'[a-z]').hasMatch(v) ||
-                              !RegExp(r'[0-9]').hasMatch(v) ||
-                              !RegExp(r'[^A-Za-z0-9]').hasMatch(v) ||
-                              RegExp(r'\s').hasMatch(v))) {
-                        return '密码需包含大小写字母、数字和特殊字符，且不能有空格';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Remember email checkbox (login only)
-                  if (_isLogin)
-                    Row(
-                      children: [
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: Checkbox(
-                            value: _rememberEmail,
-                            onChanged: (value) {
-                              setState(
-                                () => _rememberEmail = value ?? false,
-                              );
-                            },
-                            side: const BorderSide(
-                              color: LoginColors.textSecondary,
-                              width: 1.5,
-                            ),
-                            checkColor: Colors.white,
-                            activeColor: LoginColors.accentPurple,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () {
-                            setState(
-                              () => _rememberEmail = !_rememberEmail,
-                            );
-                          },
-                          child: Text(
-                            l10n.get('rememberEmail'),
-                            style: const TextStyle(
-                              color: LoginColors.textSecondary,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  const SizedBox(height: 28),
-
-                  // Login button
-                  _buildGradientButton(
-                    label: _isLogin ? l10n.login : l10n.get('register'),
-                    isLoading: isLoading,
-                    onPressed: _submit,
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Toggle login/register
-                  TextButton(
-                    onPressed: () {
-                      setState(() => _isLogin = !_isLogin);
-                    },
-                    child: Text(
-                      _isLogin ? '没有账号？注册' : '已有账号？登录',
-                      style: const TextStyle(
-                        color: LoginColors.textSecondary,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Footer
-                  const Text(
-                    '© 2026 Follow Music. All rights reserved.',
-                    style: TextStyle(color: LoginColors.textHint, fontSize: 12),
-                  ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 8),
+
+              // Subtitle
+              Text(
+                _isLogin ? '欢迎回来' : '创建新账号',
+                style: TextStyle(
+                  fontSize: 15,
+                  color: context.followTokens.textSecondary,
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 36),
+
+              // Username (register only)
+              if (!_isLogin) ...[
+                _buildShakeableTextField(
+                  controller: _usernameController,
+                  label: l10n.get('username'),
+                  icon: Icons.person_outline,
+                  validator: (v) {
+                    if (!_isLogin &&
+                        (v == null ||
+                            v.trim().length < 3 ||
+                            v.trim().length > 32)) {
+                      return '用户名必须为3-32个字符';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              // Email
+              _buildShakeableTextField(
+                controller: _emailController,
+                label: l10n.get('email'),
+                icon: Icons.email_outlined,
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) {
+                  if (v == null || !v.contains('@')) {
+                    return '请输入有效邮箱';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 20),
+
+              // Password
+              _buildShakeableTextField(
+                controller: _passwordController,
+                label: l10n.get('password'),
+                icon: Icons.lock_outline,
+                obscureText: _obscurePassword,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: context.followTokens.textSecondary,
+                  ),
+                  onPressed: () {
+                    setState(() => _obscurePassword = !_obscurePassword);
+                  },
+                ),
+                validator: (v) {
+                  if (v == null || (_isLogin && v.length < 6)) {
+                    return '密码至少6个字符';
+                  }
+                  if (!_isLogin && (v.length < 6 || v.length > 128)) {
+                    return '密码必须为6-128个字符';
+                  }
+                  if (!_isLogin &&
+                      (!RegExp(r'[A-Z]').hasMatch(v) ||
+                          !RegExp(r'[a-z]').hasMatch(v) ||
+                          !RegExp(r'[0-9]').hasMatch(v) ||
+                          !RegExp(r'[^A-Za-z0-9]').hasMatch(v) ||
+                          RegExp(r'\s').hasMatch(v))) {
+                    return '密码需包含大小写字母、数字和特殊字符，且不能有空格';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Remember email checkbox (login only)
+              if (_isLogin)
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: Checkbox(
+                        value: _rememberEmail,
+                        onChanged: (value) {
+                          setState(() => _rememberEmail = value ?? false);
+                        },
+                        side: BorderSide(
+                          color: context.followTokens.textSecondary,
+                          width: 1.5,
+                        ),
+                        checkColor: Colors.white,
+                        activeColor: context.followTokens.brandPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() => _rememberEmail = !_rememberEmail);
+                      },
+                      child: Text(
+                        l10n.get('rememberEmail'),
+                        style: TextStyle(
+                          color: context.followTokens.textSecondary,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              const SizedBox(height: 28),
+
+              // Login button
+              _buildGradientButton(
+                label: _isLogin ? l10n.login : l10n.get('register'),
+                isLoading: isLoading,
+                onPressed: _submit,
+              ),
+              const SizedBox(height: 20),
+
+              // Toggle login/register
+              TextButton(
+                onPressed: () {
+                  setState(() => _isLogin = !_isLogin);
+                },
+                child: Text(
+                  _isLogin ? '没有账号？注册' : '已有账号？登录',
+                  style: TextStyle(
+                    color: context.followTokens.textSecondary,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Footer
+              Text(
+                '© 2026 Follow Music. All rights reserved.',
+                style: TextStyle(
+                  color: context.followTokens.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -519,15 +363,20 @@ class _LoginPageState extends ConsumerState<LoginPage>
             width: 72,
             height: 72,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
+              gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [LoginColors.accentPurple, LoginColors.accentPink],
+                colors: [
+                  context.followTokens.brandPrimary,
+                  context.followTokens.brandSecondary,
+                ],
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: LoginColors.accentPurple.withValues(alpha: 0.4),
+                  color: context.followTokens.brandPrimary.withValues(
+                    alpha: 0.4,
+                  ),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
@@ -585,26 +434,30 @@ class _LoginPageState extends ConsumerState<LoginPage>
       controller: controller,
       keyboardType: keyboardType,
       obscureText: obscureText,
-      style: const TextStyle(color: LoginColors.textPrimary, fontSize: 15),
+      style: TextStyle(color: context.followTokens.textPrimary, fontSize: 15),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(color: LoginColors.textHint),
-        prefixIcon: Icon(icon, color: LoginColors.textSecondary),
+        labelStyle: TextStyle(color: context.followTokens.textSecondary),
+        prefixIcon: Icon(icon, color: context.followTokens.textSecondary),
         suffixIcon: suffixIcon,
         filled: true,
-        fillColor: LoginColors.inputBackground,
+        fillColor: context.followTokens.surfaceElevated,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: LoginColors.inputBorder),
+          borderSide: BorderSide(
+            color: context.followTokens.glassStandard.border,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: LoginColors.inputBorder),
+          borderSide: BorderSide(
+            color: context.followTokens.glassStandard.border,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: LoginColors.inputFocusBorder,
+          borderSide: BorderSide(
+            color: context.followTokens.brandPrimary,
             width: 2,
           ),
         ),
@@ -636,15 +489,18 @@ class _LoginPageState extends ConsumerState<LoginPage>
       height: 48,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [LoginColors.accentPurple, LoginColors.accentPink],
+            colors: [
+              context.followTokens.brandPrimary,
+              context.followTokens.brandSecondary,
+            ],
           ),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: LoginColors.accentPurple.withValues(alpha: 0.4),
+              color: context.followTokens.brandPrimary.withValues(alpha: 0.4),
               blurRadius: 20,
               offset: const Offset(0, 6),
             ),
@@ -703,19 +559,4 @@ class _LoginPageState extends ConsumerState<LoginPage>
           );
     }
   }
-}
-
-/// Configuration for floating background circles
-class _CircleConfig {
-  final double size;
-  final double initialX;
-  final double initialY;
-  final List<Color> gradient;
-
-  _CircleConfig({
-    required this.size,
-    required this.initialX,
-    required this.initialY,
-    required this.gradient,
-  });
 }

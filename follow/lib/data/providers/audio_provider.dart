@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
@@ -94,6 +96,32 @@ String playbackFailureMessage(Object _) {
   return '无法播放此歌曲，请检查网络后重试';
 }
 
+Future<T> publishTrackBeforePreparation<T>({
+  required Track track,
+  required void Function(Track track) publish,
+  required Future<T> Function() prepare,
+}) {
+  publish(track);
+  return prepare();
+}
+
+/// Starts playback and observes its lifetime Future without waiting for the
+/// track to pause, stop, or complete.
+Future<void> startPlaybackWithoutWaitingForCompletion({
+  required Future<void> Function() play,
+  required void Function(Object error, StackTrace stackTrace) onError,
+}) async {
+  final playback = play();
+  unawaited(
+    playback.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        onError(error, stackTrace);
+      },
+    ),
+  );
+}
+
 (double, double) nextMuteVolume({
   required double current,
   required double lastAudible,
@@ -102,6 +130,34 @@ String playbackFailureMessage(Object _) {
 
   final restored = lastAudible > 0 ? lastAudible : 1.0;
   return (restored, restored);
+}
+
+/// Resolves the queue index shown by an adjacent-track gesture.
+///
+/// Keeping this calculation pure lets the player's preview page use exactly
+/// the same sequence and shuffle order as committed playback.
+int? resolveAdjacentQueueIndex({
+  required int queueLength,
+  required int currentIndex,
+  required PlayMode mode,
+  required List<int> shuffledIndices,
+  required int delta,
+}) {
+  assert(delta == -1 || delta == 1);
+  if (queueLength <= 0) return null;
+  if (mode == PlayMode.single) return currentIndex;
+
+  if (mode == PlayMode.shuffle) {
+    if (shuffledIndices.isEmpty) return null;
+    final currentShuffledPosition = shuffledIndices.indexOf(currentIndex);
+    if (currentShuffledPosition == -1) return shuffledIndices.first;
+    final adjacentPosition =
+        (currentShuffledPosition + delta + shuffledIndices.length) %
+        shuffledIndices.length;
+    return shuffledIndices[adjacentPosition];
+  }
+
+  return (currentIndex + delta + queueLength) % queueLength;
 }
 
 @Riverpod(keepAlive: true)
@@ -148,11 +204,22 @@ class AudioPlayerService {
   Duration get position => _player.position;
   Duration? get duration => _player.duration;
 
+  void _reportPlaybackFailure(Object error, StackTrace stackTrace) {
+    _ref.read(currentTrackProvider.notifier).setTrack(null);
+    _ref.read(playbackFailureProvider.notifier).report(error);
+    debugPrint('Playback failed: $error\n$stackTrace');
+  }
+
   Future<void> playTrack(Track track) async {
     _ref.read(playbackFailureProvider.notifier).clear();
 
     try {
-      final tokens = await ApiClient.tokenStore.readTokens();
+      final tokens = await publishTrackBeforePreparation(
+        track: track,
+        publish: (selectedTrack) =>
+            _ref.read(currentTrackProvider.notifier).setTrack(selectedTrack),
+        prepare: ApiClient.tokenStore.readTokens,
+      );
 
       final mediaItem = MediaItem(
         id: track.id,
@@ -182,8 +249,10 @@ class AudioPlayerService {
         );
       }
 
-      _ref.read(currentTrackProvider.notifier).setTrack(track);
-      await _player.play();
+      await startPlaybackWithoutWaitingForCompletion(
+        play: _player.play,
+        onError: _reportPlaybackFailure,
+      );
 
       // Recording history must never block or fail playback.
       _apiService
@@ -193,9 +262,7 @@ class AudioPlayerService {
             debugPrint('Failed to record history: $error');
           });
     } catch (error, stackTrace) {
-      _ref.read(currentTrackProvider.notifier).setTrack(null);
-      _ref.read(playbackFailureProvider.notifier).report(error);
-      debugPrint('Playback failed: $error\n$stackTrace');
+      _reportPlaybackFailure(error, stackTrace);
     }
   }
 
@@ -285,33 +352,14 @@ class AudioPlayerService {
       return;
     }
 
-    int nextIndex = 0;
-    if (mode == PlayMode.shuffle) {
-      final shuffledIndices = _ref.read(shuffledIndicesProvider);
-      if (shuffledIndices.isEmpty) {
-        return;
-      }
-
-      // Find current index in shuffled list
-      // We need to map the actual current index to the position in shuffled list
-      // The current index in queue corresponds to some value in shuffledIndices
-
-      // Wait, current index points to the PLAYING track in the original queue.
-      // So we need to find where this index is in the shuffled list.
-      final currentShuffledPos = shuffledIndices.indexOf(currentIndex);
-
-      if (currentShuffledPos != -1) {
-        final nextShuffledPos =
-            (currentShuffledPos + 1) % shuffledIndices.length;
-        nextIndex = shuffledIndices[nextShuffledPos];
-      } else {
-        // Fallback
-        nextIndex = shuffledIndices[0];
-      }
-    } else {
-      // Sequence
-      nextIndex = (currentIndex + 1) % queue.length;
-    }
+    final nextIndex = resolveAdjacentQueueIndex(
+      queueLength: queue.length,
+      currentIndex: currentIndex,
+      mode: mode,
+      shuffledIndices: _ref.read(shuffledIndicesProvider),
+      delta: 1,
+    );
+    if (nextIndex == null) return;
 
     _ref.read(currentIndexProvider.notifier).setIndex(nextIndex);
     await playTrack(queue[nextIndex]);
@@ -330,26 +378,14 @@ class AudioPlayerService {
       return;
     }
 
-    int prevIndex = 0;
-    if (mode == PlayMode.shuffle) {
-      final shuffledIndices = _ref.read(shuffledIndicesProvider);
-      if (shuffledIndices.isEmpty) return;
-
-      final currentShuffledPos = shuffledIndices.indexOf(currentIndex);
-
-      if (currentShuffledPos != -1) {
-        // Provide negative wrap-around
-        final prevShuffledPos =
-            (currentShuffledPos - 1 + shuffledIndices.length) %
-            shuffledIndices.length;
-        prevIndex = shuffledIndices[prevShuffledPos];
-      } else {
-        prevIndex = shuffledIndices[0];
-      }
-    } else {
-      // Sequence
-      prevIndex = (currentIndex - 1 + queue.length) % queue.length;
-    }
+    final prevIndex = resolveAdjacentQueueIndex(
+      queueLength: queue.length,
+      currentIndex: currentIndex,
+      mode: mode,
+      shuffledIndices: _ref.read(shuffledIndicesProvider),
+      delta: -1,
+    );
+    if (prevIndex == null) return;
 
     _ref.read(currentIndexProvider.notifier).setIndex(prevIndex);
     await playTrack(queue[prevIndex]);

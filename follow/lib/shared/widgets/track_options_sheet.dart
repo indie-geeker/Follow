@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/download_provider.dart';
 import 'package:follow/shared/widgets/add_to_playlist_dialog.dart';
@@ -28,7 +28,7 @@ class TrackOptionsSheet extends ConsumerWidget {
               margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
                 color: isDark
-                    ? LoginColors.textSecondary
+                    ? context.followTokens.textSecondary
                     : Colors.grey.shade300,
                 borderRadius: BorderRadius.circular(2),
               ),
@@ -95,13 +95,15 @@ class _OptionItem extends StatelessWidget {
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: isDark
-              ? LoginColors.accentPurple.withValues(alpha: 0.2)
+              ? context.followTokens.brandPrimary.withValues(alpha: 0.2)
               : theme.colorScheme.primaryContainer,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(
           icon,
-          color: isDark ? LoginColors.accentPurple : theme.colorScheme.primary,
+          color: isDark
+              ? context.followTokens.brandPrimary
+              : theme.colorScheme.primary,
           size: 20,
         ),
       ),

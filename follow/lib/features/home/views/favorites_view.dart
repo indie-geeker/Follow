@@ -5,8 +5,10 @@ import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/providers/api_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
 import 'package:follow/shared/widgets/play_all_tile.dart';
-import 'package:follow/shared/widgets/empty_state_card.dart';
 import 'package:follow/core/utils/snackbar_helper.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 class FavoritesView extends ConsumerWidget {
   const FavoritesView({super.key});
@@ -14,15 +16,13 @@ class FavoritesView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final favoritesAsync = ref.watch(favoritesProvider);
-    final theme = Theme.of(context);
-
     return favoritesAsync.when(
       data: (tracks) {
         if (tracks.isEmpty) {
-          return const EmptyStateCard(
-            icon: Icons.favorite_outline_rounded,
+          return const AppStateView(
+            kind: AppStateKind.emptyLibrary,
             title: '暂无收藏',
-            subtitle: '浏览音乐库并添加喜欢的歌曲',
+            description: '浏览音乐库并添加喜欢的歌曲',
           );
         }
         return ListView.builder(
@@ -57,16 +57,16 @@ class FavoritesView extends ConsumerWidget {
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text('加载失败', style: TextStyle(color: theme.colorScheme.error)),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: AppContentSkeleton(),
+      ),
+      error: (e, _) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '收藏加载失败',
+        description: '暂时无法读取收藏内容，请稍后重试。',
+        actionLabel: '重试',
+        onAction: () => ref.invalidate(favoritesProvider),
       ),
     );
   }

@@ -1,3 +1,4 @@
+using System.Text;
 using Follow.Core.Interfaces;
 using Follow.Infrastructure.Services;
 
@@ -30,6 +31,29 @@ public sealed class EmbeddedTrackAssetWriterTests
             ],
             storage.Uploads.Select(upload =>
                 (upload.Folder, upload.FileName, upload.ContentType)));
+    }
+
+    [Fact]
+    public async Task WriteAsync_PreservesEnhancedLrcContent()
+    {
+        const string enhancedLyrics =
+            "[00:12.00]<00:12.00>我<00:12.30>爱<00:12.550>你";
+        var storage = new RecordingAssetStorage();
+        var writer = new EmbeddedTrackAssetWriter(storage);
+        var trackId = Guid.NewGuid();
+
+        var result = await writer.WriteAsync(
+            trackId,
+            null,
+            null,
+            enhancedLyrics);
+
+        Assert.Equal($"lyrics/{trackId}/lyrics.lrc", result.LyricsUrl);
+        var upload = Assert.Single(storage.Uploads);
+        Assert.Equal($"lyrics/{trackId}", upload.Folder);
+        Assert.Equal("lyrics.lrc", upload.FileName);
+        Assert.Equal("text/plain; charset=utf-8", upload.ContentType);
+        Assert.Equal(enhancedLyrics, Encoding.UTF8.GetString(upload.Content));
     }
 
     [Fact]
@@ -85,7 +109,7 @@ public sealed class EmbeddedTrackAssetWriterTests
 
     private sealed class RecordingAssetStorage : IStorageService
     {
-        public List<(string Folder, string FileName, string ContentType)> Uploads { get; } = [];
+        public List<(string Folder, string FileName, string ContentType, byte[] Content)> Uploads { get; } = [];
         public List<string> Deletes { get; } = [];
         public int? FailUploadNumber { get; init; }
 
@@ -95,7 +119,9 @@ public sealed class EmbeddedTrackAssetWriterTests
             string contentType,
             string? folder = null)
         {
-            Uploads.Add((folder!, fileName, contentType));
+            using var buffer = new MemoryStream();
+            fileStream.CopyTo(buffer);
+            Uploads.Add((folder!, fileName, contentType, buffer.ToArray()));
             if (Uploads.Count == FailUploadNumber)
                 throw new IOException("simulated upload failure");
             return Task.FromResult($"{folder}/{fileName}");

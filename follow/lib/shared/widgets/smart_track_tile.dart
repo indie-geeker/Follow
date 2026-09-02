@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/services/api/api_service.dart';
+import 'package:follow/router/player_navigation.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
 import 'package:follow/shared/widgets/track_options_sheet.dart';
 
@@ -37,19 +38,20 @@ class SmartTrackTile extends ConsumerWidget {
       track: track,
       isPlaying: isPlaying,
       isFavorite: isFavorite,
-      onTap: () {
+      onTap: () async {
         final index = playlist.indexOf(track);
         final startIndex = index < 0 ? 0 : index;
         final audioService = ref.read(audioPlayerServiceProvider);
-        if (sourcePlaylistId == null) {
-          audioService.playAll(playlist, startIndex: startIndex);
-        } else {
-          audioService.playPlaylist(
-            sourcePlaylistId!,
-            playlist,
-            startIndex: startIndex,
-          );
-        }
+        await playTrackAndOpenPlayer(
+          context,
+          play: () => sourcePlaylistId == null
+              ? audioService.playAll(playlist, startIndex: startIndex)
+              : audioService.playPlaylist(
+                  sourcePlaylistId!,
+                  playlist,
+                  startIndex: startIndex,
+                ),
+        );
       },
       onFavoriteToggle: (val) async {
         try {
@@ -83,7 +85,7 @@ class SmartTrackTile extends ConsumerWidget {
       onMorePressed: () {
         showModalBottomSheet(
           context: context,
-          backgroundColor: isDark ? LoginColors.gradientMid1 : null,
+          backgroundColor: isDark ? context.followTokens.surface : null,
           shape: const RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),

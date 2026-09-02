@@ -2,7 +2,7 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
 import 'package:follow/features/library/widgets/artists_tab.dart';
@@ -10,6 +10,12 @@ import 'package:follow/features/library/widgets/albums_tab.dart';
 import 'package:follow/features/library/widgets/library_search_box.dart';
 import 'package:follow/router/app_router.dart';
 import 'package:follow/router/mobile_navigation.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/section_header.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
+import 'package:follow/shared/widgets/surfaces/aurora_background.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 @RoutePage()
 class LibraryPage extends ConsumerStatefulWidget {
@@ -43,65 +49,38 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
     final isDesktop = usesDesktopNavigation(MediaQuery.sizeOf(context).width);
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
-      body: Stack(
-        children: [
-          // Full-screen gradient background
-          if (isDark)
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    LoginColors.gradientEnd,
-                    LoginColors.gradientMid2,
-                    LoginColors.gradientMid1,
-                    LoginColors.gradientStart,
+      body: AuroraBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Custom header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SectionHeader(
+                        title: l10n.library,
+                        padding: EdgeInsets.zero,
+                      ),
+                    ),
+                    if (isDesktop)
+                      const LibrarySearchBox()
+                    else
+                      _LibrarySearchButton(tooltip: l10n.search),
                   ],
                 ),
               ),
-            ),
 
-          // Content
-          SafeArea(
-            child: Column(
-              children: [
-                // Custom header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                  child: Row(
-                    children: [
-                      Text(
-                        l10n.library,
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: isDark
-                              ? Colors.white
-                              : theme.colorScheme.onSurface,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (isDesktop)
-                        const LibrarySearchBox()
-                      else
-                        _LibrarySearchButton(tooltip: l10n.search),
-                    ],
-                  ),
-                ),
-
-                // Tab bar
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? LoginColors.cardBackground
-                        : theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
-                    border: isDark
-                        ? Border.all(color: LoginColors.cardBorder)
-                        : null,
+              // Tab bar
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: GlassPanel(
+                  tier: GlassTier.standard,
+                  borderRadius: BorderRadius.circular(
+                    context.followTokens.radiusInput,
                   ),
                   child: TabBar(
                     controller: _tabController,
@@ -109,17 +88,17 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                     indicatorSize: TabBarIndicatorSize.tab,
                     dividerColor: Colors.transparent,
                     indicator: BoxDecoration(
-                      gradient: const LinearGradient(
+                      gradient: LinearGradient(
                         colors: [
-                          LoginColors.accentPurple,
-                          LoginColors.accentPink,
+                          context.followTokens.brandPrimary,
+                          context.followTokens.brandSecondary,
                         ],
                       ),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     labelColor: Colors.white,
                     unselectedLabelColor: isDark
-                        ? LoginColors.textSecondary
+                        ? context.followTokens.textSecondary
                         : theme.colorScheme.onSurfaceVariant,
                     labelStyle: const TextStyle(
                       fontSize: 14,
@@ -136,24 +115,24 @@ class _LibraryPageState extends ConsumerState<LibraryPage>
                     ],
                   ),
                 ),
+              ),
 
-                const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-                // Tab content
-                Expanded(
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _TracksTab(),
-                      const ArtistsTab(),
-                      const AlbumsTab(),
-                    ],
-                  ),
+              // Tab content
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _TracksTab(),
+                    const ArtistsTab(),
+                    const AlbumsTab(),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -178,12 +157,14 @@ class _LibrarySearchButton extends StatelessWidget {
         },
         style: IconButton.styleFrom(
           backgroundColor: isDark
-              ? LoginColors.cardBackground
+              ? context.followTokens.surface
               : theme.colorScheme.surfaceContainerHighest,
           foregroundColor: isDark
-              ? LoginColors.accentPurple
+              ? context.followTokens.brandPrimary
               : theme.colorScheme.primary,
-          side: isDark ? const BorderSide(color: LoginColors.cardBorder) : null,
+          side: isDark
+              ? BorderSide(color: context.followTokens.glassStandard.border)
+              : null,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -198,15 +179,13 @@ class _TracksTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tracksAsync = ref.watch(tracksProvider);
-    final theme = Theme.of(context);
-
     return tracksAsync.when(
       data: (tracks) {
         if (tracks.isEmpty) {
-          return _PlaceholderTab(
-            icon: Icons.music_note_outlined,
+          return const AppStateView(
+            kind: AppStateKind.emptyLibrary,
             title: '暂无曲目',
-            subtitle: '添加一些音乐到库中',
+            description: '添加一些音乐到库中',
           );
         }
         final notifier = ref.read(tracksProvider.notifier);
@@ -241,81 +220,16 @@ class _TracksTab extends ConsumerWidget {
           ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text('加载失败: $e', style: TextStyle(color: theme.colorScheme.error)),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: AppContentSkeleton(),
       ),
-    );
-  }
-}
-
-class _PlaceholderTab extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  const _PlaceholderTab({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  LoginColors.accentPurple.withValues(alpha: 0.2),
-                  LoginColors.accentPink.withValues(alpha: 0.2),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Icon(
-              icon,
-              size: 40,
-              color: isDark
-                  ? LoginColors.accentPurple
-                  : theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white : theme.colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 14,
-              color: isDark
-                  ? LoginColors.textSecondary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
+      error: (e, _) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '音乐库加载失败',
+        description: '暂时无法读取音乐库，请检查网络后重试。',
+        actionLabel: '重试',
+        onAction: () => ref.read(tracksProvider.notifier).refresh(),
       ),
     );
   }

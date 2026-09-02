@@ -6,6 +6,8 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/data/services/lyrics_service.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 class _FailingLyricsService extends Fake implements LyricsService {
   int calls = 0;
@@ -55,11 +57,15 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('歌词加载失败，请重试'), findsOneWidget);
-    expect(find.byTooltip('重新加载歌词'), findsOneWidget);
+    expect(
+      tester.widget<AppStateView>(find.byType(AppStateView)).kind,
+      AppStateKind.failure,
+    );
+    expect(find.text('歌词加载失败'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '重试'), findsOneWidget);
     final callsBeforeRetry = service.calls;
 
-    await tester.tap(find.byTooltip('重新加载歌词'));
+    await tester.tap(find.widgetWithText(FilledButton, '重试'));
     await tester.pump();
     await tester.pump();
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/playlist_provider.dart';
 import 'package:follow/data/providers/track_provider.dart';
@@ -20,7 +20,7 @@ class AddToPlaylistDialog extends ConsumerWidget {
 
     return Dialog(
       backgroundColor: isDark
-          ? LoginColors.gradientMid1
+          ? context.followTokens.surface
           : theme.colorScheme.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
@@ -165,7 +165,7 @@ class AddToPlaylistDialog extends ConsumerWidget {
                           height: 40,
                           decoration: BoxDecoration(
                             color: isDark
-                                ? LoginColors.accentPurple.withValues(
+                                ? context.followTokens.brandPrimary.withValues(
                                     alpha: 0.2,
                                   )
                                 : theme.colorScheme.primaryContainer,
@@ -174,7 +174,7 @@ class AddToPlaylistDialog extends ConsumerWidget {
                           child: Icon(
                             Icons.queue_music_rounded,
                             color: isDark
-                                ? LoginColors.accentPurple
+                                ? context.followTokens.brandPrimary
                                 : theme.colorScheme.primary,
                           ),
                         ),

@@ -7,6 +7,9 @@ public sealed class EmbeddedLyricsPolicyTests
     [Theory]
     [InlineData("[00:01.20]line", "[00:01.20]line")]
     [InlineData("[00:01.200]line", "[00:01.200]line")]
+    [InlineData(
+        "[00:12.00]<00:12.00>我<00:12.30>爱<00:12.550>你",
+        "[00:12.00]<00:12.00>我<00:12.30>爱<00:12.550>你")]
     [InlineData("\uFEFF[ar:artist]\r\n[00:01.20]line\r\n", "[ar:artist]\n[00:01.20]line")]
     public void Normalize_ReturnsBoundedDocumentsWithTimedLines(
         string input,

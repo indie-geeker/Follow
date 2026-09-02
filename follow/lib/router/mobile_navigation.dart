@@ -11,3 +11,6 @@ const mobileNavigationDestinations = <MobileNavigationDestination>[
 
 bool usesDesktopNavigation(double width) =>
     width >= desktopNavigationBreakpoint;
+
+bool shouldOpenPlayerAfterTrackSelection(double width) =>
+    !usesDesktopNavigation(width);

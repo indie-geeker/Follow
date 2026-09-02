@@ -13,6 +13,13 @@ class LyricsFormatException implements Exception {
 }
 
 class LyricsService {
+  static final RegExp _lineTimestampPattern = RegExp(
+    r'^\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)$',
+  );
+  static final RegExp _inlineTimestampPattern = RegExp(
+    r'<(\d{2}):(\d{2})\.(\d{2,3})>',
+  );
+
   final Dio _dio;
 
   LyricsService({Dio? dio}) : _dio = dio ?? ApiClient.instance;
@@ -32,27 +39,19 @@ class LyricsService {
 
   List<LyricLine> parseLrc(String lrcContent) {
     final lines = <LyricLine>[];
-    // Match [mm:ss.xx] or [mm:ss.xxx] format
-    final regex = RegExp(r'\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)');
 
     for (final line in lrcContent.split('\n')) {
-      final match = regex.firstMatch(line);
+      final match = _lineTimestampPattern.firstMatch(line);
       if (match != null) {
-        final minutes = int.parse(match.group(1)!);
-        final seconds = int.parse(match.group(2)!);
-        final millisStr = match.group(3)!;
-        final millis = int.parse(millisStr.padRight(3, '0'));
-        final text = match.group(4)!.trim();
+        final timestamp = _parseTimestamp(match);
+        final parsedText = _parseLyricText(match.group(4)!.trim());
 
-        if (text.isNotEmpty) {
+        if (parsedText.text.isNotEmpty) {
           lines.add(
             LyricLine(
-              timestamp: Duration(
-                minutes: minutes,
-                seconds: seconds,
-                milliseconds: millis,
-              ),
-              text: text,
+              timestamp: timestamp,
+              text: parsedText.text,
+              segments: parsedText.segments,
             ),
           );
         }
@@ -71,4 +70,55 @@ class LyricsService {
       });
     return indexedLines.map((entry) => entry.value).toList();
   }
+
+  Duration _parseTimestamp(Match match) {
+    final minutes = int.parse(match.group(1)!);
+    final seconds = int.parse(match.group(2)!);
+    final milliseconds = int.parse(match.group(3)!.padRight(3, '0'));
+    return Duration(
+      minutes: minutes,
+      seconds: seconds,
+      milliseconds: milliseconds,
+    );
+  }
+
+  _ParsedLyricText _parseLyricText(String source) {
+    final matches = _inlineTimestampPattern.allMatches(source).toList();
+    if (matches.isEmpty) {
+      return _ParsedLyricText(source, const []);
+    }
+
+    final cleanText = source.replaceAll(_inlineTimestampPattern, '').trim();
+    if (source.substring(0, matches.first.start).trim().isNotEmpty) {
+      return _ParsedLyricText(cleanText, const []);
+    }
+
+    final segments = <LyricSegment>[];
+    Duration? previousTimestamp;
+    for (var index = 0; index < matches.length; index++) {
+      final match = matches[index];
+      final timestamp = _parseTimestamp(match);
+      final textEnd = index + 1 < matches.length
+          ? matches[index + 1].start
+          : source.length;
+      final text = source.substring(match.end, textEnd);
+
+      if (text.trim().isEmpty ||
+          previousTimestamp != null && timestamp < previousTimestamp) {
+        return _ParsedLyricText(cleanText, const []);
+      }
+
+      segments.add(LyricSegment(timestamp: timestamp, text: text));
+      previousTimestamp = timestamp;
+    }
+
+    return _ParsedLyricText(cleanText, List.unmodifiable(segments));
+  }
+}
+
+class _ParsedLyricText {
+  const _ParsedLyricText(this.text, this.segments);
+
+  final String text;
+  final List<LyricSegment> segments;
 }

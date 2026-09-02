@@ -4,8 +4,10 @@ import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/data/providers/api_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
 import 'package:follow/shared/widgets/play_all_tile.dart';
-import 'package:follow/shared/widgets/empty_state_card.dart';
 import 'package:follow/core/utils/snackbar_helper.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 import '../../../data/providers/playlist_provider.dart';
 
@@ -17,16 +19,14 @@ class PlaylistView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final playlistAsync = ref.watch(playlistDetailProvider(playlistId));
-    final theme = Theme.of(context);
-
     return playlistAsync.when(
       data: (playlist) {
         final tracks = playlist.tracks;
         if (tracks.isEmpty) {
-          return EmptyStateCard(
-            icon: Icons.music_note_rounded,
+          return AppStateView(
+            kind: AppStateKind.emptyPlaylist,
             title: '空歌单',
-            subtitle: playlist.canEdit
+            description: playlist.canEdit
                 ? '添加一些歌曲吧'
                 : '该公开歌单由 ${playlist.ownerName ?? '其他家庭成员'} 管理',
           );
@@ -71,16 +71,16 @@ class PlaylistView extends ConsumerWidget {
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text('加载失败', style: TextStyle(color: theme.colorScheme.error)),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: AppContentSkeleton(),
+      ),
+      error: (e, _) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '歌单加载失败',
+        description: '暂时无法读取歌单内容，请稍后重试。',
+        actionLabel: '重试',
+        onAction: () => ref.invalidate(playlistDetailProvider(playlistId)),
       ),
     );
   }

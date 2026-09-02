@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:follow/data/models/lyric_line.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
 import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
+import 'package:follow/shared/widgets/lyrics/timed_lyric_text.dart';
 
 const _lyrics = [
   LyricLine(timestamp: Duration(seconds: 0), text: 'Lyric 0'),
@@ -34,6 +36,7 @@ class _LyricsHarness extends StatelessWidget {
     this.onSeek,
     this.width = 360,
     this.disableAnimations = false,
+    this.playbackPosition = Duration.zero,
   });
 
   final ValueNotifier<int> currentIndex;
@@ -43,11 +46,13 @@ class _LyricsHarness extends StatelessWidget {
   final Future<void> Function(Duration)? onSeek;
   final double width;
   final bool disableAnimations;
+  final Duration playbackPosition;
 
   Widget _buildView(int index, AsyncValue<List<LyricLine>> lyrics) {
     return InteractiveLyricsView(
       lyrics: lyrics,
       currentIndex: index,
+      playbackPosition: playbackPosition,
       foregroundColor: Colors.black,
       onSeek: onSeek ?? (position) async => seekCalls.add(position),
     );
@@ -110,6 +115,7 @@ class _NestedPageViewHarness extends StatelessWidget {
                     InteractiveLyricsView(
                       lyrics: AsyncData(_manyLyrics),
                       currentIndex: index,
+                      playbackPosition: Duration.zero,
                       foregroundColor: Colors.black,
                       onSeek: (_) async {},
                     ),
@@ -186,6 +192,65 @@ TextStyle _lyricStyle(WidgetTester tester, int index) {
 }
 
 void main() {
+  testWidgets(
+    'position changes within one line update timed spans without scrolling',
+    (tester) async {
+      final currentIndex = ValueNotifier(1);
+      addTearDown(currentIndex.dispose);
+      const enhancedLyrics = [
+        LyricLine(timestamp: Duration.zero, text: 'before'),
+        LyricLine(
+          timestamp: Duration(seconds: 10),
+          text: '我爱你',
+          segments: [
+            LyricSegment(timestamp: Duration(seconds: 10), text: '我'),
+            LyricSegment(timestamp: Duration(milliseconds: 10300), text: '爱'),
+            LyricSegment(timestamp: Duration(milliseconds: 10550), text: '你'),
+          ],
+        ),
+        LyricLine(timestamp: Duration(seconds: 15), text: 'after'),
+      ];
+
+      await tester.pumpWidget(
+        _LyricsHarness(
+          currentIndex: currentIndex,
+          seekCalls: const [],
+          lyrics: const AsyncData(enhancedLyrics),
+          playbackPosition: const Duration(milliseconds: 10400),
+        ),
+      );
+      await tester.pump();
+      final initialOffset = _scrollOffset(tester);
+      var timedText = tester.widget<TimedLyricText>(
+        find.descendant(
+          of: find.byKey(const ValueKey('lyric-row-1')),
+          matching: find.byType(TimedLyricText),
+        ),
+      );
+      expect(timedText.playbackPosition, const Duration(milliseconds: 10400));
+      expect(timedText.enableTimedHighlight, isTrue);
+
+      await tester.pumpWidget(
+        _LyricsHarness(
+          currentIndex: currentIndex,
+          seekCalls: const [],
+          lyrics: const AsyncData(enhancedLyrics),
+          playbackPosition: const Duration(milliseconds: 10600),
+        ),
+      );
+      await tester.pump();
+
+      timedText = tester.widget<TimedLyricText>(
+        find.descendant(
+          of: find.byKey(const ValueKey('lyric-row-1')),
+          matching: find.byType(TimedLyricText),
+        ),
+      );
+      expect(timedText.playbackPosition, const Duration(milliseconds: 10600));
+      expect(_scrollOffset(tester), initialOffset);
+    },
+  );
+
   testWidgets(
     'nested horizontal PageView swipe stays in follow while vertical lyrics drag browses',
     (tester) async {
@@ -824,6 +889,42 @@ void main() {
     await tester.pump(const Duration(microseconds: 1));
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
   });
+
+  testWidgets(
+    'a new held drag cancels the previous inactivity timer immediately',
+    (tester) async {
+      final currentIndex = ValueNotifier(2);
+      addTearDown(currentIndex.dispose);
+
+      await tester.pumpWidget(
+        _LyricsHarness(
+          currentIndex: currentIndex,
+          lyrics: AsyncData(_manyLyrics),
+          seekCalls: [],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byKey(lyricsViewportKey), const Offset(0, -160));
+      await tester.pump(const Duration(milliseconds: 2900));
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+      final secondGesture = await tester.startGesture(_viewportCenter(tester));
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+      await secondGesture.moveBy(const Offset(0, -48));
+      await tester.pump();
+      await secondGesture.up();
+      await tester.pump(const Duration(milliseconds: 2900));
+      expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpAndSettle();
+      expect(find.byKey(lyricsCenterPlayKey), findsNothing);
+    },
+  );
 
   testWidgets('a no-movement pointer gesture stays in follow mode', (
     tester,
@@ -1836,7 +1937,7 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(AppContentSkeleton), findsOneWidget);
     expect(find.byKey(lyricsCenterPlayKey), findsNothing);
 
     lyricsNotifier.value = const AsyncData([]);

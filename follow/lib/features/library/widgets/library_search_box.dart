@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/features/search/providers/search_provider.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
 import 'package:follow/data/providers/audio_provider.dart';
+import 'package:follow/router/player_navigation.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 class LibrarySearchBox extends ConsumerStatefulWidget {
   const LibrarySearchBox({super.key});
@@ -46,7 +48,7 @@ class _LibrarySearchBoxState extends ConsumerState<LibrarySearchBox> {
           child: CompositedTransformFollower(
             link: _layerLink,
             showWhenUnlinked: false,
-            offset: const Offset(0, 45), // Position below the search box
+            offset: const Offset(0, 52), // Position below the search box
             child: Material(
               elevation: 8,
               borderRadius: BorderRadius.circular(12),
@@ -72,83 +74,76 @@ class _LibrarySearchBoxState extends ConsumerState<LibrarySearchBox> {
 
     return CompositedTransformTarget(
       link: _layerLink,
-      child: Container(
+      child: SizedBox(
         width: 300,
-        height: 36,
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.1)
-              : theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.1)
-                : Colors.transparent,
-          ),
-        ),
-        child: TextField(
-          textAlignVertical: TextAlignVertical.center,
-          controller: _controller,
-          focusNode: _focusNode,
-          style: TextStyle(
-            color: isDark ? Colors.white : theme.colorScheme.onSurface,
-            fontSize: 14,
-          ),
-          decoration: InputDecoration(
-            hintText: '搜索音乐库...',
-            hintStyle: TextStyle(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.5)
-                  : theme.colorScheme.onSurfaceVariant,
-              fontSize: 13,
+        height: context.followTokens.minimumTapTarget,
+        child: GlassPanel(
+          tier: GlassTier.standard,
+          borderRadius: BorderRadius.circular(context.followTokens.radiusInput),
+          child: TextField(
+            textAlignVertical: TextAlignVertical.center,
+            controller: _controller,
+            focusNode: _focusNode,
+            style: TextStyle(
+              color: isDark ? Colors.white : theme.colorScheme.onSurface,
+              fontSize: 14,
             ),
-            prefixIcon: Icon(
-              Icons.search,
-              size: 20,
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.5)
-                  : theme.colorScheme.onSurfaceVariant,
+            decoration: InputDecoration(
+              hintText: '搜索音乐库...',
+              hintStyle: TextStyle(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.5)
+                    : theme.colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
+              prefixIcon: Icon(
+                Icons.search,
+                size: 20,
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.5)
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              suffixIcon: _controller.text.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(
+                        Icons.clear,
+                        size: 16,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.5)
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        _controller.clear();
+                        _removeOverlay();
+                        setState(() {});
+                      },
+                    )
+                  : null,
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 0,
+                horizontal: 8,
+              ),
+              border: InputBorder.none,
+              isDense: true,
             ),
-            suffixIcon: _controller.text.isNotEmpty
-                ? IconButton(
-                    icon: Icon(
-                      Icons.clear,
-                      size: 16,
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.5)
-                          : theme.colorScheme.onSurfaceVariant,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () {
-                      _controller.clear();
-                      _removeOverlay();
-                      setState(() {});
-                    },
-                  )
-                : null,
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 0,
-              horizontal: 8,
-            ),
-            border: InputBorder.none,
-            isDense: true,
+            onChanged: (value) {
+              setState(() {}); // Rebuild to show/hide suffix icon
+              if (value.isNotEmpty) {
+                _showOverlay();
+                // Iterate logic: ref.read(popupSearchTracksProvider(value)); handled by widget below
+                _overlayEntry?.markNeedsBuild();
+              } else {
+                _removeOverlay();
+              }
+            },
+            onTap: () {
+              if (_controller.text.isNotEmpty) {
+                _showOverlay();
+              }
+            },
           ),
-          onChanged: (value) {
-            setState(() {}); // Rebuild to show/hide suffix icon
-            if (value.isNotEmpty) {
-              _showOverlay();
-              // Iterate logic: ref.read(popupSearchTracksProvider(value)); handled by widget below
-              _overlayEntry?.markNeedsBuild();
-            } else {
-              _removeOverlay();
-            }
-          },
-          onTap: () {
-            if (_controller.text.isNotEmpty) {
-              _showOverlay();
-            }
-          },
         ),
       ),
     );
@@ -171,11 +166,13 @@ class _SearchResultsPopup extends ConsumerWidget {
     return Container(
       constraints: const BoxConstraints(maxHeight: 400),
       decoration: BoxDecoration(
-        color: isDark ? LoginColors.cardBackground : theme.colorScheme.surface,
+        color: isDark
+            ? context.followTokens.surface
+            : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isDark
-              ? LoginColors.cardBorder
+              ? context.followTokens.glassStandard.border
               : theme.colorScheme.outlineVariant,
         ),
         boxShadow: [
@@ -199,7 +196,7 @@ class _SearchResultsPopup extends ConsumerWidget {
                     '未找到结果',
                     style: TextStyle(
                       color: isDark
-                          ? LoginColors.textSecondary
+                          ? context.followTokens.textSecondary
                           : theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
@@ -223,11 +220,14 @@ class _SearchResultsPopup extends ConsumerWidget {
                     return TrackTile(
                       track: track,
                       isPlaying: currentTrack?.id == track.id,
-                      onTap: () {
-                        ref
-                            .read(audioPlayerServiceProvider)
-                            .playAll(tracks, startIndex: index);
+                      onTap: () async {
                         onClose();
+                        await playTrackAndOpenPlayer(
+                          context,
+                          play: () => ref
+                              .read(audioPlayerServiceProvider)
+                              .playAll(tracks, startIndex: index),
+                        );
                       },
                     );
                   },

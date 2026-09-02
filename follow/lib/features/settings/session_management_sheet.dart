@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:follow/data/models/user.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 typedef LoadSessions = Future<List<SessionInfo>> Function();
 typedef RevokeSession = Future<void> Function(SessionInfo session);
@@ -32,7 +35,10 @@ class _SessionManagementSheetState extends State<SessionManagementSheet> {
   }
 
   void _reload() {
-    setState(() => _sessions = widget.loadSessions());
+    final nextSessions = widget.loadSessions();
+    setState(() {
+      _sessions = nextSessions;
+    });
   }
 
   Future<void> _revoke(SessionInfo session) async {
@@ -106,20 +112,31 @@ class _SessionManagementSheetState extends State<SessionManagementSheet> {
                   future: _sessions,
                   builder: (context, snapshot) {
                     if (snapshot.connectionState != ConnectionState.done) {
-                      return const Center(child: CircularProgressIndicator());
+                      return const AppContentSkeleton(
+                        itemCount: 3,
+                        itemHeight: 64,
+                      );
                     }
                     if (snapshot.hasError) {
-                      return Center(
-                        child: FilledButton.tonalIcon(
-                          onPressed: _reload,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('重试'),
-                        ),
+                      return AppStateView(
+                        kind: AppStateKind.offline,
+                        title: '无法连接设备服务',
+                        description: '请检查网络连接后重试。',
+                        actionLabel: '重试',
+                        onAction: _reload,
+                        illustrationSize: 112,
+                        padding: EdgeInsets.zero,
                       );
                     }
                     final sessions = snapshot.data ?? const <SessionInfo>[];
                     if (sessions.isEmpty) {
-                      return const Center(child: Text('暂无活跃设备'));
+                      return const AppStateView(
+                        kind: AppStateKind.emptyLibrary,
+                        title: '暂无活跃设备',
+                        description: '新的登录设备会显示在这里。',
+                        illustrationSize: 112,
+                        padding: EdgeInsets.zero,
+                      );
                     }
                     return ListView.separated(
                       shrinkWrap: true,

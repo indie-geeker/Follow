@@ -4,7 +4,8 @@ namespace Follow.Api.Tests;
 
 public sealed class TagLibAudioMetadataExtractorTests
 {
-    private const string TimedLyrics = "[00:00.10]Synthetic line\n[00:00.20]Second line";
+    private const string TimedLyrics =
+        "[00:12.00]<00:12.00>我<00:12.30>爱<00:12.550>你";
     private static readonly byte[] CoverBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 

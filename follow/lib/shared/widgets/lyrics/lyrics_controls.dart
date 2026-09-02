@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/player/player_control_button.dart';
 
@@ -39,11 +39,7 @@ class LyricsControls extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        PlayerControlButton(
-          icon: _modeIcon,
-          size: 24,
-          onPressed: onModeToggle,
-        ),
+        PlayerControlButton(icon: _modeIcon, size: 24, onPressed: onModeToggle),
         const SizedBox(width: 24),
         PlayerControlButton(
           icon: Icons.skip_previous_rounded,
@@ -68,10 +64,7 @@ class _PlayPauseButton extends StatelessWidget {
   final bool isPlaying;
   final VoidCallback onPressed;
 
-  const _PlayPauseButton({
-    required this.isPlaying,
-    required this.onPressed,
-  });
+  const _PlayPauseButton({required this.isPlaying, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
@@ -81,15 +74,18 @@ class _PlayPauseButton extends StatelessWidget {
         width: 72,
         height: 72,
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [LoginColors.accentPurple, LoginColors.accentPink],
+            colors: [
+              context.followTokens.brandPrimary,
+              context.followTokens.brandSecondary,
+            ],
           ),
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: LoginColors.accentPurple.withValues(alpha: 0.4),
+              color: context.followTokens.brandPrimary.withValues(alpha: 0.4),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),

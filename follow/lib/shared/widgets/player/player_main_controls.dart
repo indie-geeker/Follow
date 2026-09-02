@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:follow/core/theme/app_theme.dart';
-import 'package:follow/data/providers/audio_provider.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
+import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/shared/widgets/player/player_control_button.dart';
+import 'package:follow/shared/widgets/player/player_mode_control.dart';
 
 /// Main playback controls row including mode, prev, play/pause and next.
-class PlayerMainControls extends ConsumerWidget {
+class PlayerMainControls extends StatelessWidget {
   final bool isPlaying;
   final VoidCallback onPlayPause;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onShowQueue;
+  final PlayerPalette? palette;
 
   const PlayerMainControls({
     super.key,
@@ -19,103 +20,95 @@ class PlayerMainControls extends ConsumerWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onShowQueue,
+    this.palette,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final mode = ref.watch(playerModeProvider);
-    final (modeIcon, modeTooltip) = switch (mode) {
-      PlayMode.sequence => (Icons.repeat_rounded, '播放模式：顺序播放'),
-      PlayMode.shuffle => (Icons.shuffle_rounded, '播放模式：随机播放'),
-      PlayMode.single => (Icons.repeat_one_rounded, '播放模式：单曲循环'),
-    };
-
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final resolvedPalette =
+        palette ??
+        PlayerPalette.fallback(
+          brightness: brightness,
+          tokens: context.followTokens,
+        );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: SizedBox(
-        height: 72,
-        child: Stack(
-          alignment: Alignment.center,
+        width: double.infinity,
+        height: 56,
+        child: Row(
           children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: PlayerControlButton(
-                icon: modeIcon,
-                size: 24,
-                tooltip: modeTooltip,
-                isActive: mode != PlayMode.sequence,
-                onPressed: () {
-                  ref.read(playerModeProvider.notifier).nextMode();
-                },
-              ),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                PlayerControlButton(
+            const Expanded(child: Center(child: PlayerModeControl())),
+            Expanded(
+              child: Center(
+                child: PlayerControlButton(
                   icon: Icons.skip_previous_rounded,
-                  size: 36,
+                  size: 24,
                   tooltip: '上一首',
                   onPressed: onPrevious,
                 ),
-                const SizedBox(width: 12),
-                Tooltip(
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: Tooltip(
                   message: isPlaying ? '暂停' : '播放',
                   child: Semantics(
                     button: true,
                     label: isPlaying ? '暂停' : '播放',
                     child: GestureDetector(
                       onTap: onPlayPause,
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              LoginColors.accentPurple,
-                              LoginColors.accentPink,
+                      child: SizedBox(
+                        width: 56,
+                        height: 56,
+                        child: DecoratedBox(
+                          key: const ValueKey('player-primary-control'),
+                          decoration: BoxDecoration(
+                            color: resolvedPalette.primaryControl,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: resolvedPalette.glow.withValues(
+                                  alpha: 0.36,
+                                ),
+                                blurRadius: 16,
+                                offset: const Offset(0, 6),
+                              ),
                             ],
                           ),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: LoginColors.accentPurple.withValues(
-                                alpha: 0.4,
-                              ),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Icon(
-                          isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          color: Colors.white,
-                          size: 36,
+                          child: Icon(
+                            isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            color: resolvedPalette.onPrimaryControl,
+                            size: 30,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                PlayerControlButton(
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: PlayerControlButton(
                   icon: Icons.skip_next_rounded,
-                  size: 36,
+                  size: 24,
                   tooltip: '下一首',
                   onPressed: onNext,
                 ),
-              ],
+              ),
             ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: PlayerControlButton(
-                icon: Icons.queue_music_rounded,
-                size: 24,
-                tooltip: '当前播放队列',
-                onPressed: onShowQueue,
+            Expanded(
+              child: Center(
+                child: PlayerControlButton(
+                  icon: Icons.queue_music_rounded,
+                  size: 24,
+                  tooltip: '当前播放队列',
+                  onPressed: onShowQueue,
+                ),
               ),
             ),
           ],

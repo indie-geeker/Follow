@@ -1,7 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:follow/data/models/user.dart';
 import 'package:follow/features/settings/session_management_sheet.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 void main() {
   final current = SessionInfo(
@@ -50,6 +55,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: SessionManagementSheet(
+            key: UniqueKey(),
             loadSessions: () async {
               loads++;
               return loads == 1 ? [current, other] : [current];
@@ -89,5 +95,52 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(logoutAllCalls, 1);
+  });
+
+  testWidgets('loading and offline session states use shared visuals', (
+    tester,
+  ) async {
+    final pending = Completer<List<SessionInfo>>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SessionManagementSheet(
+            loadSessions: () => pending.future,
+            onRevoke: (_) async {},
+            onLogoutAll: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(AppContentSkeleton), findsOneWidget);
+
+    var loads = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SessionManagementSheet(
+            key: UniqueKey(),
+            loadSessions: () async {
+              loads++;
+              if (loads == 1) throw StateError('offline');
+              return const <SessionInfo>[];
+            },
+            onRevoke: (_) async {},
+            onLogoutAll: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final state = tester.widget<AppStateView>(find.byType(AppStateView));
+    expect(state.kind, AppStateKind.offline);
+    await tester.tap(find.widgetWithText(FilledButton, '重试'));
+    await tester.pumpAndSettle();
+    expect(loads, 2);
+    expect(
+      tester.widget<AppStateView>(find.byType(AppStateView)).kind,
+      AppStateKind.emptyLibrary,
+    );
   });
 }

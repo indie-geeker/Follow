@@ -2,12 +2,17 @@ import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
-import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_tile.dart';
-import 'package:follow/shared/widgets/empty_state.dart';
 import 'package:follow/features/search/providers/search_provider.dart';
+import 'package:follow/router/player_navigation.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
+import 'package:follow/shared/widgets/surfaces/aurora_background.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 @RoutePage()
 class SearchPage extends ConsumerStatefulWidget {
@@ -45,225 +50,146 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     }
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
-      body: Stack(
-        children: [
-          // Full-screen gradient background
-          if (isDark)
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    LoginColors.gradientEnd,
-                    LoginColors.gradientMid2,
-                    LoginColors.gradientMid1,
-                    LoginColors.gradientStart,
-                  ],
-                ),
-              ),
-            ),
-
-          // Content
-          SafeArea(
-            child: Column(
-              children: [
-                // Header with search bar
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          BackButton(
-                            onPressed: () => context.router.maybePop(),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            l10n.search,
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: isDark
-                                  ? Colors.white
-                                  : theme.colorScheme.onSurface,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Glassmorphism search bar
-                      Container(
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? LoginColors.cardBackground
-                              : theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(16),
-                          border: isDark
-                              ? Border.all(color: LoginColors.cardBorder)
-                              : null,
-                          boxShadow: isDark
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.2),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: TextField(
-                          controller: _searchController,
-                          focusNode: _focusNode,
-                          autofocus: true,
-                          style: TextStyle(
+      body: AuroraBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Header with search bar
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        BackButton(onPressed: () => context.router.maybePop()),
+                        const SizedBox(width: 8),
+                        Text(
+                          l10n.search,
+                          style: theme.textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
                             color: isDark
                                 ? Colors.white
                                 : theme.colorScheme.onSurface,
-                            fontSize: 16,
                           ),
-                          decoration: InputDecoration(
-                            hintText: '搜索歌曲、艺术家或专辑...',
-                            hintStyle: TextStyle(
-                              color: isDark
-                                  ? LoginColors.textHint
-                                  : theme.colorScheme.onSurfaceVariant,
-                            ),
-                            prefixIcon: Container(
-                              padding: const EdgeInsets.all(12),
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [
-                                      LoginColors.accentPurple,
-                                      LoginColors.accentPink,
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Glassmorphism search bar
+                    GlassPanel(
+                      tier: GlassTier.standard,
+                      borderRadius: BorderRadius.circular(
+                        context.followTokens.radiusCard,
+                      ),
+                      child: TextField(
+                        controller: _searchController,
+                        focusNode: _focusNode,
+                        autofocus: true,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white
+                              : theme.colorScheme.onSurface,
+                          fontSize: 16,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '搜索歌曲、艺术家或专辑...',
+                          hintStyle: TextStyle(
+                            color: isDark
+                                ? context.followTokens.textSecondary
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                          prefixIcon: Container(
+                            padding: const EdgeInsets.all(12),
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    context.followTokens.brandPrimary,
+                                    context.followTokens.brandSecondary,
+                                  ],
                                 ),
-                                child: const Icon(
-                                  Icons.search_rounded,
-                                  color: Colors.white,
-                                  size: 18,
-                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.search_rounded,
+                                color: Colors.white,
+                                size: 18,
                               ),
                             ),
-                            suffixIcon: _searchController.text.isNotEmpty
-                                ? IconButton(
-                                    icon: Icon(
-                                      Icons.clear_rounded,
-                                      color: isDark
-                                          ? LoginColors.textSecondary
-                                          : theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      ref
-                                              .read(
-                                                searchQueryProvider.notifier,
-                                              )
-                                              .state =
-                                          '';
-                                    },
-                                  )
-                                : null,
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
                           ),
-                          onChanged: (value) {
-                            // Optional: Debounce here if needed, but strict state sync is simpler for now
-                            ref.read(searchQueryProvider.notifier).state =
-                                value;
-                          },
-                          onSubmitted: (value) {
-                            ref.read(searchQueryProvider.notifier).state = value
-                                .trim();
-                          },
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: Icon(
+                                    Icons.clear_rounded,
+                                    color: isDark
+                                        ? context.followTokens.textSecondary
+                                        : theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    ref
+                                            .read(searchQueryProvider.notifier)
+                                            .state =
+                                        '';
+                                  },
+                                )
+                              : null,
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
                         ),
+                        onChanged: (value) {
+                          // Optional: Debounce here if needed, but strict state sync is simpler for now
+                          ref.read(searchQueryProvider.notifier).state = value;
+                        },
+                        onSubmitted: (value) {
+                          ref.read(searchQueryProvider.notifier).state = value
+                              .trim();
+                        },
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
 
-                // Results
-                Expanded(
-                  child: query.isEmpty
-                      ? const EmptyState(
-                          icon: Icons.search_rounded,
-                          title: '搜索音乐',
-                          subtitle: '输入关键词搜索歌曲、艺术家或专辑',
-                        )
-                      : _buildSearchResults(ref, currentTrack, isDark, query),
-                ),
-              ],
-            ),
+              // Results
+              Expanded(
+                child: query.isEmpty
+                    ? const AppStateView(
+                        kind: AppStateKind.noResults,
+                        title: '搜索音乐',
+                        description: '输入关键词搜索歌曲、艺术家或专辑',
+                      )
+                    : _buildSearchResults(ref, currentTrack, query),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildSearchResults(
-    WidgetRef ref,
-    currentTrack,
-    bool isDark,
-    String query,
-  ) {
+  Widget _buildSearchResults(WidgetRef ref, currentTrack, String query) {
     final resultsAsync = ref.watch(searchTracksProvider(query));
-    final theme = Theme.of(context);
-
     return resultsAsync.when(
       data: (tracks) {
         if (tracks.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? LoginColors.cardBackground
-                        : theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Icon(
-                    Icons.music_off_rounded,
-                    size: 40,
-                    color: isDark
-                        ? LoginColors.textSecondary
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  '未找到结果',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : theme.colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '没有找到 "$query" 相关的音乐',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark
-                        ? LoginColors.textSecondary
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+          return AppStateView(
+            kind: AppStateKind.noResults,
+            title: '未找到结果',
+            description: '没有找到 "$query" 相关的音乐',
+            actionLabel: '清除筛选',
+            onAction: () {
+              _searchController.clear();
+              ref.read(searchQueryProvider.notifier).state = '';
+            },
           );
         }
 
@@ -275,25 +201,26 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             return TrackTile(
               track: track,
               isPlaying: currentTrack?.id == track.id,
-              onTap: () {
-                ref
+              onTap: () => playTrackAndOpenPlayer(
+                context,
+                play: () => ref
                     .read(audioPlayerServiceProvider)
-                    .playAll(tracks, startIndex: index);
-              },
+                    .playAll(tracks, startIndex: index),
+              ),
             );
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: theme.colorScheme.error),
-            const SizedBox(height: 16),
-            Text('搜索失败', style: TextStyle(color: theme.colorScheme.error)),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(16),
+        child: AppContentSkeleton(itemCount: 5),
+      ),
+      error: (e, _) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '搜索失败',
+        description: '暂时无法完成搜索，请稍后重试。',
+        actionLabel: '重试',
+        onAction: () => ref.invalidate(searchTracksProvider(query)),
       ),
     );
   }

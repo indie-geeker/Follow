@@ -4,7 +4,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/network/media_url.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
+import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/data/models/track.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 const playlistGalleryPageViewKey = ValueKey('playlist-gallery-page-view');
 const playlistGalleryBusyKey = ValueKey('playlist-gallery-busy');
@@ -29,6 +35,7 @@ class PlaylistGalleryDrawer extends StatefulWidget {
     required this.onSelect,
     required this.onClose,
     this.onRetry,
+    this.palette,
   });
 
   final AsyncValue<List<Playlist>> playlists;
@@ -36,6 +43,7 @@ class PlaylistGalleryDrawer extends StatefulWidget {
   final Future<void> Function(Playlist playlist) onSelect;
   final VoidCallback onClose;
   final VoidCallback? onRetry;
+  final PlayerPalette? palette;
 
   @override
   State<PlaylistGalleryDrawer> createState() => _PlaylistGalleryDrawerState();
@@ -132,6 +140,12 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final palette =
+        widget.palette ??
+        PlayerPalette.fallback(
+          brightness: theme.brightness,
+          tokens: context.followTokens,
+        );
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: (event) => _pointerDownPosition = event.position,
@@ -141,38 +155,43 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
         _pointerStartedOnControl = false;
       },
       child: Material(
-        color: theme.colorScheme.surface,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                theme.colorScheme.primaryContainer.withValues(alpha: 0.78),
-                theme.colorScheme.surface,
-                theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
-              ],
+        type: MaterialType.transparency,
+        child: GlassPanel(
+          key: const ValueKey('playlist-gallery-glass'),
+          tier: GlassTier.strong,
+          borderRadius: BorderRadius.zero,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  palette.secondary.withValues(alpha: 0.18),
+                  theme.colorScheme.surface.withValues(alpha: 0.08),
+                  palette.ambient.withValues(alpha: 0.14),
+                ],
+              ),
             ),
-          ),
-          child: SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '选择歌单',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.4,
+            child: SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '选择歌单',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Expanded(child: _buildBody(context)),
-              ],
+                  Expanded(child: _buildBody(context, palette)),
+                ],
+              ),
             ),
           ),
         ),
@@ -180,22 +199,28 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
     );
   }
 
-  Widget _buildBody(BuildContext context) {
+  Widget _buildBody(BuildContext context, PlayerPalette palette) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return widget.playlists.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, __) => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('歌单加载失败'),
-            if (widget.onRetry != null)
-              TextButton(onPressed: widget.onRetry, child: const Text('重试')),
-          ],
-        ),
+      loading: () => const Padding(
+        padding: EdgeInsets.all(24),
+        child: AppContentSkeleton(itemCount: 3, itemHeight: 96),
+      ),
+      error: (_, __) => AppStateView(
+        kind: AppStateKind.failure,
+        title: '歌单加载失败',
+        description: '暂时无法读取歌单，请稍后重试。',
+        actionLabel: widget.onRetry == null ? null : '重试',
+        onAction: widget.onRetry,
       ),
       data: (playlists) {
-        if (playlists.isEmpty) return const Center(child: Text('暂无歌单'));
+        if (playlists.isEmpty) {
+          return const AppStateView(
+            kind: AppStateKind.emptyPlaylist,
+            title: '暂无歌单',
+            description: '创建歌单后，可以在这里快速切换播放来源。',
+          );
+        }
 
         return Stack(
           alignment: Alignment.center,
@@ -209,7 +234,8 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
                       colors: [
                         Theme.of(
                           context,
-                        ).colorScheme.primary.withValues(alpha: 0.16),
+                        ).colorScheme.primary.withValues(alpha: 0.04),
+                        palette.secondary.withValues(alpha: 0.18),
                         Colors.transparent,
                       ],
                     ),
@@ -274,6 +300,7 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
                         }
                       }
                     },
+                    palette: palette,
                   ),
                 );
               },
@@ -303,10 +330,10 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
               ),
             ),
             if (_isSelecting)
-              const Positioned.fill(
+              Positioned.fill(
                 child: ColoredBox(
                   key: playlistGalleryBusyKey,
-                  color: Color(0x33000000),
+                  color: Colors.black.withValues(alpha: 0.2),
                   child: Center(child: CircularProgressIndicator()),
                 ),
               ),
@@ -326,6 +353,7 @@ class _PlaylistRecordCard extends StatelessWidget {
     required this.onPlay,
     required this.onControlPointerDown,
     required this.onTap,
+    required this.palette,
   });
 
   final Playlist playlist;
@@ -334,6 +362,7 @@ class _PlaylistRecordCard extends StatelessWidget {
   final VoidCallback onPlay;
   final VoidCallback onControlPointerDown;
   final VoidCallback onTap;
+  final PlayerPalette palette;
 
   @override
   Widget build(BuildContext context) {
@@ -385,7 +414,7 @@ class _PlaylistRecordCard extends StatelessWidget {
                           child: Icon(
                             Icons.play_arrow_rounded,
                             size: 34,
-                            color: theme.colorScheme.primary,
+                            color: palette.secondary,
                           ),
                         ),
                       ),

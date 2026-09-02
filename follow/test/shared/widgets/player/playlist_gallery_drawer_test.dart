@@ -4,13 +4,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:follow/data/models/track.dart';
+import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/shared/widgets/player/playlist_gallery_drawer.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
+import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 const _playlists = [
   Playlist(id: 'playlist-1', name: 'Morning Drive', trackCount: 12),
   Playlist(id: 'playlist-2', name: 'Night Highway', trackCount: 24),
   Playlist(id: 'playlist-3', name: 'Weekend', trackCount: 8),
 ];
+const _palette = PlayerPalette(
+  primaryControl: Color(0xFF173E89),
+  onPrimaryControl: Colors.white,
+  secondary: Color(0xFF8A2362),
+  ambient: Color(0xFF16869B),
+  progress: Color(0xFF8A2362),
+  glow: Color(0xFF16869B),
+  scrim: Color(0xFFF7F6FC),
+);
 
 void main() {
   Future<void> pumpGallery(
@@ -24,6 +38,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: PlaylistGalleryDrawer(
+            palette: _palette,
             playlists: playlists,
             currentPlaylistId: currentPlaylistId,
             onSelect: onSelect ?? (_) async {},
@@ -40,10 +55,13 @@ void main() {
     tester,
   ) async {
     await pumpGallery(tester, playlists: const AsyncLoading<List<Playlist>>());
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.byType(AppContentSkeleton), findsOneWidget);
 
     await pumpGallery(tester, playlists: const AsyncData(<Playlist>[]));
-    expect(find.text('暂无歌单'), findsOneWidget);
+    expect(
+      tester.widget<AppStateView>(find.byType(AppStateView)).kind,
+      AppStateKind.emptyPlaylist,
+    );
 
     var retries = 0;
     await pumpGallery(
@@ -51,7 +69,10 @@ void main() {
       playlists: AsyncError(StateError('failed'), StackTrace.empty),
       onRetry: () => retries++,
     );
-    expect(find.text('歌单加载失败'), findsOneWidget);
+    expect(
+      tester.widget<AppStateView>(find.byType(AppStateView)).kind,
+      AppStateKind.failure,
+    );
     await tester.tap(find.text('重试'));
     expect(retries, 1);
   });
@@ -71,6 +92,14 @@ void main() {
     );
     expect(pageMaterial.borderRadius, isNull);
     expect(pageMaterial.clipBehavior, Clip.none);
+    expect(
+      tester
+          .widget<GlassPanel>(
+            find.byKey(const ValueKey('playlist-gallery-glass')),
+          )
+          .tier,
+      GlassTier.strong,
+    );
   });
 
   testWidgets('centers the active playlist and scales neighbors smaller', (

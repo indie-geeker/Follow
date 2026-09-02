@@ -19,6 +19,35 @@ void main() {
   test('mobile and desktop layouts share the 800dp breakpoint', () {
     expect(usesDesktopNavigation(799), isFalse);
     expect(usesDesktopNavigation(800), isTrue);
+    expect(shouldOpenPlayerAfterTrackSelection(799), isTrue);
+    expect(shouldOpenPlayerAfterTrackSelection(800), isFalse);
+  });
+
+  test('desktop shell keeps the dynamic player palette out of app chrome', () {
+    final router = File('lib/router/app_router.dart').readAsStringSync();
+    final desktopShell = router.substring(
+      router.indexOf('class _DesktopShell'),
+      router.indexOf('// ============ Detail Pages'),
+    );
+
+    expect(desktopShell, contains('DesktopPlayerBar('));
+    expect(desktopShell, contains('LyricsOverlay('));
+    expect(desktopShell, isNot(contains('PlayerAuroraBackground(')));
+    expect(desktopShell, isNot(contains('playerPaletteProvider(')));
+    expect(desktopShell, isNot(contains('Theme(')));
+  });
+
+  test('all single-track entry points use mobile player navigation', () {
+    final sources = [
+      'lib/shared/widgets/smart_track_tile.dart',
+      'lib/features/search/search_page.dart',
+      'lib/features/library/widgets/library_search_box.dart',
+      'lib/features/downloads/downloads_page.dart',
+    ].map((path) => File(path).readAsStringSync());
+
+    for (final source in sources) {
+      expect(source, contains('playTrackAndOpenPlayer('));
+    }
   });
 
   test('search is a guarded secondary route, not a primary tab', () {
@@ -44,7 +73,7 @@ void main() {
     expect(desktopShell, isNot(contains('SearchRoute()')));
   });
 
-  testWidgets('home scroll viewport stays below the top safe-area inset', (
+  testWidgets('home atmosphere reaches behind the top safe-area inset', (
     tester,
   ) async {
     const viewportKey = Key('home-scroll-viewport');
@@ -65,10 +94,10 @@ void main() {
       ),
     );
 
-    expect(tester.getTopLeft(find.byKey(viewportKey)).dy, 32);
+    expect(tester.getTopLeft(find.byKey(viewportKey)).dy, 0);
     await tester.drag(find.byKey(viewportKey), const Offset(0, -300));
     await tester.pump();
-    expect(tester.getTopLeft(find.byKey(viewportKey)).dy, 32);
+    expect(tester.getTopLeft(find.byKey(viewportKey)).dy, 0);
   });
 
   test('recently played injects a semantic library navigation action', () {

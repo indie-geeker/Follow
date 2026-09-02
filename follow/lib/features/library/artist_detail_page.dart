@@ -7,6 +7,9 @@ import 'package:follow/data/providers/track_provider.dart';
 import 'package:follow/shared/widgets/smart_track_tile.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/play_all_tile.dart';
+import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
+import 'package:follow/shared/widgets/states/app_state_kind.dart';
+import 'package:follow/shared/widgets/states/app_state_view.dart';
 
 @RoutePage()
 class ArtistDetailPage extends ConsumerWidget {
@@ -110,12 +113,11 @@ class ArtistDetailPage extends ConsumerWidget {
             sliver: tracksAsync.when(
               data: (tracks) {
                 if (tracks.isEmpty) {
-                  return SliverToBoxAdapter(
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32.0),
-                        child: Text('暂无曲目'),
-                      ),
+                  return const SliverToBoxAdapter(
+                    child: AppStateView(
+                      kind: AppStateKind.emptyLibrary,
+                      title: '暂无曲目',
+                      description: '这位艺术家暂时没有可播放的曲目。',
                     ),
                   );
                 }
@@ -136,15 +138,20 @@ class ArtistDetailPage extends ConsumerWidget {
                 );
               },
               loading: () => const SliverToBoxAdapter(
-                child: Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(32.0),
-                    child: CircularProgressIndicator(),
-                  ),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: AppContentSkeleton(itemCount: 4),
                 ),
               ),
-              error: (e, _) =>
-                  SliverToBoxAdapter(child: Center(child: Text('加载失败: $e'))),
+              error: (e, _) => SliverToBoxAdapter(
+                child: AppStateView(
+                  kind: AppStateKind.failure,
+                  title: '艺术家曲目加载失败',
+                  description: '暂时无法读取这位艺术家的曲目。',
+                  actionLabel: '重试',
+                  onAction: () => ref.invalidate(artistTracksProvider(id)),
+                ),
+              ),
             ),
           ),
           // Bottom padding for player bar
