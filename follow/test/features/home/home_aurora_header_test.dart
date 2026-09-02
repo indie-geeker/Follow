@@ -28,6 +28,7 @@ Widget _harness({
   PlayerPalette palette = _brandPalette,
   bool usesBrandFallback = true,
   double collapseProgress = 0,
+  double height = 180,
 }) {
   return MaterialApp(
     theme: ThemeData(
@@ -36,7 +37,7 @@ Widget _harness({
     ),
     home: Scaffold(
       body: SizedBox(
-        height: 180,
+        height: height,
         child: HomeAuroraHeader(
           palette: palette,
           usesBrandFallback: usesBrandFallback,
@@ -109,4 +110,11 @@ void main() {
       expect(find.byKey(homeHeroGreetingKey), findsOneWidget);
     },
   );
+
+  testWidgets('intermediate collapse height does not overflow', (tester) async {
+    await tester.pumpWidget(_harness(height: 150, collapseProgress: 0.4));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
 }

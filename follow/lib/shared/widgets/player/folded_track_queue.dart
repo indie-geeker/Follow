@@ -287,10 +287,6 @@ class _FoldedTrackQueueState extends State<FoldedTrackQueue>
                 palette.ambient.withValues(alpha: 0.1),
               ],
             ),
-            border: Border.all(
-              color: palette.glow.withValues(alpha: 0.14),
-              width: 0.75,
-            ),
             borderRadius: BorderRadius.circular(32),
           ),
           child: queueContent,

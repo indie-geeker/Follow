@@ -518,6 +518,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
           ),
           const SizedBox(width: 8),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: _buildPlaylistPullHandle(galleryHeight: galleryHeight),
+        ),
       ),
       body: PlayerAuroraBackground(
         track: currentTrack,
@@ -531,10 +535,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
               Expanded(
                 child: Column(
                   children: [
-                    _buildPlaylistPullHandle(
-                      compact: compactHeight,
-                      galleryHeight: galleryHeight,
-                    ),
                     Expanded(
                       child: _buildVisualSurface(
                         currentTrack: currentTrack,
@@ -740,10 +740,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     );
   }
 
-  Widget _buildPlaylistPullHandle({
-    required bool compact,
-    required double galleryHeight,
-  }) {
+  Widget _buildPlaylistPullHandle({required double galleryHeight}) {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final progress = (_playlistPullDistance / galleryHeight).clamp(0.0, 1.0);
     final guidanceProgress = (_playlistPullDistance / _playlistOpenThreshold)
@@ -758,10 +755,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
           _handlePlaylistPullEnd(details, galleryHeight),
       onVerticalDragCancel: () => _cancelPlaylistPull(galleryHeight),
       child: SizedBox(
-        height: compact ? 32 : 38,
+        height: 48,
         child: Opacity(
           key: playerPlaylistGuidanceOpacityKey,
-          opacity: guidanceProgress,
+          opacity: math.max(0.7, guidanceProgress),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [

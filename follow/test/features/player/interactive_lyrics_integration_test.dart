@@ -231,6 +231,30 @@ _pumpLyricsOverlay(
 }
 
 void main() {
+  testWidgets(
+    'playlist pull target is visible below the toolbar and 48dp tall',
+    (tester) async {
+      const topInset = 24.0;
+      await _pumpPlayerPage(
+        tester,
+        lyrics: AsyncData(_lyrics),
+        safeAreaInsets: const EdgeInsets.only(top: topInset, bottom: 16),
+      );
+
+      final targetRect = tester.getRect(
+        find.byKey(playerPlaylistPullHandleKey),
+      );
+      expect(targetRect.height, greaterThanOrEqualTo(48));
+      expect(targetRect.top, greaterThanOrEqualTo(topInset + kToolbarHeight));
+      expect(
+        tester
+            .widget<Opacity>(find.byKey(playerPlaylistGuidanceOpacityKey))
+            .opacity,
+        greaterThanOrEqualTo(0.65),
+      );
+    },
+  );
+
   testWidgets('lyrics app bar title stays below the top safe area', (
     tester,
   ) async {
@@ -335,7 +359,7 @@ void main() {
     await gesture.cancel();
   });
 
-  testWidgets('sub-threshold pull restores hidden playlist layers', (
+  testWidgets('sub-threshold pull restores the resting playlist layers', (
     tester,
   ) async {
     await _pumpPlayerPage(tester, lyrics: AsyncData(_lyrics));
@@ -356,7 +380,7 @@ void main() {
       tester
           .widget<Opacity>(find.byKey(playerPlaylistGuidanceOpacityKey))
           .opacity,
-      0,
+      closeTo(0.7, 0.01),
     );
     expect(
       tester.widget<ColoredBox>(find.byKey(playerTopChromeSurfaceKey)).color.a,

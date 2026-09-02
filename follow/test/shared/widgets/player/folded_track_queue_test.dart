@@ -64,7 +64,7 @@ void main() {
     expect(find.byKey(foldedQueueListKey), findsNothing);
   });
 
-  testWidgets('uses a subtle cover-palette surface behind queue content', (
+  testWidgets('uses a borderless cover-palette surface behind queue content', (
     tester,
   ) async {
     await pumpQueue(
@@ -86,7 +86,7 @@ void main() {
     final gradient = decoration.gradient! as LinearGradient;
     expect(gradient.colors.first, _palette.secondary.withValues(alpha: 0.14));
     expect(gradient.colors.last, _palette.ambient.withValues(alpha: 0.1));
-    expect(decoration.border?.top.color.a, lessThanOrEqualTo(0.16));
+    expect(decoration.border, isNull);
   });
 
   testWidgets('marks current track and scales neighbors smaller', (

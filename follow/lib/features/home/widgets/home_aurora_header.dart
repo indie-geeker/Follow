@@ -96,22 +96,23 @@ class HomeAuroraHeader extends StatelessWidget {
             Opacity(
               opacity: contentVisibility,
               alwaysIncludeSemantics: true,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  MediaQuery.paddingOf(context).top + 16,
-                  20,
-                  58,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              child: Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  Positioned(
+                    top: MediaQuery.paddingOf(context).top + 16,
+                    left: 20,
+                    right: 20,
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [leading, trailing],
                     ),
-                    const Spacer(),
-                    Semantics(
+                  ),
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 58,
+                    child: Semantics(
                       key: homeHeroGreetingKey,
                       container: true,
                       label: '$title。$subtitle',
@@ -141,8 +142,8 @@ class HomeAuroraHeader extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ],
