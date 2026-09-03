@@ -64,7 +64,7 @@ void main() {
     expect(find.byKey(foldedQueueListKey), findsNothing);
   });
 
-  testWidgets('uses a borderless cover-palette surface behind queue content', (
+  testWidgets('leaves the folded queue backdrop fully transparent', (
     tester,
   ) async {
     await pumpQueue(
@@ -81,12 +81,14 @@ void main() {
       const ValueKey('folded-queue-palette-surface'),
     );
     expect(surfaceFinder, findsOneWidget);
-    final surface = tester.widget<DecoratedBox>(surfaceFinder);
-    final decoration = surface.decoration as BoxDecoration;
-    final gradient = decoration.gradient! as LinearGradient;
-    expect(gradient.colors.first, _palette.secondary.withValues(alpha: 0.14));
-    expect(gradient.colors.last, _palette.ambient.withValues(alpha: 0.1));
-    expect(decoration.border, isNull);
+    expect(tester.widget(surfaceFinder), isNot(isA<DecoratedBox>()));
+    expect(
+      find.descendant(
+        of: find.byKey(foldedTrackQueueKey),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('marks current track and scales neighbors smaller', (

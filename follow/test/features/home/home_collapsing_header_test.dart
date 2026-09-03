@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/features/home/home_page.dart';
 
 const _scrollKey = ValueKey('home-collapse-scroll');
 const _tabKey = ValueKey('home-collapse-tabs');
 const _heroKey = ValueKey('home-collapse-hero');
 
-Widget _harness() {
+Widget _harness({ThemeData? theme}) {
   return MaterialApp(
+    theme: theme ?? AppTheme.light,
+    themeAnimationDuration: Duration.zero,
     home: MediaQuery(
       data: const MediaQueryData(
         size: Size(390, 844),
@@ -89,18 +93,50 @@ void main() {
     expect(tester.getSize(find.byKey(homeHeaderFlexibleSpaceKey)).height, 80);
   });
 
-  testWidgets('collapsed tabs use translucent separation, not an opaque seam', (
+  testWidgets('collapsed tabs and status inset use one opaque surface', (
     tester,
   ) async {
     await tester.pumpWidget(_harness());
     await _slowDrag(tester, const Offset(0, -260));
 
+    final tokens = Theme.of(
+      tester.element(find.byKey(homePinnedTabSurfaceKey)),
+    ).extension<FollowThemeTokens>()!;
     final surface = tester.widget<DecoratedBox>(
       find.byKey(homePinnedTabSurfaceKey),
     );
     final decoration = surface.decoration as BoxDecoration;
-    expect(decoration.color?.a, lessThan(1));
+    expect(decoration.color, tokens.surface);
+    expect(decoration.color?.a, 1);
     expect(decoration.border?.bottom.width, 0.5);
+
+    final statusSurface = tester.widget<ColoredBox>(
+      find.byKey(const ValueKey('home-pinned-status-surface')),
+    );
+    expect(statusSurface.color, tokens.surface);
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('home-pinned-status-surface')))
+          .height,
+      32,
+    );
+  });
+
+  testWidgets('expanded header keeps pinned chrome transparent', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_harness());
+
+    final tabSurface = tester.widget<DecoratedBox>(
+      find.byKey(homePinnedTabSurfaceKey),
+    );
+    final tabDecoration = tabSurface.decoration as BoxDecoration;
+    expect(tabDecoration.color?.a, 0);
+
+    final statusSurface = tester.widget<ColoredBox>(
+      find.byKey(const ValueKey('home-pinned-status-surface')),
+    );
+    expect(statusSurface.color.a, 0);
   });
 
   testWidgets('home scroll scene reaches the top system edge', (tester) async {

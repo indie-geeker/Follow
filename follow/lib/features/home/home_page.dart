@@ -44,6 +44,10 @@ const homeHeaderFlexibleSpaceKey = ValueKey(
   'home-collapsing-header-flexible-space',
 );
 const homePinnedTabSurfaceKey = ValueKey('home-pinned-tab-surface');
+const homePinnedStatusSurfaceKey = ValueKey('home-pinned-status-surface');
+
+double _pinnedChromeProgress(double collapseProgress) => Curves.easeOut
+    .transform(((collapseProgress - 0.62) / 0.38).clamp(0.0, 1.0));
 
 class HomeHeaderSnapScrollPhysics extends ScrollPhysics {
   const HomeHeaderSnapScrollPhysics({
@@ -138,9 +142,29 @@ class HomeCollapsingHeader extends StatelessWidget {
                   0.0,
                   1.0,
                 );
+          final pinnedChromeProgress = _pinnedChromeProgress(progress);
           return SizedBox.expand(
             key: homeHeaderFlexibleSpaceKey,
-            child: heroBuilder(progress),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                heroBuilder(progress),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: topInset,
+                  child: IgnorePointer(
+                    child: ColoredBox(
+                      key: homePinnedStatusSurfaceKey,
+                      color: context.followTokens.surface.withValues(
+                        alpha: pinnedChromeProgress,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -167,18 +191,18 @@ class _PinnedTabSurface extends StatelessWidget {
         : (((settings?.maxExtent ?? 1) - (settings?.currentExtent ?? 1)) /
                   range)
               .clamp(0.0, 1.0);
-    final glassProgress = Curves.easeOut.transform(
-      ((progress - 0.62) / 0.38).clamp(0.0, 1.0),
-    );
+    final pinnedChromeProgress = _pinnedChromeProgress(progress);
     final tokens = context.followTokens;
 
     return DecoratedBox(
       key: homePinnedTabSurfaceKey,
       decoration: BoxDecoration(
-        color: tokens.surface.withValues(alpha: 0.82 * glassProgress),
+        color: tokens.surface.withValues(alpha: pinnedChromeProgress),
         border: Border(
           bottom: BorderSide(
-            color: tokens.textPrimary.withValues(alpha: 0.08 * glassProgress),
+            color: tokens.textPrimary.withValues(
+              alpha: 0.08 * pinnedChromeProgress,
+            ),
             width: 0.5,
           ),
         ),

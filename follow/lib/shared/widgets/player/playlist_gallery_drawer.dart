@@ -10,7 +10,6 @@ import 'package:follow/data/models/track.dart';
 import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
 import 'package:follow/shared/widgets/states/app_state_kind.dart';
 import 'package:follow/shared/widgets/states/app_state_view.dart';
-import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 const playlistGalleryPageViewKey = ValueKey('playlist-gallery-page-view');
 const playlistGalleryBusyKey = ValueKey('playlist-gallery-busy');
@@ -140,6 +139,7 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = context.followTokens;
     final palette =
         widget.palette ??
         PlayerPalette.fallback(
@@ -156,42 +156,43 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
       },
       child: Material(
         type: MaterialType.transparency,
-        child: GlassPanel(
-          key: const ValueKey('playlist-gallery-glass'),
-          tier: GlassTier.strong,
-          borderRadius: BorderRadius.zero,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  palette.secondary.withValues(alpha: 0.18),
-                  theme.colorScheme.surface.withValues(alpha: 0.08),
-                  palette.ambient.withValues(alpha: 0.14),
-                ],
-              ),
-            ),
-            child: SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '选择歌单',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.4,
-                        ),
+        child: ColoredBox(
+          key: const ValueKey('playlist-gallery-surface'),
+          color: tokens.surface,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '选择歌单',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4,
                       ),
                     ),
                   ),
-                  Expanded(child: _buildBody(context, palette)),
-                ],
-              ),
+                ),
+                Expanded(
+                  child: Theme(
+                    data: theme.copyWith(
+                      textTheme: theme.textTheme.copyWith(
+                        titleLarge: theme.textTheme.titleLarge?.copyWith(
+                          color: tokens.textPrimary,
+                        ),
+                        bodyMedium: theme.textTheme.bodyMedium?.copyWith(
+                          color: tokens.textSecondary,
+                        ),
+                      ),
+                    ),
+                    child: _buildBody(context, palette),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

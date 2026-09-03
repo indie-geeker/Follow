@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:follow/core/theme/follow_theme_tokens.dart';
@@ -271,33 +270,15 @@ class _FoldedTrackQueueState extends State<FoldedTrackQueue>
       ),
     );
 
-    final paletteSurface = ClipRRect(
-      borderRadius: BorderRadius.circular(32),
-      child: BackdropFilter.grouped(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          key: foldedQueuePaletteSurfaceKey,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                palette.secondary.withValues(alpha: 0.14),
-                palette.scrim.withValues(alpha: 0.08),
-                palette.ambient.withValues(alpha: 0.1),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(32),
-          ),
-          child: queueContent,
-        ),
-      ),
+    final transparentContentLayer = KeyedSubtree(
+      key: foldedQueuePaletteSurfaceKey,
+      child: queueContent,
     );
 
     final revealedQueue = AnimatedBuilder(
       animation: _revealController,
       builder: (context, child) => reveal(_revealController.value, child!),
-      child: paletteSurface,
+      child: transparentContentLayer,
     );
 
     return SizedBox.expand(

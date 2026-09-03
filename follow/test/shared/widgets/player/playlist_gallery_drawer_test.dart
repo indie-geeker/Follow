@@ -3,13 +3,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:follow/core/theme/app_theme.dart';
+import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/shared/widgets/player/playlist_gallery_drawer.dart';
 import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
 import 'package:follow/shared/widgets/states/app_state_kind.dart';
 import 'package:follow/shared/widgets/states/app_state_view.dart';
-import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
 
 const _playlists = [
   Playlist(id: 'playlist-1', name: 'Morning Drive', trackCount: 12),
@@ -33,9 +34,12 @@ void main() {
     String? currentPlaylistId,
     Future<void> Function(Playlist)? onSelect,
     VoidCallback? onRetry,
+    ThemeData? theme,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
+        theme: theme ?? AppTheme.light,
+        themeAnimationDuration: Duration.zero,
         home: Scaffold(
           body: PlaylistGalleryDrawer(
             palette: _palette,
@@ -77,29 +81,39 @@ void main() {
     expect(retries, 1);
   });
 
-  testWidgets('renders as a flat page rather than a rounded popup', (
+  testWidgets('uses an opaque semantic surface behind empty-state copy', (
     tester,
   ) async {
-    await pumpGallery(tester, playlists: const AsyncData(_playlists));
+    for (final theme in [AppTheme.light, AppTheme.dark]) {
+      await pumpGallery(
+        tester,
+        playlists: const AsyncData(<Playlist>[]),
+        theme: theme,
+      );
 
-    final pageMaterial = tester.widget<Material>(
-      find
-          .descendant(
-            of: find.byType(PlaylistGalleryDrawer),
-            matching: find.byType(Material),
-          )
-          .first,
-    );
-    expect(pageMaterial.borderRadius, isNull);
-    expect(pageMaterial.clipBehavior, Clip.none);
-    expect(
-      tester
-          .widget<GlassPanel>(
-            find.byKey(const ValueKey('playlist-gallery-glass')),
-          )
-          .tier,
-      GlassTier.strong,
-    );
+      final tokens = theme.extension<FollowThemeTokens>()!;
+      expect(
+        find.byKey(const ValueKey('playlist-gallery-surface')),
+        findsOneWidget,
+      );
+      final surface = tester.widget<ColoredBox>(
+        find.byKey(const ValueKey('playlist-gallery-surface')),
+      );
+      expect(surface.color, tokens.surface);
+      expect(surface.color.a, 1);
+      expect(
+        find.byKey(const ValueKey('playlist-gallery-glass')),
+        findsNothing,
+      );
+      expect(
+        tester.widget<Text>(find.text('暂无歌单')).style?.color,
+        tokens.textPrimary,
+      );
+      expect(
+        tester.widget<Text>(find.text('创建歌单后，可以在这里快速切换播放来源。')).style?.color,
+        tokens.textSecondary,
+      );
+    }
   });
 
   testWidgets('centers the active playlist and scales neighbors smaller', (
