@@ -7,44 +7,47 @@ interface AccountStorage {
   removeItem(key: string): void
 }
 
-function parseEmail(value: string | null): string {
+function parseIdentifier(value: string | null): string {
   if (!value) return ''
 
   try {
-    const parsed = JSON.parse(value) as { email?: unknown }
+    const parsed = JSON.parse(value) as { identifier?: unknown; email?: unknown }
+    if (typeof parsed.identifier === 'string') return parsed.identifier.trim()
     return typeof parsed.email === 'string' ? parsed.email.trim() : ''
   } catch {
     return ''
   }
 }
 
-export function loadRememberedEmail(storage: AccountStorage): string {
-  const savedEmail = parseEmail(storage.getItem(REMEMBERED_ACCOUNT_KEY))
-  const legacyEmail = parseEmail(storage.getItem(LEGACY_CREDENTIALS_KEY))
-  const email = savedEmail || legacyEmail
+export function loadRememberedIdentifier(storage: AccountStorage): string {
+  const savedIdentifier = parseIdentifier(storage.getItem(REMEMBERED_ACCOUNT_KEY))
+  const legacyIdentifier = parseIdentifier(storage.getItem(LEGACY_CREDENTIALS_KEY))
+  const identifier = savedIdentifier || legacyIdentifier
 
   storage.removeItem(LEGACY_CREDENTIALS_KEY)
 
-  if (email) {
-    storage.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify({ email }))
+  if (identifier) {
+    storage.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify({ identifier }))
   } else {
     storage.removeItem(REMEMBERED_ACCOUNT_KEY)
   }
 
-  return email
+  return identifier
 }
 
-export function persistRememberedEmail(
+export function persistRememberedIdentifier(
   storage: AccountStorage,
-  email: string,
+  identifier: string,
   remember: boolean
 ): void {
-  const normalizedEmail = email.trim()
+  const normalizedIdentifier = identifier.trim()
 
   storage.removeItem(LEGACY_CREDENTIALS_KEY)
 
-  if (remember && normalizedEmail) {
-    storage.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify({ email: normalizedEmail }))
+  if (remember && normalizedIdentifier) {
+    storage.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify({
+      identifier: normalizedIdentifier
+    }))
     return
   }
 

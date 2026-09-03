@@ -10,7 +10,7 @@ public record RegisterRequest(
 public record CreateUserRequest(string Username, string Email, string Password, string Role);
 
 public record LoginRequest(
-    string Email,
+    string Identifier,
     string Password,
     string TokenTransport = "body",
     string? DeviceName = null);

@@ -126,6 +126,22 @@ public class AuthEndpointContractTests
         Assert.Contains("/logout-all", source);
     }
 
+    [Fact]
+    public void LoginRequest_UsesIdentifierInsteadOfLegacyEmailField()
+    {
+        var serverRoot = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "../../../../../"));
+        var source = File.ReadAllText(Path.Combine(
+            serverRoot,
+            "src/Follow.Shared/DTOs/AuthDtos.cs"));
+        var loginRequest = source[(source.IndexOf("public record LoginRequest", StringComparison.Ordinal))..];
+        loginRequest = loginRequest[..loginRequest.IndexOf("public record RefreshTokenRequest", StringComparison.Ordinal)];
+
+        Assert.Contains("string Identifier", loginRequest);
+        Assert.DoesNotContain("string Email", loginRequest);
+    }
+
     private static DefaultHttpContext CreateHttpsContext()
     {
         var context = new DefaultHttpContext();

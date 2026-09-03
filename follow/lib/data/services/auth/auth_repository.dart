@@ -19,10 +19,10 @@ class AuthRepository {
   final String _deviceName;
   final Future<void> Function() _clearAccountState;
 
-  Future<User> login(String email, String password) async {
+  Future<User> login(String identifier, String password) async {
     final response = await _api.login(
       LoginRequest(
-        email: email,
+        identifier: identifier,
         password: password,
         tokenTransport: 'body',
         deviceName: _deviceName,

@@ -33,7 +33,7 @@ abstract class AuthResponse with _$AuthResponse {
 @freezed
 abstract class LoginRequest with _$LoginRequest {
   const factory LoginRequest({
-    required String email,
+    required String identifier,
     required String password,
     @Default('body') String tokenTransport,
     String? deviceName,

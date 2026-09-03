@@ -17,9 +17,10 @@ void main() {
         deviceName: 'Follow Android',
       );
 
-      final user = await repository.login('family@example.com', 'secret');
+      final user = await repository.login('family', 'secret');
 
       expect(user.email, 'family@example.com');
+      expect(api.loginRequest?.identifier, 'family');
       expect(api.loginRequest?.tokenTransport, 'body');
       expect(api.loginRequest?.deviceName, 'Follow Android');
       expect(

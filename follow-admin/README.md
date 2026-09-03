@@ -36,6 +36,7 @@ pnpm preview
 
 ## 同源认证
 
+- 登录请求使用 `identifier + password`，`identifier` 可填写用户名或邮箱；旧的 `email` 登录字段不再受支持。
 - 浏览器不保存 Access Token 或 Refresh Token。
 - 登录、刷新和播放请求依赖同源的 Secure、HttpOnly Cookie。
 - 页面启动时先通过 `/api/auth/me` 检查 Access Cookie，仅在 `401` 时轮换 Refresh Token，再进入受保护路由。

@@ -4,14 +4,14 @@ import 'package:follow/data/models/user.dart';
 void main() {
   test('login requests body tokens and identifies the device', () {
     const request = LoginRequest(
-      email: 'family@example.com',
+      identifier: 'family',
       password: 'secret',
       tokenTransport: 'body',
       deviceName: 'Android',
     );
 
     expect(request.toJson(), {
-      'email': 'family@example.com',
+      'identifier': 'family',
       'password': 'secret',
       'tokenTransport': 'body',
       'deviceName': 'Android',

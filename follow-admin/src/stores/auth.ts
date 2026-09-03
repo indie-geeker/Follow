@@ -67,9 +67,9 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function login(email: string, password: string): Promise<void> {
+  async function login(identifier: string, password: string): Promise<void> {
     const response = await api.post<ApiEnvelope<AuthPayload>>('/api/auth/login', {
-      email,
+      identifier,
       password,
       tokenTransport: 'cookie'
     })

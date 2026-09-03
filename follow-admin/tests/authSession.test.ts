@@ -122,11 +122,22 @@ test('login 401 does not attempt to refresh an absent browser session', async ()
 
   const { api } = createHttpClient({ apiAdapter, authAdapter })
   await assert.rejects(api.post('/api/auth/login', {
-    email: 'admin@example.com',
+    identifier: 'admin',
     password: 'secret',
     tokenTransport: 'cookie'
   }))
   assert.equal(refreshCalls, 0)
+})
+
+test('login UI and store use the username-or-email identifier contract', () => {
+  const store = readSource('stores/auth.ts')
+  const login = readSource('views/auth/LoginView.vue')
+
+  assert.match(store, /async function login\(identifier: string, password: string\)/)
+  assert.match(store, /\{\s*identifier,\s*password,\s*tokenTransport:\s*['"]cookie['"]/s)
+  assert.doesNotMatch(store, /async function login\(email:/)
+  assert.match(login, /用户名或邮箱/)
+  assert.doesNotMatch(login, /type:\s*['"]email['"]/)
 })
 
 test('a replayed request that remains unauthorized expires the UI session once', async () => {

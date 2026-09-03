@@ -56,6 +56,7 @@ class AppLocalizations {
       'email': 'Email',
       'password': 'Password',
       'username': 'Username',
+      'loginIdentifier': 'Username or email',
       'cancel': 'Cancel',
       'confirm': 'Confirm',
       'save': 'Save',
@@ -63,7 +64,7 @@ class AppLocalizations {
       'loading': 'Loading...',
       'noData': 'No data',
       'retry': 'Retry',
-      'rememberEmail': 'Remember email',
+      'rememberIdentifier': 'Remember account',
     },
     'zh': {
       'home': '首页',
@@ -99,6 +100,7 @@ class AppLocalizations {
       'email': '邮箱',
       'password': '密码',
       'username': '用户名',
+      'loginIdentifier': '用户名或邮箱',
       'cancel': '取消',
       'confirm': '确认',
       'save': '保存',
@@ -106,7 +108,7 @@ class AppLocalizations {
       'loading': '加载中...',
       'noData': '暂无数据',
       'retry': '重试',
-      'rememberEmail': '记住邮箱',
+      'rememberIdentifier': '记住账号',
     },
   };
 

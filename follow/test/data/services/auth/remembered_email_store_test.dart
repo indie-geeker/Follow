@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:follow/data/services/auth/remembered_email_store.dart';
+import 'package:follow/data/services/auth/remembered_identifier_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -16,12 +16,15 @@ void main() {
         'refreshToken': 'old-refresh-token',
       });
       final preferences = await SharedPreferences.getInstance();
-      final store = RememberedEmailStore(preferences);
+      final store = RememberedIdentifierStore(preferences);
 
       await store.migrateLegacyCredentials();
 
       expect(await store.read(), 'family@example.com');
-      expect(preferences.getBool('rememberEmail'), isTrue);
+      expect(preferences.getBool('rememberIdentifier'), isTrue);
+      expect(preferences.getString('savedIdentifier'), 'family@example.com');
+      expect(preferences.containsKey('rememberEmail'), isFalse);
+      expect(preferences.containsKey('savedEmail'), isFalse);
       expect(preferences.containsKey('rememberPassword'), isFalse);
       expect(preferences.containsKey('savedPassword'), isFalse);
       expect(preferences.containsKey('accessToken'), isFalse);
@@ -29,30 +32,33 @@ void main() {
     },
   );
 
-  test('remembers only the normalized email address', () async {
+  test('remembers only the normalized username or email identifier', () async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();
-    final store = RememberedEmailStore(preferences);
+    final store = RememberedIdentifierStore(preferences);
 
-    await store.save('  family@example.com  ');
+    await store.save('  family  ');
 
-    expect(await store.read(), 'family@example.com');
+    expect(await store.read(), 'family');
     expect(preferences.containsKey('savedPassword'), isFalse);
   });
 
-  test('forgets the saved email when remember email is disabled', () async {
-    SharedPreferences.setMockInitialValues({
-      'rememberEmail': true,
-      'savedEmail': 'family@example.com',
-    });
-    final preferences = await SharedPreferences.getInstance();
-    final store = RememberedEmailStore(preferences);
+  test(
+    'forgets the saved identifier when remember account is disabled',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'rememberIdentifier': true,
+        'savedIdentifier': 'family',
+      });
+      final preferences = await SharedPreferences.getInstance();
+      final store = RememberedIdentifierStore(preferences);
 
-    await store.clear();
+      await store.clear();
 
-    expect(await store.read(), isNull);
-    expect(preferences.containsKey('savedEmail'), isFalse);
-  });
+      expect(await store.read(), isNull);
+      expect(preferences.containsKey('savedIdentifier'), isFalse);
+    },
+  );
 
   test(
     'legacy opt-out removes an email left beside the old password',
@@ -63,13 +69,32 @@ void main() {
         'savedPassword': 'plaintext-secret',
       });
       final preferences = await SharedPreferences.getInstance();
-      final store = RememberedEmailStore(preferences);
+      final store = RememberedIdentifierStore(preferences);
 
       await store.migrateLegacyCredentials();
 
       expect(preferences.containsKey('savedEmail'), isFalse);
       expect(preferences.containsKey('savedPassword'), isFalse);
       expect(await store.read(), isNull);
+    },
+  );
+
+  test(
+    'migrates the current remembered email setting to an identifier',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'rememberEmail': true,
+        'savedEmail': ' family@example.com ',
+      });
+      final preferences = await SharedPreferences.getInstance();
+      final store = RememberedIdentifierStore(preferences);
+
+      await store.migrateLegacyCredentials();
+
+      expect(await store.read(), 'family@example.com');
+      expect(preferences.getBool('rememberIdentifier'), isTrue);
+      expect(preferences.containsKey('rememberEmail'), isFalse);
+      expect(preferences.containsKey('savedEmail'), isFalse);
     },
   );
 

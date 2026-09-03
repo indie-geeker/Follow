@@ -72,11 +72,11 @@ class Auth extends _$Auth {
     }
   }
 
-  Future<void> login(String email, String password) async {
+  Future<void> login(String identifier, String password) async {
     state = const AuthStateLoading();
 
     try {
-      final user = await _repository.login(email, password);
+      final user = await _repository.login(identifier, password);
       state = AuthStateAuthenticated(user);
     } catch (e) {
       state = AuthStateError(_parseError(e));
@@ -134,7 +134,7 @@ class Auth extends _$Auth {
 
   String _parseError(dynamic error) {
     if (error.toString().contains('401')) {
-      return '邮箱或密码错误';
+      return '用户名/邮箱或密码错误';
     }
     if (error.toString().contains('409')) {
       return '邮箱已被注册';

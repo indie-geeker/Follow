@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/core/l10n/l10n.dart';
 import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/data/providers/auth_provider.dart';
-import 'package:follow/data/services/auth/remembered_email_store.dart';
+import 'package:follow/data/services/auth/remembered_identifier_store.dart';
 import 'package:follow/router/app_router.dart';
 import 'package:follow/shared/widgets/surfaces/aurora_background.dart';
 import 'package:follow/shared/widgets/surfaces/glass_panel.dart';
@@ -23,12 +23,13 @@ class LoginPage extends ConsumerStatefulWidget {
 class _LoginPageState extends ConsumerState<LoginPage>
     with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
+  final _identifierController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _usernameController = TextEditingController();
   bool _isLogin = true;
   bool _obscurePassword = true;
-  bool _rememberEmail = false;
+  bool _rememberIdentifier = false;
 
   // Animation controllers
   late AnimationController _logoController;
@@ -44,7 +45,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
   void initState() {
     super.initState();
     _initAnimations();
-    _loadRememberedEmail();
+    _loadRememberedIdentifier();
   }
 
   void _initAnimations() {
@@ -77,23 +78,23 @@ class _LoginPageState extends ConsumerState<LoginPage>
     );
   }
 
-  Future<void> _loadRememberedEmail() async {
+  Future<void> _loadRememberedIdentifier() async {
     final prefs = await SharedPreferences.getInstance();
-    final store = RememberedEmailStore(prefs);
+    final store = RememberedIdentifierStore(prefs);
     await store.migrateLegacyCredentials();
-    final email = await store.read();
-    if (!mounted || email == null) return;
+    final identifier = await store.read();
+    if (!mounted || identifier == null) return;
     setState(() {
-      _rememberEmail = true;
-      _emailController.text = email;
+      _rememberIdentifier = true;
+      _identifierController.text = identifier;
     });
   }
 
-  Future<void> _saveRememberedEmail() async {
+  Future<void> _saveRememberedIdentifier() async {
     final prefs = await SharedPreferences.getInstance();
-    final store = RememberedEmailStore(prefs);
-    if (_rememberEmail) {
-      await store.save(_emailController.text);
+    final store = RememberedIdentifierStore(prefs);
+    if (_rememberIdentifier) {
+      await store.save(_identifierController.text);
     } else {
       await store.clear();
     }
@@ -106,6 +107,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
 
   @override
   void dispose() {
+    _identifierController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _usernameController.dispose();
@@ -226,19 +228,27 @@ class _LoginPageState extends ConsumerState<LoginPage>
                 const SizedBox(height: 20),
               ],
 
-              // Email
-              _buildShakeableTextField(
-                controller: _emailController,
-                label: l10n.get('email'),
-                icon: Icons.email_outlined,
-                keyboardType: TextInputType.emailAddress,
-                validator: (v) {
-                  if (v == null || !v.contains('@')) {
-                    return '请输入有效邮箱';
-                  }
-                  return null;
-                },
-              ),
+              if (_isLogin)
+                _buildShakeableTextField(
+                  controller: _identifierController,
+                  label: l10n.get('loginIdentifier'),
+                  icon: Icons.person_outline,
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? '请输入用户名或邮箱' : null,
+                )
+              else
+                _buildShakeableTextField(
+                  controller: _emailController,
+                  label: l10n.get('email'),
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (v) {
+                    if (v == null || !v.contains('@')) {
+                      return '请输入有效邮箱';
+                    }
+                    return null;
+                  },
+                ),
               const SizedBox(height: 20),
 
               // Password
@@ -278,7 +288,7 @@ class _LoginPageState extends ConsumerState<LoginPage>
               ),
               const SizedBox(height: 16),
 
-              // Remember email checkbox (login only)
+              // Remember account identifier checkbox (login only)
               if (_isLogin)
                 Row(
                   children: [
@@ -286,9 +296,9 @@ class _LoginPageState extends ConsumerState<LoginPage>
                       width: 24,
                       height: 24,
                       child: Checkbox(
-                        value: _rememberEmail,
+                        value: _rememberIdentifier,
                         onChanged: (value) {
-                          setState(() => _rememberEmail = value ?? false);
+                          setState(() => _rememberIdentifier = value ?? false);
                         },
                         side: BorderSide(
                           color: context.followTokens.textSecondary,
@@ -301,10 +311,12 @@ class _LoginPageState extends ConsumerState<LoginPage>
                     const SizedBox(width: 8),
                     GestureDetector(
                       onTap: () {
-                        setState(() => _rememberEmail = !_rememberEmail);
+                        setState(
+                          () => _rememberIdentifier = !_rememberIdentifier,
+                        );
                       },
                       child: Text(
-                        l10n.get('rememberEmail'),
+                        l10n.get('rememberIdentifier'),
                         style: TextStyle(
                           color: context.followTokens.textSecondary,
                           fontSize: 14,
@@ -545,10 +557,10 @@ class _LoginPageState extends ConsumerState<LoginPage>
     }
 
     if (_isLogin) {
-      await _saveRememberedEmail();
+      await _saveRememberedIdentifier();
       await ref
           .read(authProvider.notifier)
-          .login(_emailController.text.trim(), _passwordController.text);
+          .login(_identifierController.text.trim(), _passwordController.text);
     } else {
       await ref
           .read(authProvider.notifier)
