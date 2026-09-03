@@ -5,6 +5,31 @@ import 'package:flutter/material.dart';
 import 'package:follow/router/app_router.dart';
 import 'package:follow/router/mobile_navigation.dart';
 
+const playerRouteSlideTransitionKey = ValueKey('player-route-slide-transition');
+
+Widget buildPlayerRouteTransition(
+  BuildContext context,
+  Animation<double> animation,
+  Animation<double> secondaryAnimation,
+  Widget child,
+) {
+  if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) return child;
+
+  final position = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
+      .animate(
+        CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        ),
+      );
+  return SlideTransition(
+    key: playerRouteSlideTransitionKey,
+    position: position,
+    child: child,
+  );
+}
+
 Future<void> coordinateTrackSelection({
   required bool shouldOpenPlayer,
   required Future<void> Function() play,

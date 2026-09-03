@@ -10,6 +10,7 @@ import 'package:follow/data/services/api/api_client.dart';
 import 'package:follow/data/providers/lyrics_provider.dart';
 import 'package:follow/features/player/lyrics_overlay.dart';
 import 'package:follow/router/mobile_navigation.dart';
+import 'package:follow/router/player_navigation.dart';
 
 // Import actual page implementations
 import 'package:follow/features/home/home_page.dart';
@@ -45,7 +46,16 @@ class AppRouter extends RootStackRouter {
       ],
     ),
     AutoRoute(page: SearchRoute.page, path: '/search', guards: [AuthGuard()]),
-    AutoRoute(page: PlayerRoute.page, path: '/player', guards: [AuthGuard()]),
+    CustomRoute(
+      page: PlayerRoute.page,
+      path: '/player',
+      guards: [AuthGuard()],
+      transitionsBuilder: buildPlayerRouteTransition,
+      duration: const Duration(milliseconds: 300),
+      reverseDuration: const Duration(milliseconds: 240),
+      opaque: true,
+      barrierDismissible: false,
+    ),
     AutoRoute(
       page: PlaylistDetailRoute.page,
       path: '/playlist/:id',

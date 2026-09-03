@@ -98,6 +98,45 @@ void main() {
     expect(find.byType(RepaintBoundary), findsWidgets);
   });
 
+  testWidgets('keeps live player content outside the backdrop paint boundary', (
+    tester,
+  ) async {
+    const liveContentKey = ValueKey('live-player-content');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          brightness: Brightness.dark,
+          extensions: const [FollowThemeTokens.dark],
+        ),
+        home: SizedBox.expand(
+          child: PlayerAuroraBackground(
+            track: _firstTrack,
+            palette: _palette,
+            imageProviderOverride: const AssetImage('test-cover'),
+            child: const SizedBox(key: liveContentKey),
+          ),
+        ),
+      ),
+    );
+
+    final backdropBoundary = find.byKey(playerBackdropVisualBoundaryKey);
+    expect(backdropBoundary, findsOneWidget);
+    expect(
+      find.descendant(
+        of: backdropBoundary,
+        matching: find.byKey(playerBackdropScrimKey),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: backdropBoundary,
+        matching: find.byKey(liveContentKey),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('cover identity changes crossfade over the palette duration', (
     tester,
   ) async {

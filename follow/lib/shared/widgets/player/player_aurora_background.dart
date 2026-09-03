@@ -7,6 +7,9 @@ import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/data/models/track.dart';
 
 const playerBackdropSwitcherKey = ValueKey('player-backdrop-switcher');
+const playerBackdropVisualBoundaryKey = ValueKey(
+  'player-backdrop-visual-boundary',
+);
 const playerBackdropBlurKey = ValueKey('player-backdrop-blur');
 const playerBackdropScrimKey = ValueKey('player-backdrop-scrim');
 const playerBackdropPrimaryGlowKey = ValueKey('player-backdrop-primary-glow');
@@ -44,93 +47,99 @@ class PlayerAuroraBackground extends StatelessWidget {
         ? null
         : imageProviderOverride ?? coverImageProviderForTrack(track);
 
-    return RepaintBoundary(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          AnimatedSwitcher(
-            key: playerBackdropSwitcherKey,
-            duration: reducedMotion ? Duration.zero : tokens.motionPalette,
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            layoutBuilder: (currentChild, previousChildren) => Stack(
-              fit: StackFit.expand,
-              alignment: Alignment.center,
-              children: [
-                ...previousChildren,
-                if (currentChild != null) currentChild,
-              ],
-            ),
-            transitionBuilder: (child, animation) =>
-                FadeTransition(opacity: animation, child: child),
-            child: provider == null
-                ? SizedBox.expand(
-                    key: playerBackdropFallbackKey,
-                    child: _BrandFallback(palette: palette),
-                  )
-                : SizedBox.expand(
-                    key: playerBackdropCoverKey(track),
-                    child: ImageFiltered(
-                      imageFilter: ImageFilter.blur(sigmaX: 52, sigmaY: 52),
-                      child: Transform.scale(
-                        scale: 1.25,
-                        child: Image(
-                          key: playerBackdropBlurKey,
-                          image: provider,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => _BrandFallback(
-                            key: playerBackdropImageFallbackKey,
-                            palette: palette,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        RepaintBoundary(
+          key: playerBackdropVisualBoundaryKey,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              AnimatedSwitcher(
+                key: playerBackdropSwitcherKey,
+                duration: reducedMotion ? Duration.zero : tokens.motionPalette,
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                layoutBuilder: (currentChild, previousChildren) => Stack(
+                  fit: StackFit.expand,
+                  alignment: Alignment.center,
+                  children: [
+                    ...previousChildren,
+                    if (currentChild != null) currentChild,
+                  ],
+                ),
+                transitionBuilder: (child, animation) =>
+                    FadeTransition(opacity: animation, child: child),
+                child: provider == null
+                    ? SizedBox.expand(
+                        key: playerBackdropFallbackKey,
+                        child: _BrandFallback(palette: palette),
+                      )
+                    : SizedBox.expand(
+                        key: playerBackdropCoverKey(track),
+                        child: ImageFiltered(
+                          imageFilter: ImageFilter.blur(sigmaX: 52, sigmaY: 52),
+                          child: Transform.scale(
+                            scale: 1.25,
+                            child: Image(
+                              key: playerBackdropBlurKey,
+                              image: provider,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _BrandFallback(
+                                key: playerBackdropImageFallbackKey,
+                                palette: palette,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+              ),
+              DecoratedBox(
+                key: playerBackdropScrimKey,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      palette.scrim.withValues(alpha: 0.28),
+                      palette.scrim.withValues(alpha: 0.82),
+                      palette.scrim.withValues(alpha: 0.96),
+                    ],
+                    stops: const [0, 0.62, 1],
                   ),
-          ),
-          DecoratedBox(
-            key: playerBackdropScrimKey,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  palette.scrim.withValues(alpha: 0.28),
-                  palette.scrim.withValues(alpha: 0.82),
-                  palette.scrim.withValues(alpha: 0.96),
-                ],
-                stops: const [0, 0.62, 1],
+                ),
               ),
-            ),
-          ),
-          DecoratedBox(
-            key: playerBackdropPrimaryGlowKey,
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(-0.72, -0.78),
-                radius: 1.05,
-                colors: [
-                  palette.secondary.withValues(alpha: 0.34),
-                  Colors.transparent,
-                ],
+              DecoratedBox(
+                key: playerBackdropPrimaryGlowKey,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(-0.72, -0.78),
+                    radius: 1.05,
+                    colors: [
+                      palette.secondary.withValues(alpha: 0.34),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
-          DecoratedBox(
-            key: playerBackdropAmbientGlowKey,
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: const Alignment(0.82, -0.28),
-                radius: 0.92,
-                colors: [
-                  palette.ambient.withValues(alpha: 0.26),
-                  Colors.transparent,
-                ],
+              DecoratedBox(
+                key: playerBackdropAmbientGlowKey,
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(0.82, -0.28),
+                    radius: 0.92,
+                    colors: [
+                      palette.ambient.withValues(alpha: 0.26),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-          child,
-        ],
-      ),
+        ),
+        child,
+      ],
     );
   }
 }

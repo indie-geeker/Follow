@@ -58,6 +58,9 @@ void main() {
   testWidgets('album detail uses shared states for its track collection', (
     tester,
   ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
     await _pump(tester, const AlbumDetailPage(id: 'album-1'), [
       albumProvider(
         'album-1',
@@ -68,11 +71,15 @@ void main() {
     ]);
     await tester.pump();
     _expectState(AppStateKind.emptyLibrary);
+    expect(tester.getSize(find.byType(AppStateView)).height, greaterThan(400));
   });
 
   testWidgets('artist detail uses shared failure state with retry', (
     tester,
   ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
     var attempts = 0;
     await _pump(tester, const ArtistDetailPage(id: 'artist-1'), [
       artistProvider('artist-1').overrideWith(
@@ -85,6 +92,7 @@ void main() {
     ]);
     await tester.pumpAndSettle();
     _expectState(AppStateKind.failure);
+    expect(tester.getSize(find.byType(AppStateView)).height, greaterThan(400));
     final beforeRetry = attempts;
     final retry = find.widgetWithText(FilledButton, '重试');
     await tester.ensureVisible(retry);

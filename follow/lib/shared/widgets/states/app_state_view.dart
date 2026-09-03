@@ -35,42 +35,52 @@ class AppStateView extends StatelessWidget {
       builder: (context, constraints) {
         final resolvedIllustrationSize =
             illustrationSize ?? (constraints.maxWidth >= 800 ? 220.0 : 172.0);
+        final resolvedPadding = padding.resolve(Directionality.of(context));
+        final minimumContentHeight = constraints.hasBoundedHeight
+            ? (constraints.maxHeight - resolvedPadding.vertical).clamp(
+                0.0,
+                double.infinity,
+              )
+            : 0.0;
         return SingleChildScrollView(
-          padding: padding,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SvgPicture.asset(
-                    specification.assetPath,
-                    width: resolvedIllustrationSize,
-                    height: resolvedIllustrationSize,
-                    fit: BoxFit.contain,
-                    semanticsLabel: specification.semanticsLabel,
-                    colorMapper: StateIllustrationColorMapper(tokens),
-                  ),
-                  const SizedBox(height: 24),
-                  Text(
-                    title,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    description,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  if (actionLabel != null && onAction != null) ...[
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: onAction,
-                      child: Text(actionLabel!),
+          padding: resolvedPadding,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minimumContentHeight),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SvgPicture.asset(
+                      specification.assetPath,
+                      width: resolvedIllustrationSize,
+                      height: resolvedIllustrationSize,
+                      fit: BoxFit.contain,
+                      semanticsLabel: specification.semanticsLabel,
+                      colorMapper: StateIllustrationColorMapper(tokens),
                     ),
+                    const SizedBox(height: 24),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      description,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    if (actionLabel != null && onAction != null) ...[
+                      const SizedBox(height: 24),
+                      FilledButton(
+                        onPressed: onAction,
+                        child: Text(actionLabel!),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

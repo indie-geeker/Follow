@@ -10,6 +10,7 @@ import 'package:follow/shared/widgets/track_cover_image.dart';
 const vinylRecordSurfaceKey = ValueKey('vinyl-record-surface');
 const vinylRecordVisualKey = ValueKey('vinyl-record-visual');
 const vinylRotationKey = ValueKey('vinyl-record-rotation');
+const vinylRecordRasterBoundaryKey = ValueKey('vinyl-record-raster-boundary');
 const vinylGroovesKey = ValueKey('vinyl-record-grooves');
 const vinylSpindleKey = ValueKey('vinyl-record-spindle');
 const vinylCoverLayerKey = ValueKey('vinyl-cover-layer');
@@ -524,7 +525,10 @@ class _PlayerCoverArtState extends State<PlayerCoverArt>
           ? RotationTransition(
               key: vinylRotationKey,
               turns: _rotationController,
-              child: record,
+              child: RepaintBoundary(
+                key: vinylRecordRasterBoundaryKey,
+                child: record,
+              ),
             )
           : ExcludeSemantics(child: record),
     );

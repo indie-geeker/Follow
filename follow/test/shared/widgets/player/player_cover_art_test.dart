@@ -539,6 +539,23 @@ void main() {
     );
   });
 
+  testWidgets('isolates the rotating record from surrounding player paint', (
+    tester,
+  ) async {
+    await pumpCover(tester, isPlaying: true);
+
+    final boundary = find.byKey(vinylRecordRasterBoundaryKey);
+    expect(boundary, findsOneWidget);
+    expect(
+      find.ancestor(of: boundary, matching: find.byKey(vinylRotationKey)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: boundary, matching: find.byKey(vinylGroovesKey)),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a new track identity restarts record rotation from zero', (
     tester,
   ) async {

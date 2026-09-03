@@ -65,32 +65,14 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     final theme = Theme.of(context);
     final currentTrack = ref.watch(currentTrackProvider);
     final isPlayingAsync = ref.watch(isPlayingProvider);
-    final positionAsync = ref.watch(playerPositionProvider);
-    final durationAsync = ref.watch(playerDurationProvider);
     final audioService = ref.watch(audioPlayerServiceProvider);
     final lyricsAsync = ref.watch(currentTrackLyricsProvider);
-    final currentLyricIdx = ref.watch(currentLyricIndexProvider);
     final playerMode = ref.watch(playerModeProvider);
-    final volumeAsync = ref.watch(playerVolumeProvider);
 
     final isPlaying = isPlayingAsync.when(
       data: (v) => v,
       loading: () => false,
       error: (_, __) => false,
-    );
-    final position = positionAsync.when(
-      data: (v) => v ?? Duration.zero,
-      loading: () => Duration.zero,
-      error: (_, __) => Duration.zero,
-    );
-    final trackDuration = Duration(seconds: currentTrack?.durationSeconds ?? 0);
-    final fallbackDuration = trackDuration.inSeconds > 0
-        ? trackDuration
-        : const Duration(seconds: 1);
-    final duration = durationAsync.when(
-      data: (v) => (v == null || v.inSeconds <= 1) ? fallbackDuration : v,
-      loading: () => fallbackDuration,
-      error: (_, __) => fallbackDuration,
     );
     final tokens = context.followTokens;
     final paletteRequest = PlayerPaletteRequest.fromTrack(
@@ -131,8 +113,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                                     context,
                                     currentTrack,
                                     lyricsAsync,
-                                    currentLyricIdx,
-                                    position,
                                     audioService,
                                   );
                                 } else {
@@ -140,8 +120,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                                     context,
                                     currentTrack,
                                     lyricsAsync,
-                                    currentLyricIdx,
-                                    position,
                                     audioService,
                                   );
                                 }
@@ -152,7 +130,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                             right: 14,
                             bottom: 16,
                             child: _HoverVolumeControl(
-                              volumeAsync: volumeAsync,
                               audioService: audioService,
                               foregroundColor: _foregroundColor(context),
                             ),
@@ -165,10 +142,10 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
                       data: SliderTheme.of(
                         context,
                       ).copyWith(activeTrackColor: palette.progress),
-                      child: PlayerProgressBar(
-                        position: position,
-                        duration: duration,
-                        onSeek: audioService.seek,
+                      child: _LivePlayerProgressBar(
+                        trackDurationSeconds:
+                            currentTrack?.durationSeconds ?? 0,
+                        audioService: audioService,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -266,8 +243,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     BuildContext context,
     Track? currentTrack,
     AsyncValue<List<LyricLine>> lyricsAsync,
-    int currentLyricIdx,
-    Duration position,
     AudioPlayerService audioService,
   ) {
     return Row(
@@ -306,8 +281,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             context,
             currentTrack?.id,
             lyricsAsync,
-            currentLyricIdx,
-            position,
             audioService,
           ),
         ),
@@ -319,8 +292,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     BuildContext context,
     Track? currentTrack,
     AsyncValue<List<LyricLine>> lyricsAsync,
-    int currentLyricIdx,
-    Duration position,
     AudioPlayerService audioService,
   ) {
     return Column(
@@ -339,8 +310,6 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
             context,
             currentTrack?.id,
             lyricsAsync,
-            currentLyricIdx,
-            position,
             audioService,
           ),
         ),
@@ -352,41 +321,76 @@ class _LyricsOverlayState extends ConsumerState<LyricsOverlay>
     BuildContext context,
     String? trackId,
     AsyncValue<List<LyricLine>> lyricsAsync,
-    int currentLyricIdx,
-    Duration position,
     AudioPlayerService audioService,
   ) {
-    return InteractiveLyricsView(
-      key: ValueKey('desktop-lyrics-$trackId'),
-      lyrics: lyricsAsync,
-      currentIndex: currentLyricIdx,
-      playbackPosition: position,
-      foregroundColor: _foregroundColor(context),
-      onSeek: audioService.seek,
+    return Consumer(
+      builder: (context, ref, _) {
+        final position =
+            ref.watch(playerPositionProvider).value ?? Duration.zero;
+        final currentLyricIndex = ref.watch(currentLyricIndexProvider);
+        return InteractiveLyricsView(
+          key: ValueKey('desktop-lyrics-$trackId'),
+          lyrics: lyricsAsync,
+          currentIndex: currentLyricIndex,
+          playbackPosition: position,
+          foregroundColor: _foregroundColor(context),
+          onSeek: audioService.seek,
+        );
+      },
     );
   }
 }
 
-class _HoverVolumeControl extends StatefulWidget {
-  final AsyncValue<double> volumeAsync;
+class _LivePlayerProgressBar extends ConsumerWidget {
+  const _LivePlayerProgressBar({
+    required this.trackDurationSeconds,
+    required this.audioService,
+  });
+
+  final int trackDurationSeconds;
+  final AudioPlayerService audioService;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(playerPositionProvider).value ?? Duration.zero;
+    final streamDuration = ref.watch(playerDurationProvider).value;
+    final trackDuration = Duration(seconds: trackDurationSeconds);
+    final fallbackDuration = trackDuration.inSeconds > 0
+        ? trackDuration
+        : const Duration(seconds: 1);
+    final duration = streamDuration == null || streamDuration.inSeconds <= 1
+        ? fallbackDuration
+        : streamDuration;
+    return RepaintBoundary(
+      child: PlayerProgressBar(
+        position: position,
+        duration: duration,
+        onSeek: audioService.seek,
+      ),
+    );
+  }
+}
+
+class _HoverVolumeControl extends ConsumerStatefulWidget {
   final AudioPlayerService audioService;
   final Color foregroundColor;
 
   const _HoverVolumeControl({
-    required this.volumeAsync,
     required this.audioService,
     required this.foregroundColor,
   });
 
   @override
-  State<_HoverVolumeControl> createState() => _HoverVolumeControlState();
+  ConsumerState<_HoverVolumeControl> createState() =>
+      _HoverVolumeControlState();
 }
 
-class _HoverVolumeControlState extends State<_HoverVolumeControl> {
+class _HoverVolumeControlState extends ConsumerState<_HoverVolumeControl> {
   bool _isHovering = false;
 
   @override
   Widget build(BuildContext context) {
+    final volume = ref.watch(playerVolumeProvider).value ?? 1.0;
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovering = true),
       onExit: (_) => setState(() => _isHovering = false),
@@ -430,7 +434,7 @@ class _HoverVolumeControlState extends State<_HoverVolumeControl> {
                       ),
                     ),
                     child: Slider(
-                      value: widget.volumeAsync.value ?? 1.0,
+                      value: volume,
                       onChanged: (value) =>
                           widget.audioService.setVolume(value),
                     ),
@@ -443,7 +447,7 @@ class _HoverVolumeControlState extends State<_HoverVolumeControl> {
           Container(
             padding: const EdgeInsets.all(8),
             child: Icon(
-              (_isHovering || (widget.volumeAsync.value ?? 0) > 0)
+              (_isHovering || volume > 0)
                   ? Icons.volume_up_rounded
                   : Icons.volume_off_rounded,
               color: widget.foregroundColor.withValues(

@@ -14,8 +14,6 @@ class MiniPlayer extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentTrack = ref.watch(currentTrackProvider);
     final isPlayingAsync = ref.watch(isPlayingProvider);
-    final positionAsync = ref.watch(playerPositionProvider);
-    final durationAsync = ref.watch(playerDurationProvider);
 
     if (currentTrack == null) {
       return const SizedBox.shrink();
@@ -27,29 +25,6 @@ class MiniPlayer extends ConsumerWidget {
       loading: () => false,
       error: (_, __) => false,
     );
-    final position = positionAsync.when(
-      data: (v) => v ?? Duration.zero,
-      loading: () => Duration.zero,
-      error: (_, __) => Duration.zero,
-    );
-    // Use track's durationSeconds as fallback when player duration is not ready
-    final trackDuration = Duration(seconds: currentTrack.durationSeconds);
-    final fallbackDuration = trackDuration.inSeconds > 0
-        ? trackDuration
-        : const Duration(seconds: 1);
-    final duration = durationAsync.when(
-      data: (v) {
-        if (v == null || v.inSeconds <= 1) {
-          return fallbackDuration;
-        }
-        return v;
-      },
-      loading: () => fallbackDuration,
-      error: (_, __) => fallbackDuration,
-    );
-    final progress = duration.inMilliseconds > 0
-        ? position.inMilliseconds / duration.inMilliseconds
-        : 0.0;
 
     return GestureDetector(
       onTap: onTap,
@@ -69,11 +44,8 @@ class MiniPlayer extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Progress bar
-            LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
-              minHeight: 2,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
+            _MiniPlayerProgress(
+              trackDurationSeconds: currentTrack.durationSeconds,
             ),
             // Content
             Expanded(
@@ -151,6 +123,50 @@ class MiniPlayer extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MiniPlayerProgress extends ConsumerWidget {
+  const _MiniPlayerProgress({required this.trackDurationSeconds});
+
+  final int trackDurationSeconds;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final positionAsync = ref.watch(playerPositionProvider);
+    final durationAsync = ref.watch(playerDurationProvider);
+    final position = positionAsync.when(
+      data: (value) => value ?? Duration.zero,
+      loading: () => Duration.zero,
+      error: (_, __) => Duration.zero,
+    );
+    final trackDuration = Duration(seconds: trackDurationSeconds);
+    final fallbackDuration = trackDuration.inSeconds > 0
+        ? trackDuration
+        : const Duration(seconds: 1);
+    final duration = durationAsync.when(
+      data: (value) {
+        if (value == null || value.inSeconds <= 1) {
+          return fallbackDuration;
+        }
+        return value;
+      },
+      loading: () => fallbackDuration,
+      error: (_, __) => fallbackDuration,
+    );
+    final progress = duration.inMilliseconds > 0
+        ? position.inMilliseconds / duration.inMilliseconds
+        : 0.0;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return RepaintBoundary(
+      child: LinearProgressIndicator(
+        value: progress.clamp(0.0, 1.0),
+        minHeight: 2,
+        backgroundColor: colorScheme.surfaceContainerHighest,
+        valueColor: AlwaysStoppedAnimation(colorScheme.primary),
       ),
     );
   }

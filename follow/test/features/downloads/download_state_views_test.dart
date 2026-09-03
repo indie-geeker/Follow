@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -50,11 +51,58 @@ void main() {
     await tester.pump();
     expect(downloaded.refreshCount, 1);
   });
+
+  testWidgets(
+    'download progress does not rebuild the complete downloads page',
+    (tester) async {
+      final manager = _FakeDownloadManager({
+        'track-1': DownloadTaskInfo(
+          trackId: 'track-1',
+          trackTitle: 'Downloading track',
+          progress: 0.1,
+          status: TaskStatus.running,
+        ),
+      });
+      await _pumpDownloads(
+        tester,
+        _FakeDownloadedTracks(() async => const []),
+        manager: manager,
+      );
+
+      final rebuiltTypes = <Type>[];
+      final previousRebuildCallback = debugOnRebuildDirtyWidget;
+      addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
+      debugOnRebuildDirtyWidget = (element, _) {
+        rebuiltTypes.add(element.widget.runtimeType);
+      };
+
+      manager.emit(
+        DownloadTaskInfo(
+          trackId: 'track-1',
+          trackTitle: 'Downloading track',
+          progress: 0.2,
+          status: TaskStatus.running,
+        ),
+      );
+      await tester.pump();
+
+      expect(rebuiltTypes, isNot(contains(DownloadsPage)));
+      expect(find.text('20%'), findsOneWidget);
+    },
+  );
 }
 
 class _FakeDownloadManager extends DownloadManager {
+  _FakeDownloadManager([this.initialTasks = const {}]);
+
+  final Map<String, DownloadTaskInfo> initialTasks;
+
   @override
-  Map<String, DownloadTaskInfo> build() => const {};
+  Map<String, DownloadTaskInfo> build() => initialTasks;
+
+  void emit(DownloadTaskInfo task) {
+    state = {...state, task.trackId: task};
+  }
 }
 
 class _FakeDownloadedTracks extends DownloadedTracks {
@@ -75,12 +123,14 @@ class _FakeDownloadedTracks extends DownloadedTracks {
 
 Future<void> _pumpDownloads(
   WidgetTester tester,
-  _FakeDownloadedTracks downloaded,
-) async {
+  _FakeDownloadedTracks downloaded, {
+  _FakeDownloadManager? manager,
+}) async {
+  final downloadManager = manager ?? _FakeDownloadManager();
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        downloadManagerProvider.overrideWith(_FakeDownloadManager.new),
+        downloadManagerProvider.overrideWith(() => downloadManager),
         downloadedTracksProvider.overrideWith(() => downloaded),
       ],
       child: MaterialApp(

@@ -101,6 +101,55 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('centers its complete content in a bounded parent height', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _themed(
+        AppStateView(
+          kind: AppStateKind.noResults,
+          title: '没有结果',
+          description: '换一个关键词再试一次。',
+          actionLabel: '重试',
+          onAction: () {},
+        ),
+      ),
+    );
+
+    final stateRect = tester.getRect(find.byType(AppStateView));
+    final contentColumn = find.descendant(
+      of: find.byType(AppStateView),
+      matching: find.byType(Column),
+    );
+    final contentRect = tester.getRect(contentColumn);
+
+    expect(stateRect.height, 800);
+    expect(contentRect.center.dy, closeTo(stateRect.center.dy, 1));
+  });
+
+  testWidgets('keeps compact large-text content scrollable', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 280));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _themed(
+        AppStateView(
+          kind: AppStateKind.failure,
+          title: '暂时无法加载这部分内容',
+          description: '请检查网络连接，稍后再试，或者返回上一页继续浏览其他内容。',
+          actionLabel: '重新加载',
+          onAction: () {},
+        ),
+        textScaleFactor: 2,
+      ),
+    );
+
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    expect(scrollable.position.maxScrollExtent, greaterThan(0));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Widget _themed(Widget child, {double textScaleFactor = 1}) => MaterialApp(
@@ -111,5 +160,5 @@ Widget _themed(Widget child, {double textScaleFactor = 1}) => MaterialApp(
     ).copyWith(textScaler: TextScaler.linear(textScaleFactor)),
     child: appChild!,
   ),
-  home: Scaffold(body: Center(child: child)),
+  home: Scaffold(body: child),
 );

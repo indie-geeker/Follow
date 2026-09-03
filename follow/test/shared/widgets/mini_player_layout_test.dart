@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +23,10 @@ void main() {
     audioService = _FakeAudioPlayerService();
   });
 
-  Future<void> pumpMiniPlayer(WidgetTester tester) async {
+  Future<void> pumpMiniPlayer(
+    WidgetTester tester, {
+    Stream<Duration?>? positionStream,
+  }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(320, 640);
     addTearDown(tester.view.reset);
@@ -39,9 +44,12 @@ void main() {
           currentTrackProvider.overrideWithValue(track),
           audioPlayerServiceProvider.overrideWithValue(audioService),
           isPlayingProvider.overrideWithValue(const AsyncData(false)),
-          playerPositionProvider.overrideWithValue(
-            const AsyncData(Duration.zero),
-          ),
+          if (positionStream == null)
+            playerPositionProvider.overrideWithValue(
+              const AsyncData(Duration.zero),
+            )
+          else
+            playerPositionProvider.overrideWith((ref) => positionStream),
           playerDurationProvider.overrideWithValue(
             const AsyncData(Duration(seconds: 180)),
           ),
@@ -84,5 +92,33 @@ void main() {
     await tester.pump();
 
     expect(audioService.nextCalls, 1);
+  });
+
+  testWidgets('position ticks rebuild only the mini progress indicator', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration?>.broadcast();
+    addTearDown(positions.close);
+    await pumpMiniPlayer(tester, positionStream: positions.stream);
+    positions.add(const Duration(seconds: 10));
+    await tester.pump();
+
+    final rebuiltTypes = <Type>[];
+    final previousRebuildCallback = debugOnRebuildDirtyWidget;
+    addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
+    debugOnRebuildDirtyWidget = (element, _) {
+      rebuiltTypes.add(element.widget.runtimeType);
+    };
+
+    positions.add(const Duration(seconds: 11));
+    await tester.pump();
+
+    expect(rebuiltTypes, isNot(contains(MiniPlayer)));
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
+          .value,
+      closeTo(11 / 180, 0.0001),
+    );
   });
 }

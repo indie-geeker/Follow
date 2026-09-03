@@ -73,6 +73,20 @@ void main() {
     expect(desktopShell, isNot(contains('SearchRoute()')));
   });
 
+  test('player alone uses an opaque bottom-sheet route transition', () {
+    final router = File('lib/router/app_router.dart').readAsStringSync();
+
+    expect(
+      router,
+      contains(
+        RegExp(
+          r"CustomRoute\(\s*page: PlayerRoute\.page,\s*path: '/player',\s*guards: \[AuthGuard\(\)\],\s*transitionsBuilder: buildPlayerRouteTransition,\s*duration: (?:const )?Duration\(milliseconds: 300\),\s*reverseDuration: (?:const )?Duration\(milliseconds: 240\),\s*opaque: true,\s*barrierDismissible: false,\s*\)",
+        ),
+      ),
+    );
+    expect(RegExp(r'CustomRoute\(').allMatches(router), hasLength(1));
+  });
+
   testWidgets('home atmosphere reaches behind the top safe-area inset', (
     tester,
   ) async {

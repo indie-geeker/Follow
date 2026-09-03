@@ -62,10 +62,8 @@ void main() {
     expect(find.byType(AppContentSkeleton), findsOneWidget);
 
     await pumpGallery(tester, playlists: const AsyncData(<Playlist>[]));
-    expect(
-      tester.widget<AppStateView>(find.byType(AppStateView)).kind,
-      AppStateKind.emptyPlaylist,
-    );
+    expect(find.byKey(playlistGalleryEmptyReadingPanelKey), findsOneWidget);
+    expect(find.text('暂无歌单'), findsOneWidget);
 
     var retries = 0;
     await pumpGallery(
@@ -81,7 +79,7 @@ void main() {
     expect(retries, 1);
   });
 
-  testWidgets('uses an opaque semantic surface behind empty-state copy', (
+  testWidgets('blends an opaque gallery surface into readable empty copy', (
     tester,
   ) async {
     for (final theme in [AppTheme.light, AppTheme.dark]) {
@@ -92,26 +90,41 @@ void main() {
       );
 
       final tokens = theme.extension<FollowThemeTokens>()!;
-      expect(
-        find.byKey(const ValueKey('playlist-gallery-surface')),
-        findsOneWidget,
+      final surface = tester.widget<DecoratedBox>(
+        find.byKey(playlistGallerySurfaceKey),
       );
-      final surface = tester.widget<ColoredBox>(
-        find.byKey(const ValueKey('playlist-gallery-surface')),
-      );
-      expect(surface.color, tokens.surface);
-      expect(surface.color.a, 1);
+      final surfaceDecoration = surface.decoration as BoxDecoration;
+      final surfaceGradient = surfaceDecoration.gradient! as LinearGradient;
+      expect(surfaceGradient.colors, isNotEmpty);
+      expect(surfaceGradient.colors.every((color) => color.a == 1), isTrue);
+      expect(surfaceGradient.colors.first, isNot(surfaceGradient.colors.last));
+      expect(surfaceDecoration.border, isNull);
+      expect(surfaceDecoration.borderRadius, isNull);
+      expect(surfaceDecoration.boxShadow, isNull);
       expect(
         find.byKey(const ValueKey('playlist-gallery-glass')),
         findsNothing,
       );
-      expect(
-        tester.widget<Text>(find.text('暂无歌单')).style?.color,
-        tokens.textPrimary,
+
+      final readingPanel = tester.widget<DecoratedBox>(
+        find.byKey(playlistGalleryEmptyReadingPanelKey),
       );
+      final panelDecoration = readingPanel.decoration as BoxDecoration;
+      expect(panelDecoration.color!.a, 1);
+      expect(panelDecoration.border, isNull);
+      expect(panelDecoration.boxShadow, isNull);
+
+      final title = tester.widget<Text>(
+        find.byKey(playlistGalleryEmptyTitleKey),
+      );
+      final description = tester.widget<Text>(
+        find.byKey(playlistGalleryEmptyDescriptionKey),
+      );
+      expect(title.style?.color, tokens.textPrimary);
+      expect(title.style?.fontWeight, FontWeight.w700);
       expect(
-        tester.widget<Text>(find.text('创建歌单后，可以在这里快速切换播放来源。')).style?.color,
-        tokens.textSecondary,
+        description.style?.color,
+        tokens.textPrimary.withValues(alpha: 0.78),
       );
     }
   });

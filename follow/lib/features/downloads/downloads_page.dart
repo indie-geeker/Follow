@@ -30,7 +30,6 @@ class DownloadsPage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final downloadTasks = ref.watch(downloadManagerProvider);
     final downloadedTracksAsync = ref.watch(downloadedTracksProvider);
     final canBrowseDownloadFolder =
         !kIsWeb && supportsNativeFolderBrowsing(defaultTargetPlatform);
@@ -146,7 +145,7 @@ class DownloadsPage extends ConsumerWidget {
                 Expanded(
                   child: TabBarView(
                     children: [
-                      _DownloadingTab(tasks: downloadTasks, isDark: isDark),
+                      _DownloadingTab(isDark: isDark),
                       _DownloadedTab(
                         tracksAsync: downloadedTracksAsync,
                         isDark: isDark,
@@ -165,13 +164,13 @@ class DownloadsPage extends ConsumerWidget {
 }
 
 class _DownloadingTab extends ConsumerWidget {
-  final Map<String, DownloadTaskInfo> tasks;
   final bool isDark;
 
-  const _DownloadingTab({required this.tasks, required this.isDark});
+  const _DownloadingTab({required this.isDark});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final tasks = ref.watch(downloadManagerProvider);
     final activeTasks = tasks.values
         .where(
           (t) =>

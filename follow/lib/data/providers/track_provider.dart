@@ -1,6 +1,7 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:follow/data/models/track.dart';
 import 'package:follow/data/providers/api_provider.dart';
+import 'package:follow/data/providers/search_debounce.dart';
 import 'package:follow/data/services/api/api_service.dart';
 
 part 'track_provider.g.dart';
@@ -62,10 +63,13 @@ Future<List<Track>> favorites(ref) async {
 class SearchTracks extends _$SearchTracks {
   @override
   Future<List<Track>> build(String query) async {
-    if (query.isEmpty) return [];
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) return [];
+    if (!await waitForSearchDebounce(ref)) return [];
 
-    final apiService = ApiService();
-    final response = await apiService.getTracks(search: query);
+    final response = await ref
+        .read(apiServiceProvider)
+        .getTracks(search: normalizedQuery);
     return response.tracks;
   }
 }

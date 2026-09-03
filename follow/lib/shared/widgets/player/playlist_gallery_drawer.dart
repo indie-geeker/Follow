@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:follow/core/network/media_url.dart';
 import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/core/theme/player_palette.dart';
@@ -10,9 +11,18 @@ import 'package:follow/data/models/track.dart';
 import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
 import 'package:follow/shared/widgets/states/app_state_kind.dart';
 import 'package:follow/shared/widgets/states/app_state_view.dart';
+import 'package:follow/shared/widgets/states/state_illustration_color_mapper.dart';
 
 const playlistGalleryPageViewKey = ValueKey('playlist-gallery-page-view');
 const playlistGalleryBusyKey = ValueKey('playlist-gallery-busy');
+const playlistGallerySurfaceKey = ValueKey('playlist-gallery-surface');
+const playlistGalleryEmptyReadingPanelKey = ValueKey(
+  'playlist-gallery-empty-reading-panel',
+);
+const playlistGalleryEmptyTitleKey = ValueKey('playlist-gallery-empty-title');
+const playlistGalleryEmptyDescriptionKey = ValueKey(
+  'playlist-gallery-empty-description',
+);
 
 Key playlistCardScaleKey(String playlistId) {
   return ValueKey('playlist-card-scale-$playlistId');
@@ -146,6 +156,28 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
           brightness: theme.brightness,
           tokens: context.followTokens,
         );
+    final surfaceGradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Color.alphaBlend(
+          palette.secondary.withValues(alpha: 0.04),
+          tokens.surface,
+        ),
+        Color.alphaBlend(
+          palette.ambient.withValues(alpha: 0.06),
+          tokens.surface,
+        ),
+        Color.alphaBlend(
+          palette.secondary.withValues(alpha: 0.1),
+          Color.alphaBlend(
+            palette.ambient.withValues(alpha: 0.1),
+            tokens.surface,
+          ),
+        ),
+      ],
+      stops: const [0, 0.68, 1],
+    );
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: (event) => _pointerDownPosition = event.position,
@@ -156,9 +188,9 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
       },
       child: Material(
         type: MaterialType.transparency,
-        child: ColoredBox(
-          key: const ValueKey('playlist-gallery-surface'),
-          color: tokens.surface,
+        child: DecoratedBox(
+          key: playlistGallerySurfaceKey,
+          decoration: BoxDecoration(gradient: surfaceGradient),
           child: SafeArea(
             bottom: false,
             child: Column(
@@ -216,11 +248,7 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
       ),
       data: (playlists) {
         if (playlists.isEmpty) {
-          return const AppStateView(
-            kind: AppStateKind.emptyPlaylist,
-            title: '暂无歌单',
-            description: '创建歌单后，可以在这里快速切换播放来源。',
-          );
+          return _buildEmptyContent(context, palette);
         }
 
         return Stack(
@@ -341,6 +369,74 @@ class _PlaylistGalleryDrawerState extends State<PlaylistGalleryDrawer> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildEmptyContent(BuildContext context, PlayerPalette palette) {
+    final tokens = context.followTokens;
+    final panelColor = Color.alphaBlend(
+      palette.secondary.withValues(alpha: 0.06),
+      tokens.surfaceElevated,
+    );
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SvgPicture.asset(
+              'assets/illustrations/state_empty_playlist.svg',
+              width: 104,
+              height: 104,
+              fit: BoxFit.contain,
+              semanticsLabel: '两张等待连接的唱片插画',
+              colorMapper: StateIllustrationColorMapper(tokens),
+            ),
+            const SizedBox(height: 10),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: DecoratedBox(
+                key: playlistGalleryEmptyReadingPanelKey,
+                decoration: BoxDecoration(
+                  color: panelColor,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '暂无歌单',
+                        key: playlistGalleryEmptyTitleKey,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 18,
+                          height: 1.35,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '创建歌单后，可以在这里快速切换播放来源。',
+                        key: playlistGalleryEmptyDescriptionKey,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: tokens.textPrimary.withValues(alpha: 0.78),
+                          fontSize: 14,
+                          height: 1.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

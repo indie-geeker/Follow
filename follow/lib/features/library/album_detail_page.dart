@@ -111,7 +111,7 @@ class AlbumDetailPage extends ConsumerWidget {
             sliver: tracksAsync.when(
               data: (tracks) {
                 if (tracks.isEmpty) {
-                  return const SliverToBoxAdapter(
+                  return const SliverFillRemaining(
                     child: AppStateView(
                       kind: AppStateKind.emptyLibrary,
                       title: '暂无曲目',
@@ -141,7 +141,7 @@ class AlbumDetailPage extends ConsumerWidget {
                   child: AppContentSkeleton(itemCount: 4),
                 ),
               ),
-              error: (e, _) => SliverToBoxAdapter(
+              error: (e, _) => SliverFillRemaining(
                 child: AppStateView(
                   kind: AppStateKind.failure,
                   title: '专辑曲目加载失败',

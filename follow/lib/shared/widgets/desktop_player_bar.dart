@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:follow/data/providers/audio_provider.dart';
 import 'package:follow/shared/widgets/track_cover_image.dart';
 import 'package:follow/shared/widgets/player_controls.dart';
-import 'package:follow/core/extensions/async_value_ext.dart';
 import 'package:follow/core/theme/follow_theme_tokens.dart';
 import 'package:follow/core/theme/player_palette.dart';
 import 'package:follow/core/theme/player_palette_provider.dart';
@@ -29,14 +28,9 @@ class DesktopPlayerBar extends ConsumerWidget {
         ref.watch(playerPaletteProvider(paletteRequest)).value ??
         PlayerPalette.fallback(brightness: theme.brightness, tokens: tokens);
     final isPlayingAsync = ref.watch(isPlayingProvider);
-    final positionAsync = ref.watch(playerPositionProvider);
-    final durationAsync = ref.watch(playerDurationProvider);
     final audioService = ref.watch(audioPlayerServiceProvider);
-    final volumeAsync = ref.watch(playerVolumeProvider);
 
-    final isPlaying = isPlayingAsync.valueOr(false);
-    final position = positionAsync.valueOrDefault(Duration.zero);
-    final duration = durationAsync.valueOrDefault(const Duration(seconds: 1));
+    final isPlaying = isPlayingAsync.value ?? false;
 
     return SizedBox(
       height: 80,
@@ -161,51 +155,10 @@ class DesktopPlayerBar extends ConsumerWidget {
                         const SizedBox(height: 8),
                         // Progress bar
                         Flexible(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Row(
-                              children: [
-                                Text(
-                                  formatDuration(position),
-                                  style: theme.textTheme.bodySmall,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: SliderTheme(
-                                    data: SliderThemeData(
-                                      activeTrackColor: palette.progress,
-                                      trackHeight: 2,
-                                      thumbShape: const RoundSliderThumbShape(
-                                        enabledThumbRadius: 4,
-                                      ),
-                                      overlayShape:
-                                          const RoundSliderOverlayShape(
-                                            overlayRadius: 12,
-                                          ),
-                                    ),
-                                    child: Slider(
-                                      value: position.inMilliseconds
-                                          .toDouble()
-                                          .clamp(
-                                            0,
-                                            duration.inMilliseconds.toDouble(),
-                                          ),
-                                      max: duration.inMilliseconds.toDouble(),
-                                      onChanged: (value) {
-                                        audioService.seek(
-                                          Duration(milliseconds: value.toInt()),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  formatDuration(duration),
-                                  style: theme.textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
+                          child: _DesktopPlayerProgress(
+                            trackDurationSeconds: currentTrack.durationSeconds,
+                            palette: palette,
+                            audioService: audioService,
                           ),
                         ),
                       ],
@@ -243,26 +196,9 @@ class DesktopPlayerBar extends ConsumerWidget {
                         const Icon(Icons.volume_up, size: 18),
                         const SizedBox(width: 4),
                         Flexible(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 320),
-                            child: SliderTheme(
-                              data: SliderThemeData(
-                                activeTrackColor: palette.progress,
-                                trackHeight: 2,
-                                thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 4,
-                                ),
-                                overlayShape: const RoundSliderOverlayShape(
-                                  overlayRadius: 12,
-                                ),
-                              ),
-                              child: Slider(
-                                value: volumeAsync.value ?? 1.0,
-                                onChanged: (value) {
-                                  audioService.setVolume(value);
-                                },
-                              ),
-                            ),
+                          child: _DesktopVolumeSlider(
+                            palette: palette,
+                            audioService: audioService,
                           ),
                         ),
                       ],
@@ -272,6 +208,108 @@ class DesktopPlayerBar extends ConsumerWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopPlayerProgress extends ConsumerWidget {
+  const _DesktopPlayerProgress({
+    required this.trackDurationSeconds,
+    required this.palette,
+    required this.audioService,
+  });
+
+  final int trackDurationSeconds;
+  final PlayerPalette palette;
+  final AudioPlayerService audioService;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(playerPositionProvider).value ?? Duration.zero;
+    final streamedDuration = ref.watch(playerDurationProvider).value;
+    final trackDuration = Duration(seconds: trackDurationSeconds);
+    final fallbackDuration = trackDuration.inSeconds > 0
+        ? trackDuration
+        : const Duration(seconds: 1);
+    final duration = streamedDuration == null || streamedDuration.inSeconds <= 1
+        ? fallbackDuration
+        : streamedDuration;
+
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(
+          children: [
+            Text(
+              formatDuration(position),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SliderTheme(
+                data: SliderThemeData(
+                  activeTrackColor: palette.progress,
+                  trackHeight: 2,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 4,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 12,
+                  ),
+                ),
+                child: Slider(
+                  value: position.inMilliseconds.toDouble().clamp(
+                    0,
+                    duration.inMilliseconds.toDouble(),
+                  ),
+                  max: duration.inMilliseconds.toDouble(),
+                  onChanged: (value) {
+                    audioService.seek(Duration(milliseconds: value.toInt()));
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              formatDuration(duration),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopVolumeSlider extends ConsumerWidget {
+  const _DesktopVolumeSlider({
+    required this.palette,
+    required this.audioService,
+  });
+
+  final PlayerPalette palette;
+  final AudioPlayerService audioService;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final volume = ref.watch(playerVolumeProvider).value ?? 1.0;
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 320),
+      child: SliderTheme(
+        data: SliderThemeData(
+          activeTrackColor: palette.progress,
+          trackHeight: 2,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 4),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+        ),
+        child: Slider(
+          value: volume,
+          onChanged: (value) {
+            audioService.setVolume(value);
+          },
         ),
       ),
     );

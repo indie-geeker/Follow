@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:auto_route/auto_route.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -46,6 +47,9 @@ const playerPlaylistGuidanceOpacityKey = ValueKey(
 const playerTopChromeSurfaceKey = ValueKey('player-top-chrome-surface');
 const playerLyricsSurfaceKey = ValueKey('player-lyrics-surface');
 const playerQueueSurfaceKey = ValueKey('player-queue-surface');
+const playerPageDismissGestureKey = ValueKey('player-page-dismiss-gesture');
+const playerPageTransformKey = ValueKey('player-page-transform');
+const playerPageOpaqueUnderlayKey = ValueKey('player-page-opaque-underlay');
 
 enum _PlayerVisualMode { record, lyrics }
 
@@ -59,6 +63,8 @@ class PlayerPage extends ConsumerStatefulWidget {
 
 class _PlayerPageState extends ConsumerState<PlayerPage> {
   static const _playlistOpenThreshold = 88.0;
+  static const _pageDismissThreshold = 96.0;
+  static const _pageDismissVelocity = 700.0;
   static const _foldedQueueIdleDuration = Duration(seconds: 2);
 
   _PlayerVisualMode _visualMode = _PlayerVisualMode.record;
@@ -73,6 +79,15 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   bool _lyricsGestureActive = false;
   bool _trackGestureBusy = false;
   bool _foldedQueueInteractionActive = false;
+  bool _pageDismissDragActive = false;
+  bool _pageDismissInProgress = false;
+  double _pageDismissOffset = 0;
+  int? _pageDismissPointer;
+  Offset? _pageDismissDragOrigin;
+  VelocityTracker? _pageDismissVelocityTracker;
+  final _topChromeDismissExclusionKey = GlobalKey();
+  final _recordDismissExclusionKey = GlobalKey();
+  final _controlDeckDismissExclusionKey = GlobalKey();
   Timer? _foldedQueueAutoCloseTimer;
 
   bool get _hasTransientLayer =>
@@ -301,6 +316,110 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     });
   }
 
+  bool _containsGlobalPoint(GlobalKey key, Offset point) {
+    final renderObject = key.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return false;
+    final localPoint = renderObject.globalToLocal(point);
+    return (Offset.zero & renderObject.size).contains(localPoint);
+  }
+
+  bool _isPageDismissExcluded(Offset point) {
+    return _containsGlobalPoint(_topChromeDismissExclusionKey, point) ||
+        _containsGlobalPoint(_recordDismissExclusionKey, point) ||
+        _containsGlobalPoint(_controlDeckDismissExclusionKey, point);
+  }
+
+  void _handlePagePointerDown(PointerDownEvent event) {
+    if (_hasTransientLayer ||
+        _pageDismissInProgress ||
+        _pageDismissPointer != null ||
+        _isPageDismissExcluded(event.position)) {
+      return;
+    }
+    _pageDismissPointer = event.pointer;
+    _pageDismissDragOrigin = event.position;
+    _pageDismissVelocityTracker = VelocityTracker.withKind(event.kind)
+      ..addPosition(event.timeStamp, event.position);
+  }
+
+  void _handlePagePointerMove(PointerMoveEvent event) {
+    if (event.pointer != _pageDismissPointer) return;
+    final origin = _pageDismissDragOrigin;
+    if (origin == null) return;
+    _pageDismissVelocityTracker?.addPosition(event.timeStamp, event.position);
+    final delta = event.position - origin;
+    if (!_pageDismissDragActive) {
+      if (delta.distance < kTouchSlop) return;
+      if (delta.dy <= 0 || delta.dy.abs() <= delta.dx.abs()) {
+        _clearPageDismissTracking();
+        return;
+      }
+    }
+    setState(() {
+      _pageDismissDragActive = true;
+      _pageDismissOffset = math.max(0, delta.dy);
+    });
+  }
+
+  void _handlePagePointerUp(PointerUpEvent event) {
+    if (event.pointer != _pageDismissPointer) return;
+    _pageDismissVelocityTracker?.addPosition(event.timeStamp, event.position);
+    if (!_pageDismissDragActive) {
+      _clearPageDismissTracking();
+      return;
+    }
+    final velocity = _pageDismissVelocityTracker
+        ?.getVelocity()
+        .pixelsPerSecond
+        .dy;
+    final shouldDismiss =
+        _pageDismissOffset >= _pageDismissThreshold ||
+        (velocity ?? 0) >= _pageDismissVelocity;
+    _clearPageDismissTracking();
+    if (shouldDismiss) {
+      setState(() {
+        _pageDismissDragActive = false;
+        _pageDismissInProgress = true;
+      });
+      unawaited(_dismissPlayerPage());
+      return;
+    }
+    _cancelPageDismiss();
+  }
+
+  void _handlePagePointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _pageDismissPointer) return;
+    if (_pageDismissDragActive) {
+      _cancelPageDismiss();
+    } else {
+      _clearPageDismissTracking();
+    }
+  }
+
+  void _clearPageDismissTracking() {
+    _pageDismissPointer = null;
+    _pageDismissDragOrigin = null;
+    _pageDismissVelocityTracker = null;
+  }
+
+  void _cancelPageDismiss() {
+    _clearPageDismissTracking();
+    setState(() {
+      _pageDismissDragActive = false;
+      _pageDismissOffset = 0;
+    });
+  }
+
+  Future<void> _dismissPlayerPage() async {
+    final didPop = await Navigator.of(context).maybePop();
+    if (!didPop && mounted) {
+      setState(() {
+        _pageDismissInProgress = false;
+        _pageDismissOffset = 0;
+      });
+    }
+  }
+
   void _closeTopLayer() {
     if (_playlistGalleryOpen) {
       setState(() {
@@ -373,13 +492,10 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     final compactHeight = MediaQuery.sizeOf(context).height < 600;
     final currentTrack = ref.watch(currentTrackProvider);
     final isPlayingAsync = ref.watch(isPlayingProvider);
-    final positionAsync = ref.watch(playerPositionProvider);
-    final durationAsync = ref.watch(playerDurationProvider);
     final audioService = ref.watch(audioPlayerServiceProvider);
 
     // Lyrics providers
     final lyricsAsync = ref.watch(currentTrackLyricsProvider);
-    final currentLyricIdx = ref.watch(currentLyricIndexProvider);
     final queue = ref.watch(playQueueProvider);
     final currentIndex = ref.watch(currentIndexProvider);
     final playerMode = ref.watch(playerModeProvider);
@@ -425,26 +541,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       loading: () => false,
       error: (_, __) => false,
     );
-    final position = positionAsync.when(
-      data: (v) => v ?? Duration.zero,
-      loading: () => Duration.zero,
-      error: (_, __) => Duration.zero,
-    );
-    // Use track's durationSeconds as fallback when player duration is not ready
-    final trackDuration = Duration(seconds: currentTrack.durationSeconds);
-    final fallbackDuration = trackDuration.inSeconds > 0
-        ? trackDuration
-        : const Duration(seconds: 1);
-    final duration = durationAsync.when(
-      data: (v) {
-        if (v == null || v.inSeconds <= 1) {
-          return fallbackDuration;
-        }
-        return v;
-      },
-      loading: () => fallbackDuration,
-      error: (_, __) => fallbackDuration,
-    );
     final displayedQueueIndex = queue.indexWhere(
       (track) => track.id == currentTrack.id,
     );
@@ -484,6 +580,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       backgroundColor: Colors.transparent,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
+        key: _topChromeDismissExclusionKey,
         backgroundColor: Colors.transparent,
         elevation: 0,
         flexibleSpace: ClipRect(
@@ -542,8 +639,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                         nextTrack: nextTrack,
                         queue: queue,
                         lyricsAsync: lyricsAsync,
-                        currentLyricIdx: currentLyricIdx,
-                        position: position,
                         audioService: audioService,
                         recordSize: compactHeight ? 150 : 280,
                         isPlaying: isPlaying,
@@ -571,98 +666,51 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                   compactHeight ? 12 : 20,
                   compactHeight ? 8 : 20,
                 ),
-                child: GlassPanel(
-                  key: const ValueKey('player-control-deck'),
-                  tier: GlassTier.standard,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: compactHeight ? 8 : 12,
-                    vertical: compactHeight ? 4 : 8,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SliderTheme(
-                        data: SliderThemeData(
-                          trackHeight: 4,
-                          thumbShape: const RoundSliderThumbShape(
-                            enabledThumbRadius: 6,
-                          ),
-                          overlayShape: const RoundSliderOverlayShape(
-                            overlayRadius: 16,
-                          ),
-                          activeTrackColor: palette.progress,
-                          inactiveTrackColor: _foregroundColor(
-                            context,
-                            alpha: 0.2,
-                          ),
-                          thumbColor: palette.progress,
-                          overlayColor: palette.progress.withValues(
-                            alpha: 0.14,
-                          ),
-                          trackShape: const RoundedRectSliderTrackShape(),
-                        ),
-                        child: Slider(
-                          value: position.inMilliseconds.toDouble().clamp(
-                            0,
-                            duration.inMilliseconds.toDouble(),
-                          ),
-                          min: 0,
-                          max: duration.inMilliseconds.toDouble(),
-                          onChanged: (value) {
-                            audioService.seek(
-                              Duration(milliseconds: value.toInt()),
-                            );
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              formatDuration(position),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: _foregroundColor(context, alpha: 0.6),
-                              ),
-                            ),
-                            Text(
-                              formatDuration(duration),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: _foregroundColor(context, alpha: 0.6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (!compactHeight)
-                        PlayerVolumeControl(
+                child: KeyedSubtree(
+                  key: _controlDeckDismissExclusionKey,
+                  child: GlassPanel(
+                    key: const ValueKey('player-control-deck'),
+                    tier: GlassTier.standard,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compactHeight ? 8 : 12,
+                      vertical: compactHeight ? 4 : 8,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _PlayerTimeline(
+                          trackDurationSeconds: currentTrack.durationSeconds,
                           palette: palette,
-                          onInteractionStart:
-                              _dismissFoldedQueueForExternalInteraction,
+                          foregroundColor: _foregroundColor(context),
+                          audioService: audioService,
                         ),
-                      SizedBox(height: compactHeight ? 2 : 6),
-                      Listener(
-                        onPointerDown: (_) =>
-                            _dismissFoldedQueueForExternalInteraction(),
-                        child: PlayerMainControls(
-                          palette: palette,
-                          isPlaying: isPlaying,
-                          onPlayPause: () {
-                            if (isPlaying) {
-                              audioService.pause();
-                            } else {
-                              audioService.play();
-                            }
-                          },
-                          onPrevious: () => audioService.playPrevious(),
-                          onNext: () => audioService.playNext(),
-                          onShowQueue: () => _showPlayQueue(context, palette),
+                        if (!compactHeight)
+                          PlayerVolumeControl(
+                            palette: palette,
+                            onInteractionStart:
+                                _dismissFoldedQueueForExternalInteraction,
+                          ),
+                        SizedBox(height: compactHeight ? 2 : 6),
+                        Listener(
+                          onPointerDown: (_) =>
+                              _dismissFoldedQueueForExternalInteraction(),
+                          child: PlayerMainControls(
+                            palette: palette,
+                            isPlaying: isPlaying,
+                            onPlayPause: () {
+                              if (isPlaying) {
+                                audioService.pause();
+                              } else {
+                                audioService.play();
+                              }
+                            },
+                            onPrevious: () => audioService.playPrevious(),
+                            onNext: () => audioService.playNext(),
+                            onShowQueue: () => _showPlayQueue(context, palette),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -677,65 +725,94 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop && _hasTransientLayer) _closeTopLayer();
       },
-      child: BackdropGroup(
-        key: const ValueKey('player-backdrop-group'),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Positioned(
-              key: playerPlaylistGalleryKey,
-              top: 0,
-              left: 0,
-              right: 0,
-              height: galleryHeight,
-              child: Opacity(
-                key: playerPlaylistGalleryOpacityKey,
-                opacity: playlistRevealProgress,
-                child: IgnorePointer(
-                  key: playerPlaylistGalleryPointerKey,
-                  ignoring: !_playlistGalleryOpen,
-                  child: ExcludeSemantics(
-                    key: playerPlaylistGallerySemanticsKey,
-                    excluding: !_playlistGalleryOpen,
-                    child: PlaylistGalleryDrawer(
-                      palette: palette,
-                      playlists: playlists,
-                      currentPlaylistId: currentPlaylistId,
-                      onSelect: (playlist) =>
-                          _selectPlaylist(playlist.id, audioService),
-                      onClose: () {
-                        setState(() {
-                          _playlistGalleryOpen = false;
-                          _playlistPullDistance = 0;
-                        });
-                      },
-                      onRetry: () => ref.invalidate(playlistsProvider),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            AnimatedContainer(
-              duration: reduceMotion || _playlistDragActive
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(
+            key: playerPageOpaqueUnderlayKey,
+            color: palette.scrim.withValues(alpha: 1),
+          ),
+          Listener(
+            key: playerPageDismissGestureKey,
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _handlePagePointerDown,
+            onPointerMove: _handlePagePointerMove,
+            onPointerUp: _handlePagePointerUp,
+            onPointerCancel: _handlePagePointerCancel,
+            child: AnimatedContainer(
+              key: playerPageTransformKey,
+              duration: reduceMotion || _pageDismissDragActive
                   ? Duration.zero
-                  : const Duration(milliseconds: 280),
+                  : const Duration(milliseconds: 240),
               curve: Curves.easeOutCubic,
-              transform: Matrix4.translationValues(0, _playlistPullDistance, 0),
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onTap: _playlistGalleryOpen ? _closeTopLayer : null,
-                child: Listener(
-                  onPointerDown: (_) {
-                    if (!_foldedQueueInteractionActive) {
-                      _dismissFoldedQueueForExternalInteraction();
-                    }
-                  },
-                  child: playerScaffold,
+              transform: Matrix4.translationValues(0, _pageDismissOffset, 0),
+              child: BackdropGroup(
+                key: const ValueKey('player-backdrop-group'),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Positioned(
+                      key: playerPlaylistGalleryKey,
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: galleryHeight,
+                      child: Opacity(
+                        key: playerPlaylistGalleryOpacityKey,
+                        opacity: playlistRevealProgress,
+                        child: IgnorePointer(
+                          key: playerPlaylistGalleryPointerKey,
+                          ignoring: !_playlistGalleryOpen,
+                          child: ExcludeSemantics(
+                            key: playerPlaylistGallerySemanticsKey,
+                            excluding: !_playlistGalleryOpen,
+                            child: PlaylistGalleryDrawer(
+                              palette: palette,
+                              playlists: playlists,
+                              currentPlaylistId: currentPlaylistId,
+                              onSelect: (playlist) =>
+                                  _selectPlaylist(playlist.id, audioService),
+                              onClose: () {
+                                setState(() {
+                                  _playlistGalleryOpen = false;
+                                  _playlistPullDistance = 0;
+                                });
+                              },
+                              onRetry: () => ref.invalidate(playlistsProvider),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    AnimatedContainer(
+                      duration: reduceMotion || _playlistDragActive
+                          ? Duration.zero
+                          : const Duration(milliseconds: 280),
+                      curve: Curves.easeOutCubic,
+                      transform: Matrix4.translationValues(
+                        0,
+                        _playlistPullDistance,
+                        0,
+                      ),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onTap: _playlistGalleryOpen ? _closeTopLayer : null,
+                        child: Listener(
+                          onPointerDown: (_) {
+                            if (!_foldedQueueInteractionActive) {
+                              _dismissFoldedQueueForExternalInteraction();
+                            }
+                          },
+                          child: playerScaffold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -801,8 +878,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     required Track? nextTrack,
     required List<Track> queue,
     required AsyncValue<List<LyricLine>> lyricsAsync,
-    required int currentLyricIdx,
-    required Duration position,
     required AudioPlayerService audioService,
     required double recordSize,
     required bool isPlaying,
@@ -858,6 +933,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                 child: IgnorePointer(
                   ignoring: _visualMode == _PlayerVisualMode.lyrics,
                   child: PlayerCoverArt(
+                    key: _recordDismissExclusionKey,
                     palette: palette,
                     track: currentTrack,
                     previousTrack: previousTrack,
@@ -920,8 +996,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
                     pageWidth: pageWidth,
                     trackId: currentTrack.id,
                     lyricsAsync: lyricsAsync,
-                    currentLyricIdx: currentLyricIdx,
-                    position: position,
                     audioService: audioService,
                   ),
                 ),
@@ -938,8 +1012,6 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
     required double pageWidth,
     required String trackId,
     required AsyncValue<List<LyricLine>> lyricsAsync,
-    required int currentLyricIdx,
-    required Duration position,
     required AudioPlayerService audioService,
   }) {
     return GestureDetector(
@@ -981,8 +1053,7 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
       child: _buildLyricsPage(
         trackId: trackId,
         lyricsAsync: lyricsAsync,
-        currentLyricIdx: currentLyricIdx,
-        position: position,
+        isActive: _visualMode == _PlayerVisualMode.lyrics,
         audioService: audioService,
       ),
     );
@@ -1028,17 +1099,106 @@ class _PlayerPageState extends ConsumerState<PlayerPage> {
   Widget _buildLyricsPage({
     required String trackId,
     required AsyncValue<List<LyricLine>> lyricsAsync,
-    required int currentLyricIdx,
-    required Duration position,
+    required bool isActive,
     required AudioPlayerService audioService,
   }) {
-    return InteractiveLyricsView(
-      key: ValueKey('mobile-lyrics-$trackId'),
-      lyrics: lyricsAsync,
-      currentIndex: currentLyricIdx,
-      playbackPosition: position,
-      foregroundColor: _foregroundColor(context),
-      onSeek: audioService.seek,
+    return Consumer(
+      builder: (context, ref, _) {
+        final positionAsync = isActive
+            ? ref.watch(playerPositionProvider)
+            : ref.read(playerPositionProvider);
+        final currentLyricIndex = isActive
+            ? ref.watch(currentLyricIndexProvider)
+            : ref.read(currentLyricIndexProvider);
+        return InteractiveLyricsView(
+          key: ValueKey('mobile-lyrics-$trackId'),
+          lyrics: lyricsAsync,
+          currentIndex: currentLyricIndex,
+          playbackPosition: positionAsync.value ?? Duration.zero,
+          foregroundColor: _foregroundColor(context),
+          onSeek: audioService.seek,
+        );
+      },
+    );
+  }
+}
+
+class _PlayerTimeline extends ConsumerWidget {
+  const _PlayerTimeline({
+    required this.trackDurationSeconds,
+    required this.palette,
+    required this.foregroundColor,
+    required this.audioService,
+  });
+
+  final int trackDurationSeconds;
+  final PlayerPalette palette;
+  final Color foregroundColor;
+  final AudioPlayerService audioService;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final position = ref.watch(playerPositionProvider).value ?? Duration.zero;
+    final streamDuration = ref.watch(playerDurationProvider).value;
+    final trackDuration = Duration(seconds: trackDurationSeconds);
+    final fallbackDuration = trackDuration.inSeconds > 0
+        ? trackDuration
+        : const Duration(seconds: 1);
+    final duration = streamDuration == null || streamDuration.inSeconds <= 1
+        ? fallbackDuration
+        : streamDuration;
+
+    return RepaintBoundary(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SliderTheme(
+            data: SliderThemeData(
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              activeTrackColor: palette.progress,
+              inactiveTrackColor: foregroundColor.withValues(alpha: 0.2),
+              thumbColor: palette.progress,
+              overlayColor: palette.progress.withValues(alpha: 0.14),
+              trackShape: const RoundedRectSliderTrackShape(),
+            ),
+            child: Slider(
+              value: position.inMilliseconds.toDouble().clamp(
+                0,
+                duration.inMilliseconds.toDouble(),
+              ),
+              min: 0,
+              max: duration.inMilliseconds.toDouble(),
+              onChanged: (value) {
+                audioService.seek(Duration(milliseconds: value.toInt()));
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  formatDuration(position),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: foregroundColor.withValues(alpha: 0.6),
+                  ),
+                ),
+                Text(
+                  formatDuration(duration),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: foregroundColor.withValues(alpha: 0.6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

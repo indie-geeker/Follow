@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,5 +95,58 @@ void main() {
     );
     expect(glass.tier, GlassTier.standard);
     expect(tester.getSize(find.byType(DesktopPlayerBar)).height, 80);
+  });
+
+  testWidgets('position ticks rebuild only the desktop progress controls', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 800);
+    addTearDown(tester.view.reset);
+    final positions = StreamController<Duration?>.broadcast();
+    addTearDown(positions.close);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          audioPlayerServiceProvider.overrideWithValue(
+            _FakeAudioPlayerService(),
+          ),
+          isPlayingProvider.overrideWithValue(const AsyncData(false)),
+          playerPositionProvider.overrideWith((ref) => positions.stream),
+          playerDurationProvider.overrideWithValue(
+            const AsyncData(Duration(seconds: 180)),
+          ),
+          playerVolumeProvider.overrideWithValue(const AsyncData(0.65)),
+          isFavoriteProvider.overrideWith(_FakeIsFavorite.new),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: DesktopPlayerBar(currentTrack: _track),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    positions.add(const Duration(seconds: 10));
+    await tester.pump();
+    await tester.pump();
+
+    final rebuiltTypes = <Type>[];
+    final previousRebuildCallback = debugOnRebuildDirtyWidget;
+    addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
+    debugOnRebuildDirtyWidget = (element, _) {
+      rebuiltTypes.add(element.widget.runtimeType);
+    };
+
+    positions.add(const Duration(seconds: 11));
+    await tester.pump();
+    await tester.pump();
+
+    expect(rebuiltTypes, isNot(contains(DesktopPlayerBar)));
+    expect(tester.widget<Slider>(find.byType(Slider).first).value, 11000);
   });
 }

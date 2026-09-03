@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/gestures.dart';
@@ -17,6 +18,7 @@ import 'package:follow/shared/widgets/lyrics/interactive_lyrics_view.dart';
 import 'package:follow/shared/widgets/lyrics/lyrics_failure_view.dart';
 import 'package:follow/shared/widgets/loading/app_content_skeleton.dart';
 import 'package:follow/shared/widgets/play_queue_sheet.dart';
+import 'package:follow/shared/widgets/player_progress_bar.dart';
 import 'package:follow/shared/widgets/player/folded_track_queue.dart';
 import 'package:follow/shared/widgets/player/player_cover_art.dart';
 import 'package:follow/shared/widgets/player/player_aurora_background.dart';
@@ -51,6 +53,8 @@ const _playlistDetail = PlaylistDetail(
   name: 'Driving Mix',
   tracks: [_firstTrack, _secondTrack],
 );
+
+const _playerLauncherKey = ValueKey('player-test-launcher');
 
 final _lyrics = List.generate(
   12,
@@ -125,6 +129,8 @@ _pumpPlayerPage(
   bool isPlaying = false,
   Size viewportSize = const Size(390, 844),
   EdgeInsets safeAreaInsets = EdgeInsets.zero,
+  bool pushAsRoute = false,
+  Stream<Duration?>? positionStream,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = viewportSize;
@@ -135,9 +141,12 @@ _pumpPlayerPage(
     overrides: [
       audioPlayerServiceProvider.overrideWithValue(audioService),
       isPlayingProvider.overrideWithValue(AsyncData(isPlaying)),
-      playerPositionProvider.overrideWithValue(
-        const AsyncData(Duration(seconds: 10)),
-      ),
+      if (positionStream == null)
+        playerPositionProvider.overrideWithValue(
+          const AsyncData(Duration(seconds: 10)),
+        )
+      else
+        playerPositionProvider.overrideWith((ref) => positionStream),
       playerDurationProvider.overrideWithValue(
         const AsyncData(Duration(seconds: 180)),
       ),
@@ -165,17 +174,36 @@ _pumpPlayerPage(
       container: container,
       child: MaterialApp(
         home: Builder(
-          builder: (context) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(padding: safeAreaInsets, viewPadding: safeAreaInsets),
-            child: const PlayerPage(),
-          ),
+          builder: (context) {
+            Widget buildPlayer(BuildContext routeContext) => MediaQuery(
+              data: MediaQuery.of(
+                routeContext,
+              ).copyWith(padding: safeAreaInsets, viewPadding: safeAreaInsets),
+              child: const PlayerPage(),
+            );
+
+            if (!pushAsRoute) return buildPlayer(context);
+            return Scaffold(
+              body: Center(
+                child: FilledButton(
+                  key: _playerLauncherKey,
+                  onPressed: () => Navigator.of(
+                    context,
+                  ).push(MaterialPageRoute<void>(builder: buildPlayer)),
+                  child: const Text('Open player'),
+                ),
+              ),
+            );
+          },
         ),
       ),
     ),
   );
   await tester.pump();
+  if (pushAsRoute) {
+    await tester.tap(find.byKey(_playerLauncherKey));
+    await tester.pumpAndSettle();
+  }
   return (container: container, audioService: audioService);
 }
 
@@ -191,6 +219,7 @@ _pumpLyricsOverlay(
   WidgetTester tester, {
   required AsyncValue<List<LyricLine>> lyrics,
   Size viewportSize = const Size(1280, 800),
+  Stream<Duration?>? positionStream,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = viewportSize;
@@ -201,9 +230,12 @@ _pumpLyricsOverlay(
     overrides: [
       audioPlayerServiceProvider.overrideWithValue(audioService),
       isPlayingProvider.overrideWithValue(const AsyncData(false)),
-      playerPositionProvider.overrideWithValue(
-        const AsyncData(Duration(seconds: 10)),
-      ),
+      if (positionStream == null)
+        playerPositionProvider.overrideWithValue(
+          const AsyncData(Duration(seconds: 10)),
+        )
+      else
+        playerPositionProvider.overrideWith((ref) => positionStream),
       playerDurationProvider.overrideWithValue(
         const AsyncData(Duration(seconds: 180)),
       ),
@@ -231,6 +263,175 @@ _pumpLyricsOverlay(
 }
 
 void main() {
+  Offset pageTranslation(WidgetTester tester) {
+    final transform = tester
+        .widget<AnimatedContainer>(find.byKey(playerPageTransformKey))
+        .transform!;
+    return Offset(transform.storage[12], transform.storage[13]);
+  }
+
+  Offset blankPlayerPoint(WidgetTester tester) {
+    final rect = tester.getRect(find.byKey(playerPageDismissGestureKey));
+    return Offset(rect.right - 8, rect.top + 250);
+  }
+
+  testWidgets('position ticks do not rebuild the complete mobile player', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration?>.broadcast();
+    addTearDown(positions.close);
+    await _pumpPlayerPage(
+      tester,
+      lyrics: AsyncData(_lyrics),
+      positionStream: positions.stream,
+    );
+    positions.add(const Duration(seconds: 10));
+    await tester.pump();
+
+    final rebuiltTypes = <Type>[];
+    final previousRebuildCallback = debugOnRebuildDirtyWidget;
+    addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
+    debugOnRebuildDirtyWidget = (element, builtOnce) {
+      rebuiltTypes.add(element.widget.runtimeType);
+    };
+
+    positions.add(const Duration(seconds: 11));
+    await tester.pump();
+
+    expect(rebuiltTypes, isNot(contains(PlayerPage)));
+    final progress = find
+        .descendant(
+          of: find.byKey(const ValueKey('player-control-deck')),
+          matching: find.byType(Slider),
+        )
+        .first;
+    expect(tester.widget<Slider>(progress).value, 11000);
+  });
+
+  testWidgets('position ticks do not rebuild the complete lyrics overlay', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration?>.broadcast();
+    addTearDown(positions.close);
+    await _pumpLyricsOverlay(
+      tester,
+      lyrics: AsyncData(_lyrics),
+      positionStream: positions.stream,
+    );
+    positions.add(const Duration(seconds: 10));
+    await tester.pump();
+
+    final rebuiltTypes = <Type>[];
+    final previousRebuildCallback = debugOnRebuildDirtyWidget;
+    addTearDown(() => debugOnRebuildDirtyWidget = previousRebuildCallback);
+    debugOnRebuildDirtyWidget = (element, builtOnce) {
+      rebuiltTypes.add(element.widget.runtimeType);
+    };
+
+    positions.add(const Duration(seconds: 11));
+    await tester.pump();
+
+    expect(rebuiltTypes, isNot(contains(LyricsOverlay)));
+    expect(
+      tester.widget<PlayerProgressBar>(find.byType(PlayerProgressBar)).position,
+      const Duration(seconds: 11),
+    );
+  });
+
+  testWidgets('player keeps an opaque underlay behind the translated page', (
+    tester,
+  ) async {
+    await _pumpPlayerPage(tester, lyrics: AsyncData(_lyrics));
+
+    final underlay = find.byKey(playerPageOpaqueUnderlayKey);
+    expect(underlay, findsOneWidget);
+    expect(tester.widget<ColoredBox>(underlay).color.a, 1);
+    expect(
+      tester.getSize(underlay),
+      MediaQuery.sizeOf(tester.element(underlay)),
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(playerPageDismissGestureKey),
+        matching: underlay,
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('blank player atmosphere follows a downward drag and rebounds', (
+    tester,
+  ) async {
+    await _pumpPlayerPage(tester, lyrics: AsyncData(_lyrics));
+    final initialTranslation = pageTranslation(tester);
+
+    final gesture = await tester.startGesture(blankPlayerPoint(tester));
+    await gesture.moveBy(const Offset(0, 56));
+    await tester.pump();
+
+    expect(pageTranslation(tester).dy, closeTo(initialTranslation.dy + 56, 1));
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(pageTranslation(tester), initialTranslation);
+  });
+
+  testWidgets('blank downward drag past the threshold dismisses the player', (
+    tester,
+  ) async {
+    await _pumpPlayerPage(
+      tester,
+      lyrics: AsyncData(_lyrics),
+      pushAsRoute: true,
+    );
+
+    await tester.timedDragFrom(
+      blankPlayerPoint(tester),
+      const Offset(0, 110),
+      const Duration(milliseconds: 500),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(_playerLauncherKey), findsOneWidget);
+    expect(find.byType(PlayerPage), findsNothing);
+  });
+
+  testWidgets('short fast blank downward flick dismisses the player', (
+    tester,
+  ) async {
+    await _pumpPlayerPage(
+      tester,
+      lyrics: AsyncData(_lyrics),
+      pushAsRoute: true,
+    );
+
+    await tester.flingFrom(blankPlayerPoint(tester), const Offset(0, 56), 900);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(_playerLauncherKey), findsOneWidget);
+    expect(find.byType(PlayerPage), findsNothing);
+  });
+
+  testWidgets('record pull target and control deck exclude page dismissal', (
+    tester,
+  ) async {
+    await _pumpPlayerPage(tester, lyrics: AsyncData(_lyrics));
+    final initialTranslation = pageTranslation(tester);
+
+    for (final target in [
+      find.byKey(vinylRecordSurfaceKey),
+      find.byKey(playerPlaylistPullHandleKey),
+      find.byKey(const ValueKey('player-control-deck')),
+    ]) {
+      final gesture = await tester.startGesture(tester.getCenter(target));
+      await gesture.moveBy(const Offset(0, 56));
+      await tester.pump();
+      expect(pageTranslation(tester), initialTranslation);
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+    }
+  });
+
   testWidgets(
     'playlist pull target is visible below the toolbar and 48dp tall',
     (tester) async {
@@ -1418,6 +1619,7 @@ void main() {
       await verticalGesture.moveBy(const Offset(0, -90));
       await tester.pump();
       expect(find.byKey(lyricsCenterPlayKey), findsOneWidget);
+      expect(pageTranslation(tester), Offset.zero);
       await verticalGesture.up();
 
       await tester.drag(
