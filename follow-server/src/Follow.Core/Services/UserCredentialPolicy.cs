@@ -39,6 +39,12 @@ public static partial class UserCredentialPolicy
         return normalized;
     }
 
+    public static string NormalizeLoginIdentifier(string identifier) =>
+        (identifier ?? string.Empty)
+            .Normalize(NormalizationForm.FormKC)
+            .Trim()
+            .ToLowerInvariant();
+
     public static string NormalizeEmail(string email)
     {
         var normalized = (email ?? string.Empty)

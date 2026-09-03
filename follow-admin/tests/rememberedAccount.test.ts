@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 import {
   LEGACY_CREDENTIALS_KEY,
   REMEMBERED_ACCOUNT_KEY,
-  loadRememberedEmail,
-  persistRememberedEmail
+  loadRememberedIdentifier,
+  persistRememberedIdentifier
 } from '../src/utils/rememberedAccount.ts'
 
 class MemoryStorage {
@@ -26,31 +26,31 @@ class MemoryStorage {
   }
 }
 
-test('legacy saved credentials are migrated without retaining the password', () => {
+test('legacy saved credentials are migrated to an identifier without retaining the password', () => {
   const storage = new MemoryStorage()
   storage.setItem(LEGACY_CREDENTIALS_KEY, JSON.stringify({
     email: ' admin@example.com ',
     password: 'plain-text-secret'
   }))
 
-  assert.equal(loadRememberedEmail(storage), 'admin@example.com')
+  assert.equal(loadRememberedIdentifier(storage), 'admin@example.com')
   assert.equal(storage.getItem(LEGACY_CREDENTIALS_KEY), null)
 
   const savedAccount = storage.getItem(REMEMBERED_ACCOUNT_KEY)
   assert.ok(savedAccount)
-  assert.deepEqual(JSON.parse(savedAccount), { email: 'admin@example.com' })
+  assert.deepEqual(JSON.parse(savedAccount), { identifier: 'admin@example.com' })
   assert.doesNotMatch(savedAccount, /plain-text-secret|password/i)
 })
 
-test('remember account stores only email and unchecking removes all remembered data', () => {
+test('remember account stores a username identifier and unchecking removes all remembered data', () => {
   const storage = new MemoryStorage()
 
-  persistRememberedEmail(storage, ' admin@example.com ', true)
+  persistRememberedIdentifier(storage, ' admin ', true)
   assert.deepEqual(JSON.parse(storage.getItem(REMEMBERED_ACCOUNT_KEY) ?? '{}'), {
-    email: 'admin@example.com'
+    identifier: 'admin'
   })
 
-  persistRememberedEmail(storage, 'admin@example.com', false)
+  persistRememberedIdentifier(storage, 'admin', false)
   assert.equal(storage.getItem(REMEMBERED_ACCOUNT_KEY), null)
   assert.equal(storage.getItem(LEGACY_CREDENTIALS_KEY), null)
 })
@@ -61,9 +61,21 @@ test('bootstrap removes legacy plaintext credentials before cookie restore', () 
     'utf8'
   )
 
-  assert.match(main, /loadRememberedEmail\(localStorage\)/)
+  assert.match(main, /loadRememberedIdentifier\(localStorage\)/)
   assert.ok(
-    main.indexOf('loadRememberedEmail(localStorage)') <
+    main.indexOf('loadRememberedIdentifier(localStorage)') <
       main.indexOf('await authStore.restoreSession()')
   )
+})
+
+test('current remembered email data migrates to the identifier shape', () => {
+  const storage = new MemoryStorage()
+  storage.setItem(REMEMBERED_ACCOUNT_KEY, JSON.stringify({
+    email: ' admin@example.com '
+  }))
+
+  assert.equal(loadRememberedIdentifier(storage), 'admin@example.com')
+  assert.deepEqual(JSON.parse(storage.getItem(REMEMBERED_ACCOUNT_KEY) ?? '{}'), {
+    identifier: 'admin@example.com'
+  })
 })

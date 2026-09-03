@@ -15,7 +15,7 @@ void main() {
 
     await api.login(
       const LoginRequest(
-        email: 'family@example.com',
+        identifier: 'family',
         password: 'secret',
         tokenTransport: 'body',
         deviceName: 'Android',
@@ -23,7 +23,7 @@ void main() {
     );
 
     expect(adapter.lastRequestData, {
-      'email': 'family@example.com',
+      'identifier': 'family',
       'password': 'secret',
       'tokenTransport': 'body',
       'deviceName': 'Android',

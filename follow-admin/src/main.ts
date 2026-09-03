@@ -5,7 +5,7 @@ import router from './router'
 import { useAuthStore } from './stores/auth'
 import { setSessionExpiredHandler } from './api'
 import { installElementPlus } from './plugins/elementPlus'
-import { loadRememberedEmail } from './utils/rememberedAccount'
+import { loadRememberedIdentifier } from './utils/rememberedAccount'
 import './styles/tokens.css'
 import './styles/theme.css'
 import './styles/admin-components.css'
@@ -19,7 +19,7 @@ async function bootstrap(): Promise<void> {
 
   const authStore = useAuthStore(pinia)
   authStore.clearLegacyAuthStorage()
-  loadRememberedEmail(localStorage)
+  loadRememberedIdentifier(localStorage)
   setSessionExpiredHandler(() => {
     authStore.expireSession()
     const currentRoute = router.currentRoute.value

@@ -73,7 +73,7 @@ follow-server/
 | `cookie` | `follow_access`，`Path=/api` | `follow_refresh`，`Path=/api/auth` | Web 管理后台 |
 | `body` | `AuthResponse.accessToken` | `AuthResponse.refreshToken` | Flutter App |
 
-Cookie 均为 `HttpOnly`、`Secure`、`SameSite=Strict`。`cookie` 模式下 JSON 中的两个 token 必须为 `null`，浏览器 JavaScript 不保存或拼接 `Authorization`。`body` 模式由 App 将令牌写入平台安全存储；普通偏好存储只允许保存非敏感信息，例如记住的邮箱。
+Cookie 均为 `HttpOnly`、`Secure`、`SameSite=Strict`。`cookie` 模式下 JSON 中的两个 token 必须为 `null`，浏览器 JavaScript 不保存或拼接 `Authorization`。`body` 模式由 App 将令牌写入平台安全存储；普通偏好存储只允许保存非敏感信息，例如记住的用户名或邮箱。
 
 ### 4.2 `UserSession` 模型
 
@@ -96,7 +96,7 @@ Access Token 包含 `sid`。JWT 签名和有效期通过后，API 仍会校验�
 | 方法 | 路径 | 行为 |
 |---|---|---|
 | POST | `/api/auth/register` | 创建 Member 和独立设备会话 |
-| POST | `/api/auth/login` | 登录并创建独立设备会话 |
+| POST | `/api/auth/login` | 以 `identifier`（用户名或邮箱）和密码登录并创建独立设备会话；不接受旧 `email` 登录字段 |
 | POST | `/api/auth/refresh` | 校验并轮换当前会话 Refresh Token |
 | POST | `/api/auth/logout` | 撤销当前 `sid` 并清除 Web Cookie |
 | POST | `/api/auth/logout-all` | 撤销当前用户全部设备会话 |

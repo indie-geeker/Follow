@@ -69,7 +69,7 @@ fvm flutter build appbundle --release \
 
 ## 客户端契约
 
-- 登录和刷新使用 `tokenTransport: body`。Access Token 和 Refresh Token 作为一个值写入 Keychain/Keystore 安全存储；本地安装 ID 也在安全存储中，不作为认证凭据发给服务端。“记住我”最多保存邮箱，不保存密码。
+- 登录使用统一的 `identifier` 字段，可填写规范化用户名或邮箱；刷新使用 `tokenTransport: body`。Access Token 和 Refresh Token 作为一个值写入 Keychain/Keystore 安全存储；本地安装 ID 也在安全存储中，不作为认证凭据发给服务端。“记住账号”只保存填写的用户名或邮箱，不保存密码。
 - 收到 `401` 时并发请求共享一次 Refresh Token 轮换，每个请求最多重放一次。只有 Refresh 明确返回 `400/401/409` 时清除认证态；断网、超时、格式错误或 `5xx` 保留安全凭据以便重试。
 - 退出登录先调用 `POST /api/auth/logout` 撤销当前服务端会话，只在服务端确认后清理本地账号、播放队列和敏感状态；断网时保留会话以便重试。设置页可查看、逐个撤销设备，或通过 `logout-all` 注销全部设备。
 - 播放器使用 `/api/tracks/{id}/stream` 的 Range 能力，支持暂停、拖动和断点读取，不预先下载整首音乐到内存。

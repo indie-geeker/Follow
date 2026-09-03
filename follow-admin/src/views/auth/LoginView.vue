@@ -33,14 +33,14 @@
         class="login-form"
         @submit.prevent="handleLogin"
       >
-        <el-form-item prop="email" ref="emailFormItem" :class="{ shake: emailShake }">
+        <el-form-item prop="identifier" ref="identifierFormItem" :class="{ shake: identifierShake }">
           <el-input
-            v-model="form.email"
-            placeholder="请输入邮箱"
+            v-model="form.identifier"
+            placeholder="请输入用户名或邮箱"
             size="large"
-            :prefix-icon="Message"
+            :prefix-icon="User"
             class="custom-input"
-            @blur="validateField('email')"
+            @blur="validateField('identifier')"
             @keyup.enter="handleLogin"
           />
         </el-form-item>
@@ -88,10 +88,13 @@
 import { ref, reactive, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance } from 'element-plus'
-import { Message, Lock } from '@element-plus/icons-vue'
+import { User, Lock } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { getApiErrorMessage } from '@/utils/apiError'
-import { loadRememberedEmail, persistRememberedEmail } from '@/utils/rememberedAccount'
+import {
+  loadRememberedIdentifier,
+  persistRememberedIdentifier
+} from '@/utils/rememberedAccount'
 
 const router = useRouter()
 const route = useRoute()
@@ -100,27 +103,26 @@ const formRef = ref<FormInstance>()
 const loading = ref(false)
 
 // Shake animation state
-const emailShake = ref(false)
+const identifierShake = ref(false)
 const passwordShake = ref(false)
 
-const rememberedEmail = loadRememberedEmail(localStorage)
+const rememberedIdentifier = loadRememberedIdentifier(localStorage)
 
 const form = reactive({
-  email: rememberedEmail,
+  identifier: rememberedIdentifier,
   password: '',
-  rememberMe: Boolean(rememberedEmail)
+  rememberMe: Boolean(rememberedIdentifier)
 })
 
 watch(() => form.rememberMe, (newValue) => {
   if (!newValue) {
-    persistRememberedEmail(localStorage, form.email, false)
+    persistRememberedIdentifier(localStorage, form.identifier, false)
   }
 })
 
 const rules = {
-  email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入有效邮箱', trigger: 'blur' }
+  identifier: [
+    { required: true, message: '请输入用户名或邮箱', trigger: 'blur' }
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
@@ -129,7 +131,7 @@ const rules = {
 }
 
 // Validate single field
-function validateField(field: 'email' | 'password') {
+function validateField(field: 'identifier' | 'password') {
   if (!formRef.value) return
   formRef.value.validateField(field, (_valid) => {
     // Validation callback - no action needed
@@ -137,10 +139,10 @@ function validateField(field: 'email' | 'password') {
 }
 
 // Trigger shake animation
-function triggerShake(field: 'email' | 'password') {
-  if (field === 'email') {
-    emailShake.value = true
-    setTimeout(() => { emailShake.value = false }, 500)
+function triggerShake(field: 'identifier' | 'password') {
+  if (field === 'identifier') {
+    identifierShake.value = true
+    setTimeout(() => { identifierShake.value = false }, 500)
   } else if (field === 'password') {
     passwordShake.value = true
     setTimeout(() => { passwordShake.value = false }, 500)
@@ -157,9 +159,9 @@ const handleLogin = async () => {
 
     loading.value = true
 
-    await authStore.login(form.email, form.password)
+    await authStore.login(form.identifier.trim(), form.password)
 
-    persistRememberedEmail(localStorage, form.email, form.rememberMe)
+    persistRememberedIdentifier(localStorage, form.identifier, form.rememberMe)
 
     ElMessage.success('登录成功')
     const redirect = typeof route.query.redirect === 'string'
@@ -170,7 +172,7 @@ const handleLogin = async () => {
     await router.push(redirect)
   } catch (error: unknown) {
     ElMessage.error(getApiErrorMessage(error, '登录失败'))
-    triggerShake('email')
+    triggerShake('identifier')
     triggerShake('password')
   } finally {
     loading.value = false

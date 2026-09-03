@@ -5,6 +5,17 @@ namespace Follow.Core.Tests;
 public class UserCredentialPolicyTests
 {
     [Fact]
+    public void NormalizeLoginIdentifier_CanonicalizesUsernameOrEmailInput()
+    {
+        Assert.Equal(
+            "admin.user",
+            UserCredentialPolicy.NormalizeLoginIdentifier("  Ａdmin.User  "));
+        Assert.Equal(
+            "admin@example.com",
+            UserCredentialPolicy.NormalizeLoginIdentifier("  Admin@Example.COM  "));
+    }
+
+    [Fact]
     public void NormalizeAndValidate_CanonicalizesUsernameAndEmail()
     {
         var result = UserCredentialPolicy.NormalizeAndValidate(

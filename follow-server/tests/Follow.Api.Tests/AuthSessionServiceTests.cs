@@ -52,6 +52,41 @@ public class AuthSessionServiceTests
     }
 
     [Fact]
+    public async Task Login_AcceptsNormalizedUsernameOrEmailIdentifier()
+    {
+        await using var context = CreateContext();
+        var service = CreateService(context);
+        await service.RegisterAsync(new RegisterRequest(
+            "member.user", "member@example.com", "StrongPassword!2026"));
+
+        var usernameLogin = await service.LoginAsync(new LoginRequest(
+            "  Ｍember.User  ", "StrongPassword!2026"));
+        var emailLogin = await service.LoginAsync(new LoginRequest(
+            "  MEMBER@EXAMPLE.COM  ", "StrongPassword!2026"));
+
+        Assert.Equal("member.user", usernameLogin.User.Username);
+        Assert.Equal("member@example.com", emailLogin.User.Email);
+    }
+
+    [Theory]
+    [InlineData("member", "WrongPassword!2026")]
+    [InlineData("missing", "StrongPassword!2026")]
+    public async Task Login_UsesTheSameFailureForUnknownIdentifierOrWrongPassword(
+        string identifier,
+        string password)
+    {
+        await using var context = CreateContext();
+        var service = CreateService(context);
+        await service.RegisterAsync(new RegisterRequest(
+            "member", "member@example.com", "StrongPassword!2026"));
+
+        var error = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            service.LoginAsync(new LoginRequest(identifier, password)));
+
+        Assert.Equal("用户名/邮箱或密码错误", error.Message);
+    }
+
+    [Fact]
     public async Task Refresh_RotatesTokenAndRejectsStaleToken()
     {
         await using var context = CreateContext();

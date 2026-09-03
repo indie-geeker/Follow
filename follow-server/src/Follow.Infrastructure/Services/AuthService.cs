@@ -61,11 +61,15 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request, string? userAgent = null)
     {
-        var normalizedEmail = UserCredentialPolicy.NormalizeEmail(request.Email);
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == normalizedEmail);
+        var normalizedIdentifier = UserCredentialPolicy.NormalizeLoginIdentifier(request.Identifier);
+        if (normalizedIdentifier.Length == 0)
+            throw new ArgumentException("请输入用户名或邮箱");
+
+        var user = await _context.Users.FirstOrDefaultAsync(u =>
+            u.Username == normalizedIdentifier || u.Email == normalizedIdentifier);
 
         if (user == null || !_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
-            throw new UnauthorizedAccessException("邮箱或密码错误");
+            throw new UnauthorizedAccessException("用户名/邮箱或密码错误");
 
         return await CreateSessionAsync(
             user,
